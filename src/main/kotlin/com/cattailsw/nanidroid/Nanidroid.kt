@@ -433,7 +433,6 @@ class Nanidroid : ComponentActivity() {
                             submitCommand = runtime::submit,
                             modifier = Modifier.fillMaxSize(),
                             blockingInput = { simpleDialogState.value != null || runtimeBusy(snapshotState.value) },
-                            blockingInputEpoch = { snapshotState.value.revision },
                             onSurfaceTap = { toolbarVisible = !toolbarVisible },
                             onDialogueExternalUrl = ::openDocumentLink,
                             onDialogueInputDraft = ::showInput,

@@ -245,6 +245,7 @@ internal sealed interface RuntimeRequestOrigin {
         val kind: RuntimeTimerKind,
         val bucket: Long,
         val mode: RuntimeModeIdentity,
+        val acceptsResponseValue: Boolean,
     ) : RuntimeRequestOrigin
 
     data class Dialogue(val action: DialogueActionKey) : RuntimeRequestOrigin

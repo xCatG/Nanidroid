@@ -616,20 +616,34 @@ internal class GhostRuntime private constructor(
             com.cattailsw.nanidroid.runtime.RuntimeTimerKind.SECOND -> clockState.copy(lastSecondBucket = command.bucket)
             com.cattailsw.nanidroid.runtime.RuntimeTimerKind.MINUTE -> clockState.copy(lastMinuteBucket = command.bucket)
         }
+        val talkingEnabled = runtimeMode(playerState).canTalk
         val origin = RuntimeRequestOrigin.Timer(
             clockEpoch = command.clockEpoch,
             kind = command.kind,
             bucket = command.bucket,
             mode = currentModeIdentity(),
+            acceptsResponseValue = talkingEnabled,
         )
+        val eventId = if (command.kind == com.cattailsw.nanidroid.runtime.RuntimeTimerKind.SECOND) {
+            "OnSecondChange"
+        } else {
+            "OnMinuteChange"
+        }
+        val uptimeHours = when (command.kind) {
+            com.cattailsw.nanidroid.runtime.RuntimeTimerKind.SECOND -> command.bucket / 3_600L
+            com.cattailsw.nanidroid.runtime.RuntimeTimerKind.MINUTE -> command.bucket / 60L
+        }
         submitRequest(
             origin = origin,
-            intent = ShioriRequestIntent.event(
-                if (command.kind == com.cattailsw.nanidroid.runtime.RuntimeTimerKind.SECOND) {
-                    "OnSecondChange"
-                } else {
-                    "OnMinuteChange"
-                },
+            intent = ShioriRequestIntent.raw(
+                method = if (talkingEnabled) ShioriMethod.GET else ShioriMethod.NOTIFY,
+                eventId = eventId,
+                references = listOf(
+                    uptimeHours.toString(),
+                    "0",
+                    "0",
+                    if (talkingEnabled) "1" else "0",
+                ),
             ),
             fallback = null,
             parentOperationId = null,
@@ -883,7 +897,12 @@ internal class GhostRuntime private constructor(
                 }
             }
             is RuntimeRequestOrigin.Attachment -> settleAttachmentResponse(command)
-            is RuntimeRequestOrigin.Timer -> settlePlayableResponse(command.result, current, command.token.requestId)
+            is RuntimeRequestOrigin.Timer -> {
+                val origin = command.token.origin
+                if (origin.acceptsResponseValue || command.result is RuntimeResult.Failure) {
+                    settlePlayableResponse(command.result, current, command.token.requestId)
+                }
+            }
             is RuntimeRequestOrigin.Parent -> settleParentResponse(command)
             is RuntimeRequestOrigin.Pointer -> settlePointerResponse(
                 command.result,

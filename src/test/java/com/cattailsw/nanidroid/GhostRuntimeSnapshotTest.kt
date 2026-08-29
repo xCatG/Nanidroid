@@ -401,6 +401,158 @@ class GhostRuntimeSnapshotTest {
         }
     }
 
+    // Mutations caught: timers omit legacy references, use a later clock read, or send NOTIFY while idle.
+    @Test
+    fun idleTimerRequestsUseGetWithAdmittedBucketReferencesAndPlayTheirResponse() {
+        val root = File("build/runtime-snapshot/timer-idle-protocol").canonicalFile
+        val elapsed = AtomicLong(14_400_000L)
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("timer-idle-protocol", root, null, null, File(root, "readme.txt")))
+            },
+            elapsedRealtimeMillis = elapsed::get,
+        ).use { fixture ->
+            fixture.startAttached("timer-idle-protocol", root)
+            fixture.makeTopHost(43L)
+
+            fixture.scheduler.runNext(RuntimeScheduleKind.CLOCK)
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val second = fixture.nativePort.requests.remove()
+            assertEquals(
+                "GET SHIORI/3.0\r\nSender: Nanidroid\r\nSecurityLevel: local\r\n" +
+                    "ID: OnSecondChange\r\nReference0: 4\r\nReference1: 0\r\n" +
+                    "Reference2: 0\r\nReference3: 1\r\n\r\n",
+                second.intent.protocolText,
+            )
+            second.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(200, "\\hIDLE-TIMER\\e"))))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val minute = fixture.nativePort.requests.remove()
+            assertEquals(
+                "GET SHIORI/3.0\r\nSender: Nanidroid\r\nSecurityLevel: local\r\n" +
+                    "ID: OnMinuteChange\r\nReference0: 4\r\nReference1: 0\r\n" +
+                    "Reference2: 0\r\nReference3: 1\r\n\r\n",
+                minute.intent.protocolText,
+            )
+            minute.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            fixture.drain()
+            fixture.runPlaybackUntil { it.presentation.sakura.text.contains("IDLE-TIMER") }
+
+            assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+        }
+    }
+
+    // Mutations caught: a busy timer sends GET or enqueues a successful NOTIFY Value.
+    @Test
+    fun busyTimerRequestsUseNotifyAndSuppressValuesAcrossEveryTalkBlocker() {
+        data class BusyCase(
+            val name: String,
+            val script: String,
+            val admitted: (com.cattailsw.nanidroid.runtime.RuntimeSnapshot) -> Boolean,
+        )
+
+        val cases = listOf(
+            BusyCase("active-talk", "\\hACTIVE\\_w[50]\\e") { it.mode.playingTalk },
+            BusyCase("pending-choice", "\\q[Choice,id]\\e") {
+                it.dialogue.choices.size == 1 && !it.mode.playingTalk
+            },
+            BusyCase("pending-input", "\\![open,inputbox,name,0]\\e") {
+                it.dialogue.input != null
+            },
+            BusyCase("passive", "\\![enter,passivemode]\\e") {
+                it.mode.passive && !it.mode.playingTalk
+            },
+        )
+
+        cases.forEachIndexed { index, case ->
+            val root = File("build/runtime-snapshot/timer-${case.name}").canonicalFile
+            val elapsed = AtomicLong(18_000_000L)
+            SnapshotRuntimeFixture(
+                catalogScanner = RuntimeCatalogScanner {
+                    listOf(InstalledGhostMetadata("timer-${case.name}", root, null, null, File(root, "readme.txt")))
+                },
+                elapsedRealtimeMillis = elapsed::get,
+            ).use { fixture ->
+                fixture.startAttached("timer-${case.name}", root)
+                fixture.makeTopHost(44L + index)
+                fixture.runtime.enqueueScriptForTesting(case.script)
+                fixture.drain()
+                fixture.runPlaybackUntil(case.admitted)
+                val before = fixture.runtime.snapshots.value
+
+                fixture.scheduler.runNext(RuntimeScheduleKind.CLOCK)
+                fixture.drain()
+                fixture.awaitNativeWork()
+                val second = fixture.nativePort.requests.remove()
+                assertEquals(
+                    "NOTIFY SHIORI/3.0\r\nSender: Nanidroid\r\nSecurityLevel: local\r\n" +
+                        "ID: OnSecondChange\r\nReference0: 5\r\nReference1: 0\r\n" +
+                        "Reference2: 0\r\nReference3: 0\r\n\r\n",
+                    second.intent.protocolText,
+                )
+                second.complete(
+                    RuntimeResult.Success(TaggedShioriResponse(1L, response(200, "\\hSUPPRESSED-SECOND\\e"))),
+                )
+                fixture.drain()
+                fixture.awaitNativeWork()
+                val minute = fixture.nativePort.requests.remove()
+                assertEquals(
+                    "NOTIFY SHIORI/3.0\r\nSender: Nanidroid\r\nSecurityLevel: local\r\n" +
+                        "ID: OnMinuteChange\r\nReference0: 5\r\nReference1: 0\r\n" +
+                        "Reference2: 0\r\nReference3: 0\r\n\r\n",
+                    minute.intent.protocolText,
+                )
+                minute.complete(
+                    RuntimeResult.Success(TaggedShioriResponse(1L, response(200, "\\hSUPPRESSED-MINUTE\\e"))),
+                )
+                fixture.drain()
+
+                if (case.name == "active-talk") {
+                    fixture.runPlaybackUntil { !it.mode.playingTalk }
+                    val text = fixture.runtime.snapshots.value.presentation.sakura.text
+                    assertFalse(text.contains("SUPPRESSED-SECOND"))
+                    assertFalse(text.contains("SUPPRESSED-MINUTE"))
+                } else {
+                    assertEquals(before.mode, fixture.runtime.snapshots.value.mode)
+                    assertEquals(before.presentation, fixture.runtime.snapshots.value.presentation)
+                }
+                assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+            }
+        }
+    }
+
+    // Mutation caught: suppressing NOTIFY Value also suppresses fatal native ownership evidence.
+    @Test
+    fun busyTimerNotifyStillSettlesFatalFailure() {
+        val root = File("build/runtime-snapshot/timer-notify-fatal").canonicalFile
+        val elapsed = AtomicLong(21_600_000L)
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("timer-notify-fatal", root, null, null, File(root, "readme.txt")))
+            },
+            elapsedRealtimeMillis = elapsed::get,
+        ).use { fixture ->
+            fixture.startAttached("timer-notify-fatal", root)
+            fixture.makeTopHost(48L)
+            fixture.runtime.enqueueScriptForTesting("\\![enter,passivemode]\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { it.mode.passive && !it.mode.playingTalk }
+
+            fixture.scheduler.runNext(RuntimeScheduleKind.CLOCK)
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val timer = fixture.nativePort.requests.remove()
+            timer.complete(
+                RuntimeResult.Failure(RuntimeFailure.Fatal(IllegalStateException("timer ownership lost"))),
+            )
+            fixture.drain()
+
+            assertEquals(GhostRuntimePhase.Poisoned, fixture.runtime.snapshots.value.phase)
+            assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+        }
+    }
+
     // Mutation caught: repeated Back creates two OnClose requests or two exit terminals.
     @Test
     fun repeatedBackJoinsOneExitRequestAndOneConsumableLease() {

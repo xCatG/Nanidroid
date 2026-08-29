@@ -70,7 +70,6 @@ internal class ComposeGhostStageHost private constructor(
         submitCommand: (RuntimeCommand) -> Unit,
         modifier: Modifier = Modifier,
         blockingInput: () -> Boolean = { false },
-        blockingInputEpoch: () -> Long = { 0L },
         onSurfaceTap: () -> Unit = {},
         onDialogueExternalUrl: (String) -> Unit = {},
         onDialogueInputDraft: (com.cattailsw.nanidroid.runtime.dialogue.RuntimeInputAction) -> Unit = {},
@@ -195,12 +194,7 @@ internal class ComposeGhostStageHost private constructor(
             blockingInput = blockingInput(),
             ghostIdentityProvider = { catalog ?: NoGhostIdentity },
             blockingInputProvider = blockingInput,
-            routingEpochProvider = {
-                HostRoutingEpoch(
-                    surfaceCatalog = snapshot.generation ?: 0L,
-                    blocking = blockingInputEpoch(),
-                )
-            },
+            routingEpochProvider = { snapshot.generation ?: 0L },
             onSurfaceEffect = { effect ->
                 val generation = snapshot.generation
                 if (generation != null && snapshot.foregroundHost == hostLease) {
@@ -271,8 +265,6 @@ internal class ComposeGhostStageHost private constructor(
     private data class SpeakerSurfaceKey(val sakura: Boolean, val surfaceId: String)
     private data class RenderedFrameKey(val speaker: SurfaceSpeaker, val surfaceId: String, val frame: SurfaceRenderFrame?)
     private data class ActiveComposedSurface(val key: RenderedFrameKey, val surface: ComposedSurface)
-    private data class HostRoutingEpoch(val surfaceCatalog: Long, val blocking: Long)
-
     private fun composedSurface(
         compositor: SurfaceCompositor,
         speaker: SurfaceSpeaker,
