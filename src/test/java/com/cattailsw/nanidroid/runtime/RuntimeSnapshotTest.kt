@@ -28,9 +28,22 @@ import java.lang.reflect.Array
 import java.lang.reflect.Modifier
 import java.util.IdentityHashMap
 import java.util.concurrent.Callable
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Exchanger
+import java.util.concurrent.Executor
+import java.util.concurrent.Future
+import java.util.concurrent.Phaser
+import java.util.concurrent.Semaphore
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.Condition
 import java.util.concurrent.locks.Lock
 import java.util.concurrent.locks.ReadWriteLock
+import java.util.concurrent.locks.ReentrantLock
+import java.util.function.Consumer
+import java.util.function.Supplier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -137,6 +150,23 @@ class RuntimeSnapshotTest {
         }
 
         assertTrue(failure.message.orEmpty().startsWith("forbidden snapshot value"))
+    }
+
+    @Test
+    fun recursiveSnapshotAuditRejectsNestedCallbackAndSynchronizationFamilies() {
+        listOf(
+            ConsumerProbe(Consumer<String> { }),
+            SupplierProbe(Supplier { "value" }),
+            KotlinFunctionProbe { },
+            CallableProbe(Callable { "value" }),
+            LatchProbe(CountDownLatch(1)),
+            SemaphoreProbe(Semaphore(1)),
+            AtomicProbe(AtomicLong(1)),
+            LockProbe(ReentrantLock()),
+            ThreadProbe(Thread {}),
+            ExecutorProbe(Executor { }),
+            FutureProbe(CompletableFuture.completedFuture("value")),
+        ).forEach(::assertForbiddenNestedValue)
     }
 
     @Test
@@ -510,12 +540,24 @@ class RuntimeSnapshotTest {
             value is File ||
             value is FileDescriptor ||
             value is Throwable ||
+            value is Thread ||
             value is Lock ||
             value is ReadWriteLock ||
             value is Condition ||
             value is Function<*> ||
             value is Runnable ||
             value is Callable<*> ||
+            value is Executor ||
+            value is Future<*> ||
+            value is CompletionStage<*> ||
+            value is CountDownLatch ||
+            value is Semaphore ||
+            value is CyclicBarrier ||
+            value is Phaser ||
+            value is Exchanger<*> ||
+            value.javaClass.implementsJavaFunctionInterface() ||
+            name.startsWith("java.util.concurrent.atomic.") ||
+            name.startsWith("java.util.concurrent.locks.") ||
             name.contains("Callback") ||
             name.contains("Listener") ||
             name.contains("Adapter") ||
@@ -526,7 +568,39 @@ class RuntimeSnapshotTest {
         if (forbidden) throw AssertionError("forbidden snapshot value $name")
     }
 
+    private fun Class<*>.implementsJavaFunctionInterface(): Boolean =
+        name.startsWith("java.util.function.") ||
+            interfaces.any { it.implementsJavaFunctionInterface() } ||
+            superclass?.implementsJavaFunctionInterface() == true
+
     private data class RunnableProbe(val callback: Runnable)
+
+    private data class ConsumerProbe(val callback: Consumer<String>)
+
+    private data class SupplierProbe(val callback: Supplier<String>)
+
+    private data class KotlinFunctionProbe(val callback: () -> Unit)
+
+    private data class CallableProbe(val callback: Callable<String>)
+
+    private data class LatchProbe(val synchronization: CountDownLatch)
+
+    private data class SemaphoreProbe(val synchronization: Semaphore)
+
+    private data class AtomicProbe(val synchronization: AtomicLong)
+
+    private data class LockProbe(val synchronization: ReentrantLock)
+
+    private data class ThreadProbe(val handle: Thread)
+
+    private data class ExecutorProbe(val handle: Executor)
+
+    private data class FutureProbe(val handle: Future<String>)
+
+    private fun assertForbiddenNestedValue(value: Any) {
+        val failure = captureAssertion { assertSnapshotValuesContainNoForbiddenObjects(value) }
+        assertTrue(failure.message.orEmpty().startsWith("forbidden snapshot value"))
+    }
 
     private fun captureAssertion(block: () -> Unit): AssertionError = try {
         block()
