@@ -37,6 +37,14 @@ import kotlin.coroutines.CoroutineContext
 @RunWith(AndroidJUnit4::class)
 class NanidroidLifecycleInstrumentationTest {
     @Test
+    fun productionRuntimeRemainsLegacyOwnedDuringHostAdapterProof() {
+        val application = ApplicationProvider.getApplicationContext<CatTailApplication>()
+
+        Assert.assertTrue(application.ghostRuntime.hasLegacyRunnerAuthorityForTesting())
+        Assert.assertFalse(application.ghostRuntime.hasSnapshotAuthorityForTesting())
+    }
+
+    @Test
     fun recreatingAttachedSessionPreservesApplicationRuntimeGhostAndGeneration() {
         val application = ApplicationProvider.getApplicationContext<CatTailApplication>()
         ActivityScenario.launch<Nanidroid>(Nanidroid::class.java).use { scenario ->
