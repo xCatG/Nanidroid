@@ -52,12 +52,44 @@ internal fun performBundledInstallRetry(
     install: (File) -> ArchiveInstallResult,
     publish: (BundledInstallPublication) -> Unit,
 ): BundledInstallPublication? {
-    val eligibility = currentEligibility() as? BundledInstallEligibility.Eligible ?: return null
-    val ready = currentCatalog() as? RuntimeCatalogState.Ready ?: return null
-    if (ready.entries.isNotEmpty()) return null
-    val operationId = workflow.retry(expectedFailureOperationId) ?: return null
-    return workflow.execute(operationId) { install(eligibility.storageRoot) }
-        ?.also(publish)
+    if (!workflow.isCurrentRecovery(expectedFailureOperationId)) return null
+    val ready = when (val catalog = currentCatalog()) {
+        is RuntimeCatalogState.Ready -> catalog
+        is RuntimeCatalogState.Loading,
+        is RuntimeCatalogState.Failed,
+        -> {
+            workflow.releaseRecovery(expectedFailureOperationId)
+            return null
+        }
+    }
+    if (ready.entries.isNotEmpty()) {
+        workflow.releaseRecovery(expectedFailureOperationId)
+        return null
+    }
+    return when (val eligibility = currentEligibility()) {
+        is BundledInstallEligibility.Eligible -> {
+            val operationId = workflow.retry(expectedFailureOperationId) ?: return null
+            workflow.execute(operationId) { install(eligibility.storageRoot) }
+                ?.also(publish)
+        }
+        BundledInstallEligibility.Ineligible -> {
+            workflow.releaseRecovery(expectedFailureOperationId)
+            null
+        }
+        is BundledInstallEligibility.RecoveryRequired -> {
+            workflow.refreshRecovery(expectedFailureOperationId, eligibility.message)
+            null
+        }
+    }
+}
+
+internal fun releaseObsoleteBundledRecovery(
+    workflow: BundledInstallWorkflow,
+    expectedRecoveryOperationId: Long,
+    catalog: RuntimeCatalogState,
+): Boolean {
+    val readyEmpty = catalog is RuntimeCatalogState.Ready && catalog.entries.isEmpty()
+    return !readyEmpty && workflow.releaseRecovery(expectedRecoveryOperationId)
 }
 
 /** Process-owned state for the bundled archive adapter operation only. */
@@ -67,6 +99,10 @@ internal class BundledInstallWorkflow {
     private var claimedExecutionId: Long? = null
 
     val state: StateFlow<BundledInstallState> = mutableState.asStateFlow()
+
+    @Synchronized
+    fun isCurrentRecovery(expectedOperationId: Long): Boolean =
+        (mutableState.value as? BundledInstallState.RecoveryRequired)?.operationId == expectedOperationId
 
     @Synchronized
     fun startIfIdle(): Long? = if (mutableState.value == BundledInstallState.Idle) {
@@ -80,6 +116,23 @@ internal class BundledInstallWorkflow {
         val recovery = mutableState.value as? BundledInstallState.RecoveryRequired ?: return null
         if (recovery.operationId != expectedFailureOperationId) return null
         return startNewOperation()
+    }
+
+    @Synchronized
+    fun refreshRecovery(expectedOperationId: Long, message: String): Boolean {
+        val recovery = mutableState.value as? BundledInstallState.RecoveryRequired ?: return false
+        if (recovery.operationId != expectedOperationId) return false
+        mutableState.value = recovery.copy(message = message)
+        return true
+    }
+
+    @Synchronized
+    fun releaseRecovery(expectedOperationId: Long): Boolean {
+        val recovery = mutableState.value as? BundledInstallState.RecoveryRequired ?: return false
+        if (recovery.operationId != expectedOperationId) return false
+        claimedExecutionId = null
+        mutableState.value = BundledInstallState.Idle
+        return true
     }
 
     @Synchronized

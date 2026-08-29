@@ -158,6 +158,7 @@ internal class GhostRuntime private constructor(
     private val scheduler: RuntimeScheduler,
     private val dispatcher: RuntimeCommandDispatcher,
     private val catalogScanner: RuntimeCatalogScanner,
+    private val applicationOnboardingProvider: ApplicationOnboardingProvider,
     private val elapsedRealtimeMillis: () -> Long,
     private val canonicalizeRoot: (File) -> File,
 ) : Closeable {
@@ -168,6 +169,7 @@ internal class GhostRuntime private constructor(
         scheduler = ApplicationRuntimeScheduler(),
         dispatcher = SerializedRuntimeCommandDispatcher(),
         catalogScanner = RuntimeCatalogScanner { InstalledGhostCatalog.scan(context.applicationContext) },
+        applicationOnboardingProvider = applicationOnboardingProvider(context.applicationContext),
         elapsedRealtimeMillis = { TimeUnit.NANOSECONDS.toMillis(System.nanoTime()) },
         canonicalizeRoot = File::getCanonicalFile,
     )
@@ -571,6 +573,10 @@ internal class GhostRuntime private constructor(
         }
         clockState = clockState.copy(running = hostState.topResumed != null)
         scheduleClockIfRunning()
+        applicationOnboardingProvider.claimScript().forEach { script ->
+            val current = playerState ?: return@forEach
+            consumePlayerTransition(SakuraScriptPlayer.reduce(current, PlayerCommand.Enqueue(script, null)))
+        }
         val intent = if (operation.switchOutgoingName != null) {
             ShioriRequestIntent.event("OnGhostChanged", listOf(operation.switchOutgoingName, null))
         } else if (activationCount == 0L) {
@@ -2062,6 +2068,7 @@ internal class GhostRuntime private constructor(
             runtimeScheduler: RuntimeScheduler,
             coordinationDispatcher: RuntimeCommandDispatcher = SerializedRuntimeCommandDispatcher(),
             catalogScanner: RuntimeCatalogScanner,
+            applicationOnboardingProvider: ApplicationOnboardingProvider = ApplicationOnboardingProvider.None,
             elapsedRealtimeMillis: () -> Long = { TimeUnit.NANOSECONDS.toMillis(System.nanoTime()) },
             canonicalizeRoot: (File) -> File = File::getCanonicalFile,
         ): GhostRuntime = GhostRuntime(
@@ -2071,6 +2078,7 @@ internal class GhostRuntime private constructor(
             scheduler = runtimeScheduler,
             dispatcher = coordinationDispatcher,
             catalogScanner = catalogScanner,
+            applicationOnboardingProvider = applicationOnboardingProvider,
             elapsedRealtimeMillis = elapsedRealtimeMillis,
             canonicalizeRoot = canonicalizeRoot,
         )

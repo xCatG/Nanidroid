@@ -64,6 +64,15 @@ class CatTailApplication : Application() {
 
     private suspend fun observeBundledInstallationEligibility() {
         ghostRuntime.snapshots.collect { snapshot ->
+            val recovery = bundledInstallWorkflow.state.value as? BundledInstallState.RecoveryRequired
+            if (recovery != null && releaseObsoleteBundledRecovery(
+                    bundledInstallWorkflow,
+                    recovery.operationId,
+                    snapshot.catalog,
+                )
+            ) {
+                return@collect
+            }
             val ready = snapshot.catalog as? RuntimeCatalogState.Ready ?: return@collect
             if (ready.entries.isNotEmpty()) return@collect
             when (val eligibility = bundledInstallEligibility(

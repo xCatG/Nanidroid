@@ -7,6 +7,7 @@ import com.cattailsw.nanidroid.runtime.RuntimeGhostMetadata
 import com.cattailsw.nanidroid.runtime.RuntimeNoticeCode
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -117,22 +118,19 @@ class BundledInstallWorkflowTest {
         assertEquals(BundledInstallState.Completed(operationId, "nanidroid"), workflow.state.value)
     }
 
-    // Mutation caught: an exact but stale retry reinstalls bundled content after a foreground install.
+    // Mutation caught: an exact retry leaves bundled recovery masking a now-nonempty catalog.
     @Test
-    fun exactRetryRejectsCatalogThatBecameNonEmptyWithoutSideEffects() {
+    fun exactRetryReleasesRecoveryWhenCatalogBecameNonemptyWithoutSideEffects() {
         val workflow = failedWorkflow()
         val failure = workflow.state.value as BundledInstallState.RecoveryRequired
-        var catalog = readyCatalog()
-        val currentCatalog = { catalog }
         var installerInvocations = 0
         var catalogChangedSubmissions = 0
-        catalog = readyCatalog(entries = listOf(runtimeGhost("manual")))
 
         val publication = performBundledInstallRetry(
             workflow = workflow,
             expectedFailureOperationId = failure.operationId,
-            currentCatalog = currentCatalog,
-            currentEligibility = { BundledInstallEligibility.Eligible(File("build/ghost")) },
+            currentCatalog = { readyCatalog(entries = listOf(runtimeGhost("manual"))) },
+            currentEligibility = { throw AssertionError("nonempty catalog must not inspect bundled storage") },
             install = {
                 installerInvocations += 1
                 ArchiveInstallResult.Installed("/ghost/nanidroid", "nanidroid")
@@ -141,45 +139,62 @@ class BundledInstallWorkflowTest {
         )
 
         assertNull(publication)
-        assertEquals(failure, workflow.state.value)
+        assertEquals(BundledInstallState.Idle, workflow.state.value)
         assertEquals(0, installerInvocations)
         assertEquals(0, catalogChangedSubmissions)
     }
 
-    // Mutation caught: retry accepts storage whose current contents make bundled installation ineligible.
+    // Mutation caught: an exact retry leaves bundled recovery masking manual/import/startup controls.
     @Test
-    fun exactRetryRejectsStorageThatBecameIneligibleWithoutSideEffects() {
-        listOf(
-            BundledInstallEligibility.Ineligible,
-            BundledInstallEligibility.RecoveryRequired("storage unavailable"),
-        ).forEach { eligibility ->
-            val workflow = failedWorkflow()
-            val failure = workflow.state.value as BundledInstallState.RecoveryRequired
-            var installerInvocations = 0
-            var catalogChangedSubmissions = 0
+    fun exactRetryReleasesRecoveryWhenReadyEmptyStorageBecameIneligible() {
+        val workflow = failedWorkflow()
+        val failure = workflow.state.value as BundledInstallState.RecoveryRequired
+        var installerInvocations = 0
+        var catalogChangedSubmissions = 0
 
-            val publication = performBundledInstallRetry(
+        val publication = performBundledInstallRetry(
+            workflow = workflow,
+            expectedFailureOperationId = failure.operationId,
+            currentCatalog = { readyCatalog() },
+            currentEligibility = { BundledInstallEligibility.Ineligible },
+            install = {
+                installerInvocations += 1
+                ArchiveInstallResult.Installed("/ghost/nanidroid", "nanidroid")
+            },
+            publish = { catalogChangedSubmissions += 1 },
+        )
+
+        assertNull(publication)
+        assertEquals(BundledInstallState.Idle, workflow.state.value)
+        assertEquals(0, installerInvocations)
+        assertEquals(0, catalogChangedSubmissions)
+    }
+
+    // Mutation caught: a refreshed storage failure loses the exact operation identity or stale message is retained.
+    @Test
+    fun exactRetryRefreshesReadyEmptyStorageRecoveryMessageWithoutSideEffects() {
+        val workflow = failedWorkflow()
+        val failure = workflow.state.value as BundledInstallState.RecoveryRequired
+
+        assertNull(
+            performBundledInstallRetry(
                 workflow = workflow,
                 expectedFailureOperationId = failure.operationId,
                 currentCatalog = { readyCatalog() },
-                currentEligibility = { eligibility },
-                install = {
-                    installerInvocations += 1
-                    ArchiveInstallResult.Installed("/ghost/nanidroid", "nanidroid")
-                },
-                publish = { catalogChangedSubmissions += 1 },
-            )
-
-            assertNull(publication)
-            assertEquals(failure, workflow.state.value)
-            assertEquals(0, installerInvocations)
-            assertEquals(0, catalogChangedSubmissions)
-        }
+                currentEligibility = { BundledInstallEligibility.RecoveryRequired("storage still unavailable") },
+                install = { throw AssertionError("recovery refresh must not invoke installer") },
+                publish = { throw AssertionError("recovery refresh must not publish CatalogChanged") },
+            ),
+        )
+        assertEquals(
+            BundledInstallState.RecoveryRequired(failure.operationId, "storage still unavailable"),
+            workflow.state.value,
+        )
     }
 
-    // Mutation caught: loading or failed catalogs are treated as proven Ready(empty) during retry.
+    // Mutation caught: catalog-owned recovery remains hidden behind the bundled retry dialog.
     @Test
-    fun exactRetryRejectsUnprovenCatalogStatesAndPreservesFailureIdentity() {
+    fun exactRetryReleasesRecoveryForLoadingOrFailedCatalogWithoutInspectingStorage() {
         listOf(
             RuntimeCatalogState.Loading(7L, emptyList(), emptyMap()),
             RuntimeCatalogState.Failed(
@@ -197,13 +212,69 @@ class BundledInstallWorkflowTest {
                     workflow = workflow,
                     expectedFailureOperationId = failure.operationId,
                     currentCatalog = { catalog },
-                    currentEligibility = { BundledInstallEligibility.Eligible(File("build/ghost")) },
+                    currentEligibility = { throw AssertionError("unproven catalog must not inspect storage") },
                     install = { throw AssertionError("rejected retry must not invoke installer") },
                     publish = { throw AssertionError("rejected retry must not publish CatalogChanged") },
                 ),
             )
-            assertEquals(failure, workflow.state.value)
+            assertEquals(BundledInstallState.Idle, workflow.state.value)
         }
+    }
+
+    // Mutation caught: a stale retry still reads catalog/storage or mutates the current exact failure.
+    @Test
+    fun staleRetryIsEffectFreeBeforeCatalogOrStorageInspection() {
+        val workflow = failedWorkflow()
+        val failure = workflow.state.value as BundledInstallState.RecoveryRequired
+
+        assertNull(
+            performBundledInstallRetry(
+                workflow = workflow,
+                expectedFailureOperationId = failure.operationId + 1L,
+                currentCatalog = { throw AssertionError("stale retry must not inspect catalog") },
+                currentEligibility = { throw AssertionError("stale retry must not inspect storage") },
+                install = { throw AssertionError("stale retry must not install") },
+                publish = { throw AssertionError("stale retry must not publish") },
+            ),
+        )
+        assertEquals(failure, workflow.state.value)
+    }
+
+    // Mutation caught: process-owned recovery remains published while catalog recovery owns the UI.
+    @Test
+    fun catalogObservationReleasesOnlyObsoleteExactRecovery() {
+        listOf(
+            RuntimeCatalogState.Loading(8L, emptyList(), emptyMap()),
+            RuntimeCatalogState.Failed(
+                8L,
+                emptyList(),
+                emptyMap(),
+                RuntimeNoticeCode.CATALOG_SCAN_FAILED,
+            ),
+            readyCatalog(entries = listOf(runtimeGhost("manual"))),
+        ).forEach { catalog ->
+            val workflow = failedWorkflow()
+            val failure = workflow.state.value as BundledInstallState.RecoveryRequired
+
+            assertTrue(releaseObsoleteBundledRecovery(workflow, failure.operationId, catalog))
+            assertEquals(BundledInstallState.Idle, workflow.state.value)
+        }
+
+        val readyEmpty = failedWorkflow()
+        val current = readyEmpty.state.value as BundledInstallState.RecoveryRequired
+        assertFalse(releaseObsoleteBundledRecovery(readyEmpty, current.operationId, readyCatalog()))
+        assertEquals(current, readyEmpty.state.value)
+
+        val stale = failedWorkflow()
+        val staleCurrent = stale.state.value as BundledInstallState.RecoveryRequired
+        assertFalse(
+            releaseObsoleteBundledRecovery(
+                stale,
+                staleCurrent.operationId + 1L,
+                readyCatalog(entries = listOf(runtimeGhost("manual"))),
+            ),
+        )
+        assertEquals(staleCurrent, stale.state.value)
     }
 
     // Mutation caught: an eligible exact retry executes or publishes more than once.

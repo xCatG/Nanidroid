@@ -299,6 +299,115 @@ class GhostRuntimeSnapshotTest {
         }
     }
 
+    // Mutation caught: application onboarding is claimed after, or submitted as, a second native attachment request.
+    @Test
+    fun localOnboardingIsQueuedBeforeTheSingleNativeAttachmentRequest() {
+        val root = File("build/runtime-snapshot/onboarding-order").canonicalFile
+        val events = mutableListOf<String>()
+        val scheduler = object : ManualSnapshotRuntimeScheduler() {
+            override fun schedule(
+                key: com.cattailsw.nanidroid.runtime.RuntimeScheduleKey,
+                delayMillis: Long,
+                action: () -> Unit,
+            ) {
+                events += "queue"
+                super.schedule(key, delayMillis, action)
+            }
+        }
+        val nativePort = object : RecordingRuntimeNativePort() {
+            override fun request(
+                token: com.cattailsw.nanidroid.runtime.RuntimeRequestToken,
+                intent: ShioriRequestIntent,
+                fallback: ShioriRequestIntent?,
+                complete: (RuntimeResult<TaggedShioriResponse>) -> Unit,
+            ) {
+                events += "request"
+                super.request(token, intent, fallback, complete)
+            }
+        }
+        SnapshotRuntimeFixture(
+            scheduler = scheduler,
+            nativePort = nativePort,
+            applicationOnboardingProvider = ApplicationOnboardingProvider {
+                events += "claim"
+                listOf("\\hLOCAL\\e")
+            },
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("onboarding-order", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            fixture.runtime.submit(RuntimeCommand.StartGhost("onboarding-order", root))
+            fixture.awaitNativeWork()
+            assertTrue(events.isEmpty())
+            fixture.nativePort.loads.remove().complete(RuntimeNativeLoadOutcome.Loaded(PointerEventCapabilities()))
+            fixture.drain()
+            fixture.awaitNativeWork()
+
+            assertEquals(listOf("claim", "queue", "request"), events)
+            assertEquals(1, fixture.nativePort.requests.size)
+            assertTrue(fixture.nativePort.requests.single().intent.protocolText.contains("ID: OnFirstBoot\r\n"))
+        }
+    }
+
+    // Mutation caught: a 204 OnFirstBoot discards the already-queued local onboarding script.
+    @Test
+    fun noContentOnFirstBootStillLeavesLocalOnboardingPlayable() {
+        val root = File("build/runtime-snapshot/onboarding-no-content").canonicalFile
+        SnapshotRuntimeFixture(
+            applicationOnboardingProvider = ApplicationOnboardingProvider { listOf("\\hLOCAL\\e") },
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("onboarding-no-content", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            fixture.startLoaded("onboarding-no-content", root)
+            fixture.awaitNativeWork()
+            val attachment = fixture.nativePort.requests.remove()
+            attachment.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
+
+            fixture.runPlaybackUntil { it.presentation.sakura.text == "LOCAL" }
+
+            assertEquals("LOCAL", fixture.runtime.snapshots.value.presentation.sakura.text)
+            assertTrue(fixture.nativePort.requests.isEmpty())
+        }
+    }
+
+    // Mutation caught: runtime reconstruction reclaims and requeues application onboarding.
+    @Test
+    fun secondRuntimeSharingClaimedOnboardingProviderDoesNotRequeue() {
+        val root = File("build/runtime-snapshot/onboarding-once").canonicalFile
+        var claimed = false
+        val persistence = InMemoryGhostRuntimePersistence()
+        val provider = ApplicationOnboardingProvider {
+            if (claimed) emptyList() else listOf("\\hONCE\\e").also { claimed = true }
+        }
+        fun fixture() = SnapshotRuntimeFixture(
+            persistence = persistence,
+            applicationOnboardingProvider = provider,
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("onboarding-once", root, null, null, File(root, "readme.txt")))
+            },
+        )
+
+        fixture().use { first ->
+            first.startLoaded("onboarding-once", root)
+            first.awaitNativeWork()
+            assertTrue(first.scheduler.scheduled().any {
+                it.key.kind == com.cattailsw.nanidroid.runtime.RuntimeScheduleKind.PLAYBACK
+            })
+            assertEquals(1, first.nativePort.requests.size)
+        }
+        fixture().use { second ->
+            second.startLoaded("onboarding-once", root)
+            second.awaitNativeWork()
+            assertTrue(second.scheduler.scheduled().none {
+                it.key.kind == com.cattailsw.nanidroid.runtime.RuntimeScheduleKind.PLAYBACK
+            })
+            assertEquals(1, second.nativePort.requests.size)
+            assertTrue(second.nativePort.requests.single().intent.protocolText.contains("ID: OnBoot\r\n"))
+        }
+    }
+
     @Test
     fun activationIsCommittedBeforeBootAndReplayableFailureDoesNotRepeatFirstBoot() {
         val root = File("build/runtime-snapshot/activation-before-boot").canonicalFile

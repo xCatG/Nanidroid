@@ -196,6 +196,7 @@ internal class SnapshotRuntimeFixture(
     persistence: GhostRuntimePersistence = InMemoryGhostRuntimePersistence(),
     catalogScanner: RuntimeCatalogScanner = RuntimeCatalogScanner { emptyList() },
     preparer: GhostPreparer = scriptedPreparer(),
+    applicationOnboardingProvider: ApplicationOnboardingProvider = ApplicationOnboardingProvider.None,
     elapsedRealtimeMillis: () -> Long = { 0L },
     canonicalizeRoot: (File) -> File = File::getCanonicalFile,
     awaitInitialCatalog: Boolean = true,
@@ -208,6 +209,7 @@ internal class SnapshotRuntimeFixture(
         runtimeScheduler = scheduler,
         coordinationDispatcher = dispatcher,
         catalogScanner = catalogScanner,
+        applicationOnboardingProvider = applicationOnboardingProvider,
         elapsedRealtimeMillis = elapsedRealtimeMillis,
         canonicalizeRoot = canonicalizeRoot,
     )
