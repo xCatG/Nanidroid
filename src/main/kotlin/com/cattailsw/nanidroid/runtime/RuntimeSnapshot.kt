@@ -80,9 +80,8 @@ internal enum class RuntimeCueKind { TALKING, ONE_SHOT }
 
 internal data class RuntimePresentationCue(
     val cueId: Long,
-    val generation: Long,
+    val target: RuntimeSurfaceIdentity,
     val hostLease: RuntimeHostLease,
-    val speaker: GhostSpeaker,
     val kind: RuntimeCueKind,
     val animationId: String?,
 )

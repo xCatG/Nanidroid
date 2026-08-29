@@ -157,23 +157,24 @@ internal class ComposeGhostStageHost private constructor(
                 lastAppliedCueId = 0L
             }
             var through = lastAppliedCueId
-            snapshot.cues
+            val pendingCues = snapshot.cues
                 .asSequence()
                 .filter { it.hostLease == hostLease && it.cueId > lastAppliedCueId }
                 .sortedBy { it.cueId }
-                .forEach { cue ->
-                    val activeCatalog = catalog ?: return@forEach
-                    val speakerPresentation = when (cue.speaker) {
-                        GhostSpeaker.SAKURA -> presentation.sakura
-                        GhostSpeaker.KERO -> presentation.kero
-                    }
-                    val plan = activeCatalog.speakerSurface(
-                        speakerPresentation.surfaceId,
-                        cue.speaker == GhostSpeaker.SAKURA,
-                    ).plan
-                    applyCue(cue.speaker, plan, speakerPresentation, cue.kind, cue.animationId)
+            for (cue in pendingCues) {
+                val speakerPresentation = snapshot.currentPresentation(cue.target)
+                if (speakerPresentation == null) {
                     through = cue.cueId
+                    continue
                 }
+                val activeCatalog = catalog ?: break
+                val plan = activeCatalog.speakerSurface(
+                    cue.target.surfaceId,
+                    cue.target.speaker == GhostSpeaker.SAKURA,
+                ).plan
+                applyCue(cue.target.speaker, plan, speakerPresentation, cue.kind, cue.animationId)
+                through = cue.cueId
+            }
             if (through > lastAppliedCueId) {
                 lastAppliedCueId = through
                 submitCommand(RuntimeCommand.AcknowledgeCues(hostLease, through))
@@ -476,6 +477,19 @@ internal class ComposeGhostStageHost private constructor(
         // unusually huge installed surfaces well below a typical app heap.
         const val MAX_RENDERABLE_SURFACE_PIXELS = 1L * 1024L * 1024L
         const val PERIODIC_ANIMATION_INTERVAL_MILLIS = 1_000L
+    }
+}
+
+internal fun RuntimeSnapshot.currentPresentation(
+    target: RuntimeSurfaceIdentity,
+): RuntimeSpeakerPresentation? {
+    if (generation != target.generation) return null
+    val current = when (target.speaker) {
+        GhostSpeaker.SAKURA -> presentation.sakura
+        GhostSpeaker.KERO -> presentation.kero
+    }
+    return current.takeIf {
+        it.surfaceId == target.surfaceId && it.surfaceEpoch == target.surfaceEpoch
     }
 }
 

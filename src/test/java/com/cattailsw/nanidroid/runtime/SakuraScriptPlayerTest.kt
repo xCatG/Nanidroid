@@ -695,6 +695,25 @@ class SakuraScriptPlayerTest {
         assertEquals(7L, exited.schedule().delayMillis)
     }
 
+    // Mutations caught: quick playback rescans prefixes, copies text per character, or loses scope/sync semantics.
+    @Test
+    fun largeQuickSessionKeepsExactVisibleHiddenAndSynchronizedText() {
+        val sakura = "A".repeat(8_192)
+        val hidden = "X".repeat(8_192)
+        val kero = "B".repeat(8_192)
+        val synchronized = "C".repeat(8_192)
+        val trace = drive("\\_q\\h$sakura\\p[2]$hidden\\u$kero\\_s$synchronized\\_s\\_q\\e")
+
+        val projected = trace.states.single {
+            it.presentation.sakura.text == sakura + synchronized &&
+                it.presentation.kero.text == kero + synchronized
+        }
+        assertEquals(sakura + synchronized, projected.presentation.sakura.text)
+        assertEquals(kero + synchronized, projected.presentation.kero.text)
+        assertFalse(projected.presentation.sakura.text.contains('X'))
+        assertFalse(projected.presentation.kero.text.contains('X'))
+    }
+
     // Mutation caught: equal surfaces generate extra transitions or equal animation commands collapse together.
     @Test
     fun distinctSurfaceTransitionsAndAnimationCuesAreOrdered() {
@@ -771,10 +790,31 @@ class SakuraScriptPlayerTest {
     fun animationCueAppearsOnlyWhenPlayerSchedulesIt() {
         val trace = drive("\\hA\\i[3]B\\e")
         assertEquals(
-            listOf(PlayerEffect.PresentationCue(GhostSpeaker.SAKURA, RuntimeCueKind.ONE_SHOT, "3")),
+            listOf(
+                PlayerEffect.PresentationCue(
+                    RuntimeSurfaceIdentity(4L, GhostSpeaker.SAKURA, "0", 0L),
+                    RuntimeCueKind.ONE_SHOT,
+                    "3",
+                ),
+            ),
             trace.effects.filterIsInstance<PlayerEffect.PresentationCue>()
                 .filter { it.kind == RuntimeCueKind.ONE_SHOT },
         )
+    }
+
+    // Mutation caught: an emitted cue loses its exact surface epoch and aliases a later reused surface ID.
+    @Test
+    fun animationCueCapturesExactEmissionSurfaceIdentity() {
+        val trace = drive("\\h\\s[120]\\i[3]\\s[121]\\s[120]\\e")
+        val cue = trace.effects.filterIsInstance<PlayerEffect.PresentationCue>()
+            .single { it.kind == RuntimeCueKind.ONE_SHOT }
+
+        assertEquals(
+            RuntimeSurfaceIdentity(4L, GhostSpeaker.SAKURA, "120", 1L),
+            cue.target,
+        )
+        assertEquals("120", trace.state.presentation.sakura.surfaceId)
+        assertEquals(3L, trace.state.presentation.sakura.surfaceEpoch)
     }
 
     // Mutation caught: choice inventory order follows speaker grouping rather than source order.
@@ -851,7 +891,7 @@ class SakuraScriptPlayerTest {
             listOf(GhostSpeaker.SAKURA, GhostSpeaker.SAKURA),
             cadence.effects.filterIsInstance<PlayerEffect.PresentationCue>()
                 .filter { it.kind == RuntimeCueKind.TALKING }
-                .map { it.speaker },
+                .map { it.target.speaker },
         )
 
         val synchronized = drive("\\h\\_sA\\e")
@@ -859,7 +899,7 @@ class SakuraScriptPlayerTest {
             listOf(GhostSpeaker.SAKURA, GhostSpeaker.KERO),
             synchronized.effects.filterIsInstance<PlayerEffect.PresentationCue>()
                 .filter { it.kind == RuntimeCueKind.TALKING }
-                .map { it.speaker },
+                .map { it.target.speaker },
         )
     }
 
@@ -910,11 +950,19 @@ class SakuraScriptPlayerTest {
     fun explicitAnimationSuppressesTalkingCueAndKeepsBalloonText() {
         val trace = drive("\\hhello\\i[3]\\e")
         val explicitIndex = trace.effects.indexOfFirst {
-            it == PlayerEffect.PresentationCue(GhostSpeaker.SAKURA, RuntimeCueKind.ONE_SHOT, "3")
+            it == PlayerEffect.PresentationCue(
+                RuntimeSurfaceIdentity(4L, GhostSpeaker.SAKURA, "0", 0L),
+                RuntimeCueKind.ONE_SHOT,
+                "3",
+            )
         }
         assertTrue(explicitIndex >= 0)
         assertFalse(trace.effects.drop(explicitIndex).take(2).any {
-            it == PlayerEffect.PresentationCue(GhostSpeaker.SAKURA, RuntimeCueKind.TALKING, null)
+            it == PlayerEffect.PresentationCue(
+                RuntimeSurfaceIdentity(4L, GhostSpeaker.SAKURA, "0", 0L),
+                RuntimeCueKind.TALKING,
+                null,
+            )
         })
         assertTrue(trace.states.any { it.presentation.sakura.text == "hello" && it.presentation.sakura.balloonVisible })
     }
@@ -1031,10 +1079,10 @@ class SakuraScriptPlayerTest {
                     frames += buildString {
                         append(presentation.sakura.text).append(':')
                         append(presentation.sakura.surfaceId).append(':')
-                        append(animation?.takeIf { it.speaker == GhostSpeaker.SAKURA }?.animationId).append(':')
+                        append(animation?.takeIf { it.target.speaker == GhostSpeaker.SAKURA }?.animationId).append(':')
                         append(presentation.kero.text).append(':')
                         append(presentation.kero.surfaceId).append(':')
-                        append(animation?.takeIf { it.speaker == GhostSpeaker.KERO }?.animationId)
+                        append(animation?.takeIf { it.target.speaker == GhostSpeaker.KERO }?.animationId)
                     }
                 }
             }
@@ -1080,7 +1128,7 @@ class SakuraScriptPlayerTest {
                 }
                 effectsBeforeNextState.filterIsInstance<PlayerEffect.PresentationCue>()
                     .filter { it.kind == RuntimeCueKind.ONE_SHOT }
-                    .forEach { cue -> result += "animation:${cue.speaker.name.lowercase()}:${cue.animationId}" }
+                    .forEach { cue -> result += "animation:${cue.target.speaker.name.lowercase()}:${cue.animationId}" }
                 effectIndex += effectsBeforeNextState.size
                 previous = next
             }
@@ -1090,7 +1138,7 @@ class SakuraScriptPlayerTest {
             effects.filterIsInstance<PlayerEffect.PresentationCue>()
                 .filter { it.kind == RuntimeCueKind.ONE_SHOT }
                 .drop(recordedAnimations)
-                .forEach { cue -> result += "animation:${cue.speaker.name.lowercase()}:${cue.animationId}" }
+                .forEach { cue -> result += "animation:${cue.target.speaker.name.lowercase()}:${cue.animationId}" }
             return result
         }
     }

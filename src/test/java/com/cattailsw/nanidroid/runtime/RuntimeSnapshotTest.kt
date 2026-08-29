@@ -55,7 +55,13 @@ class RuntimeSnapshotTest {
     @Test
     fun equalCuePayloadsRemainDistinctByCueIdentity() {
         val lease = RuntimeHostLease(RuntimeHostId(7), 3)
-        val first = RuntimePresentationCue(1, 9, lease, GhostSpeaker.SAKURA, RuntimeCueKind.ONE_SHOT, "2")
+        val first = RuntimePresentationCue(
+            1,
+            RuntimeSurfaceIdentity(9, GhostSpeaker.SAKURA, "0", 0),
+            lease,
+            RuntimeCueKind.ONE_SHOT,
+            "2",
+        )
         val second = first.copy(cueId = 2)
 
         assertNotEquals(first, second)
@@ -159,9 +165,8 @@ class RuntimeSnapshotTest {
                 cues = listOf(
                     RuntimePresentationCue(
                         cueId = 1L,
-                        generation = 9L,
+                        target = RuntimeSurfaceIdentity(9L, GhostSpeaker.SAKURA, "120", 3L),
                         hostLease = RuntimeHostLease(RuntimeHostId(7L), 3L),
-                        speaker = GhostSpeaker.SAKURA,
                         kind = RuntimeCueKind.ONE_SHOT,
                         animationId = "3",
                     ),
@@ -331,7 +336,15 @@ class RuntimeSnapshotTest {
                 kero = RuntimeSpeakerPresentation("Kero", "10", 2, false),
                 talkingAnimationEnabled = true,
             ),
-            cues = mutableListOf(RuntimePresentationCue(5, 9, RuntimeHostLease(RuntimeHostId(7), 3), GhostSpeaker.SAKURA, RuntimeCueKind.TALKING, "0")),
+            cues = mutableListOf(
+                RuntimePresentationCue(
+                    5,
+                    RuntimeSurfaceIdentity(9, GhostSpeaker.SAKURA, "0", 1),
+                    RuntimeHostLease(RuntimeHostId(7), 3),
+                    RuntimeCueKind.TALKING,
+                    "0",
+                ),
+            ),
             dialogue = RuntimeDialogueSnapshot(
                 state = DialogueRuntimeState(
                     revision = 6,
@@ -399,7 +412,15 @@ class RuntimeSnapshotTest {
                 kero = RuntimeSpeakerPresentation("Kero", "10", 2, false),
                 talkingAnimationEnabled = true,
             ),
-            cues = listOf(RuntimePresentationCue(5, 9, RuntimeHostLease(RuntimeHostId(7), 3), GhostSpeaker.SAKURA, RuntimeCueKind.TALKING, "0")),
+            cues = listOf(
+                RuntimePresentationCue(
+                    5,
+                    RuntimeSurfaceIdentity(9, GhostSpeaker.SAKURA, "0", 1),
+                    RuntimeHostLease(RuntimeHostId(7), 3),
+                    RuntimeCueKind.TALKING,
+                    "0",
+                ),
+            ),
             dialogue = RuntimeDialogueSnapshot(
                 state = DialogueRuntimeState(
                     revision = 6,

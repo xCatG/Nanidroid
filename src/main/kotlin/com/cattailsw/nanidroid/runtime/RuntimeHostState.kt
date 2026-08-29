@@ -29,8 +29,7 @@ internal data class RuntimeHostState(
 }
 
 internal data class RuntimeCuePayload(
-    val generation: Long,
-    val speaker: GhostSpeaker,
+    val target: RuntimeSurfaceIdentity,
     val kind: RuntimeCueKind,
     val animationId: String?,
 )
@@ -244,9 +243,8 @@ internal object RuntimeHostReducer {
         if (state.cues.size >= CUE_CAPACITY) return unchanged(state)
         val cue = RuntimePresentationCue(
             cueId = input.cueId,
-            generation = input.payload.generation,
+            target = input.payload.target,
             hostLease = host,
-            speaker = input.payload.speaker,
             kind = input.payload.kind,
             animationId = input.payload.animationId,
         )

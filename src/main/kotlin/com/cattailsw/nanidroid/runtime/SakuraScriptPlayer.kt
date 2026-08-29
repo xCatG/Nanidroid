@@ -29,6 +29,7 @@ internal data class PlayerCursor(
     val authoredDialogue: AuthoredDialogueScript,
     val charIndex: Int,
     val adoptedElapsedMillis: Long,
+    val scope: Int,
     val speaker: GhostSpeaker,
     val waitMillis: Long,
     val wholeLine: Boolean,
@@ -128,7 +129,7 @@ internal sealed interface PlayerEffect {
     ) : PlayerEffect
 
     data class PresentationCue(
-        val speaker: GhostSpeaker,
+        val target: RuntimeSurfaceIdentity,
         val kind: RuntimeCueKind,
         val animationId: String?,
     ) : PlayerEffect
@@ -211,6 +212,7 @@ internal object SakuraScriptPlayer {
                 authoredDialogue = authoredDialogue,
                 charIndex = 0,
                 adoptedElapsedMillis = elapsedMillis,
+                scope = 0,
                 speaker = GhostSpeaker.SAKURA,
                 waitMillis = WAIT_UNIT,
                 wholeLine = false,
@@ -233,14 +235,69 @@ internal object SakuraScriptPlayer {
         var scheduledDelay: Long? = null
         var request: PlayerEffect.RequestShiori? = null
         val talkingFrame = cursor.renderedFrameIndex == 0
+        var presentation = next.presentation
+        val sakuraText = StringBuilder(presentation.sakura.text)
+        val keroText = StringBuilder(presentation.kero.text)
+        var sakuraBalloonVisible = presentation.sakura.balloonVisible
+        var keroBalloonVisible = presentation.kero.balloonVisible
+
+        fun appendCharacter(activeCursor: PlayerCursor, value: Char) {
+            val speakers = if (activeCursor.synchronizedSession) GhostSpeaker.entries else listOf(activeCursor.speaker)
+            speakers.forEach { speaker ->
+                when (speaker) {
+                    GhostSpeaker.SAKURA -> {
+                        sakuraText.append(value)
+                        sakuraBalloonVisible = true
+                    }
+                    GhostSpeaker.KERO -> {
+                        keroText.append(value)
+                        keroBalloonVisible = true
+                    }
+                }
+            }
+        }
+
+        fun appendText(activeCursor: PlayerCursor, value: CharSequence) {
+            val speakers = if (activeCursor.synchronizedSession) GhostSpeaker.entries else listOf(activeCursor.speaker)
+            speakers.forEach { speaker ->
+                when (speaker) {
+                    GhostSpeaker.SAKURA -> {
+                        sakuraText.append(value)
+                        sakuraBalloonVisible = true
+                    }
+                    GhostSpeaker.KERO -> {
+                        keroText.append(value)
+                        keroBalloonVisible = true
+                    }
+                }
+            }
+        }
+
+        fun clearText(speaker: GhostSpeaker) {
+            when (speaker) {
+                GhostSpeaker.SAKURA -> {
+                    sakuraText.setLength(0)
+                    sakuraBalloonVisible = false
+                }
+                GhostSpeaker.KERO -> {
+                    keroText.setLength(0)
+                    keroBalloonVisible = false
+                }
+            }
+        }
+
+        fun setBalloon(speaker: GhostSpeaker, visible: Boolean) {
+            when (speaker) {
+                GhostSpeaker.SAKURA -> sakuraBalloonVisible = visible || sakuraText.isNotEmpty()
+                GhostSpeaker.KERO -> keroBalloonVisible = visible || keroText.isNotEmpty()
+            }
+        }
 
         while (cursor.charIndex < script.length && scheduledDelay == null && request == null) {
             val character = script[cursor.charIndex]
             cursor = cursor.copy(charIndex = cursor.charIndex + 1, waitMillis = WAIT_UNIT)
             if (character != '\\') {
-                if (scopeAt(script, cursor.charIndex - 1) < 2) {
-                    next = next.copy(presentation = append(next.presentation, cursor, character))
-                }
+                if (cursor.scope < 2) appendCharacter(cursor, character)
                 if (!cursor.wholeLine) scheduledDelay = WAIT_UNIT
                 continue
             }
@@ -249,19 +306,19 @@ internal object SakuraScriptPlayer {
             }
             val command = script[cursor.charIndex]
             cursor = cursor.copy(charIndex = cursor.charIndex + 1)
-            val scope = scopeAt(script, cursor.charIndex - 2)
+            val scope = cursor.scope
             when (command) {
                 '\\' -> Unit
                 '0', 'h' -> {
                     val previous = cursor.speaker
-                    cursor = cursor.copy(speaker = GhostSpeaker.SAKURA)
+                    cursor = cursor.copy(scope = 0, speaker = GhostSpeaker.SAKURA)
                     if (previous == GhostSpeaker.KERO) {
-                        next = next.copy(presentation = next.presentation.withText(GhostSpeaker.SAKURA, ""))
+                        clearText(GhostSpeaker.SAKURA)
                     }
                 }
                 '1', 'u' -> {
-                    cursor = cursor.copy(speaker = GhostSpeaker.KERO)
-                    next = next.copy(presentation = next.presentation.withText(GhostSpeaker.KERO, ""))
+                    cursor = cursor.copy(scope = 1, speaker = GhostSpeaker.KERO)
+                    clearText(GhostSpeaker.KERO)
                 }
                 'p' -> {
                     val parsed = SakuraScriptCommandParser.parseScope(script, cursor.charIndex)
@@ -269,6 +326,7 @@ internal object SakuraScriptPlayer {
                         val oldSpeaker = cursor.speaker
                         cursor = cursor.copy(
                             charIndex = parsed.second,
+                            scope = parsed.first,
                             speaker = when (parsed.first) {
                                 0 -> GhostSpeaker.SAKURA
                                 1 -> GhostSpeaker.KERO
@@ -276,9 +334,9 @@ internal object SakuraScriptPlayer {
                             },
                         )
                         if (parsed.first == 0 && oldSpeaker == GhostSpeaker.KERO) {
-                            next = next.copy(presentation = next.presentation.withText(GhostSpeaker.SAKURA, ""))
+                            clearText(GhostSpeaker.SAKURA)
                         } else if (parsed.first == 1 && oldSpeaker == GhostSpeaker.SAKURA) {
-                            next = next.copy(presentation = next.presentation.withText(GhostSpeaker.KERO, ""))
+                            clearText(GhostSpeaker.KERO)
                         }
                     } else if (script.getOrNull(cursor.charIndex) == '[') {
                         cursor = cursor.copy(charIndex = resumeAfterMalformed(script, cursor.charIndex))
@@ -290,13 +348,13 @@ internal object SakuraScriptPlayer {
                         require(parsed.first.isNotEmpty())
                         cursor = cursor.copy(charIndex = parsed.second)
                         if (scope < 2) {
-                            next = next.copy(presentation = changeSurface(next.presentation, cursor.speaker, parsed.first))
+                            presentation = changeSurface(presentation, cursor.speaker, parsed.first)
                             val origin = RuntimeRequestOrigin.Playback(next.playbackToken + 1)
                             request = PlayerEffect.RequestShiori(
                                 origin,
                                 ShioriRequestIntent.event(
                                     "OnSurfaceChange",
-                                    listOf(next.presentation.sakura.surfaceId, next.presentation.kero.surfaceId),
+                                    listOf(presentation.sakura.surfaceId, presentation.kero.surfaceId),
                                 ),
                                 null,
                             )
@@ -310,8 +368,12 @@ internal object SakuraScriptPlayer {
                         require(parsed.first.isNotEmpty())
                         cursor = cursor.copy(charIndex = parsed.second)
                         if (scope < 2) {
-                            explicitCue = PlayerEffect.PresentationCue(cursor.speaker, RuntimeCueKind.ONE_SHOT, parsed.first)
-                            next = next.copy(presentation = next.presentation.copy(talkingAnimationEnabled = false))
+                            explicitCue = PlayerEffect.PresentationCue(
+                                presentation.surfaceIdentity(next.generation, cursor.speaker),
+                                RuntimeCueKind.ONE_SHOT,
+                                parsed.first,
+                            )
+                            presentation = presentation.copy(talkingAnimationEnabled = false)
                         }
                         scheduledDelay = WAIT_UNIT
                     }
@@ -320,9 +382,7 @@ internal object SakuraScriptPlayer {
                     val parsed = parseId(script, cursor.charIndex)
                     if (parsed != null) {
                         cursor = cursor.copy(charIndex = parsed.second)
-                        if (scope < 2) next = next.copy(
-                            presentation = next.presentation.withBalloon(cursor.speaker, parsed.first != "-1"),
-                        )
+                        if (scope < 2) setBalloon(cursor.speaker, parsed.first != "-1")
                         scheduledDelay = WAIT_UNIT
                     }
                 }
@@ -333,14 +393,10 @@ internal object SakuraScriptPlayer {
                 'n' -> {
                     val bracket = SakuraScriptCommandParser.readBracket(script, cursor.charIndex)
                     if (bracket != null) cursor = cursor.copy(charIndex = bracket.nextIndex)
-                    if (scope < 2) {
-                        next = next.copy(presentation = append(next.presentation, cursor, '\n'))
-                    }
+                    if (scope < 2) appendText(cursor, "\n")
                     scheduledDelay = WAIT_UNIT
                 }
-                'c' -> if (scope < 2) {
-                    next = next.copy(presentation = next.presentation.withText(cursor.speaker, ""))
-                }
+                'c' -> if (scope < 2) clearText(cursor.speaker)
                 '_' -> {
                     if (cursor.charIndex >= script.length) continue
                     val underscore = script[cursor.charIndex]
@@ -365,9 +421,7 @@ internal object SakuraScriptPlayer {
                             val parsed = parseId(script, cursor.charIndex)
                             if (parsed != null) {
                                 cursor = cursor.copy(charIndex = parsed.second)
-                                if (scope < 2) next = next.copy(
-                                    presentation = next.presentation.withBalloon(cursor.speaker, parsed.first != "-1"),
-                                )
+                                if (scope < 2) setBalloon(cursor.speaker, parsed.first != "-1")
                                 scheduledDelay = WAIT_UNIT
                             }
                         }
@@ -411,9 +465,7 @@ internal object SakuraScriptPlayer {
                         cursor = cursor.copy(charIndex = bracket.nextIndex)
                         val args = SakuraScriptCommandParser.splitArguments(bracket.value)
                         if (scope < 2 && args.size >= 2) {
-                            args.first().forEach { labelCharacter ->
-                                next = next.copy(presentation = append(next.presentation, cursor, labelCharacter))
-                            }
+                            appendText(cursor, args.first())
                             cursor = cursor.copy(wholeLine = true)
                         }
                     } else if (script.getOrNull(cursor.charIndex) == '[') {
@@ -441,19 +493,34 @@ internal object SakuraScriptPlayer {
 
         val nextTalkingFrameIndex = (cursor.renderedFrameIndex + 1) % 10
         cursor = cursor.copy(renderedFrameIndex = nextTalkingFrameIndex)
+        presentation = presentation.copy(
+            sakura = presentation.sakura.copy(
+                text = sakuraText.toString(),
+                balloonVisible = sakuraBalloonVisible,
+            ),
+            kero = presentation.kero.copy(
+                text = keroText.toString(),
+                balloonVisible = keroBalloonVisible,
+            ),
+            talkingAnimationEnabled = talkingFrame,
+        )
         next = next.copy(
             current = cursor,
             talkingFrameIndex = nextTalkingFrameIndex,
-            presentation = next.presentation.copy(talkingAnimationEnabled = talkingFrame),
+            presentation = presentation,
         )
         next = projectDialogue(next, startIndex, cursor.charIndex)
         val effects = mutableListOf<PlayerEffect>()
         explicitCue?.let(effects::add)
         if (talkingFrame) {
             GhostSpeaker.entries.filter { speaker ->
-                next.presentation.speaker(speaker).balloonVisible && explicitCue?.speaker != speaker
+                next.presentation.speaker(speaker).balloonVisible && explicitCue?.target?.speaker != speaker
             }.forEach { speaker ->
-                effects += PlayerEffect.PresentationCue(speaker, RuntimeCueKind.TALKING, null)
+                effects += PlayerEffect.PresentationCue(
+                    next.presentation.surfaceIdentity(next.generation, speaker),
+                    RuntimeCueKind.TALKING,
+                    null,
+                )
             }
         }
         request?.let(effects::add)
@@ -908,24 +975,6 @@ internal object SakuraScriptPlayer {
             }
     }
 
-    private fun append(
-        presentation: RuntimePresentation,
-        cursor: PlayerCursor,
-        character: Char,
-    ): RuntimePresentation {
-        val speakers = if (cursor.synchronizedSession) GhostSpeaker.entries else listOf(cursor.speaker)
-        return speakers.fold(presentation) { frame, speaker ->
-            val current = frame.speaker(speaker)
-            frame.withSpeaker(
-                speaker,
-                current.copy(
-                    text = current.text + character,
-                    balloonVisible = true,
-                ),
-            )
-        }
-    }
-
     private fun changeSurface(
         presentation: RuntimePresentation,
         speaker: GhostSpeaker,
@@ -946,6 +995,13 @@ internal object SakuraScriptPlayer {
         GhostSpeaker.KERO -> kero
     }
 
+    private fun RuntimePresentation.surfaceIdentity(
+        generation: Long,
+        speaker: GhostSpeaker,
+    ): RuntimeSurfaceIdentity = speaker(speaker).let { current ->
+        RuntimeSurfaceIdentity(generation, speaker, current.surfaceId, current.surfaceEpoch)
+    }
+
     private fun RuntimePresentation.withSpeaker(
         speaker: GhostSpeaker,
         value: RuntimeSpeakerPresentation,
@@ -953,19 +1009,6 @@ internal object SakuraScriptPlayer {
         GhostSpeaker.SAKURA -> copy(sakura = value)
         GhostSpeaker.KERO -> copy(kero = value)
     }
-
-    private fun RuntimePresentation.withText(speaker: GhostSpeaker, text: String): RuntimePresentation {
-        val current = speaker(speaker)
-        return withSpeaker(speaker, current.copy(text = text, balloonVisible = text.isNotEmpty()))
-    }
-
-    private fun RuntimePresentation.withBalloon(speaker: GhostSpeaker, visible: Boolean): RuntimePresentation =
-        withSpeaker(
-            speaker,
-            speaker(speaker).let { current ->
-                current.copy(balloonVisible = visible || current.text.isNotEmpty())
-            },
-        )
 
     private fun resetTransient(presentation: RuntimePresentation): RuntimePresentation = presentation.copy(
         sakura = presentation.sakura.copy(text = "", balloonVisible = false),
@@ -987,32 +1030,6 @@ internal object SakuraScriptPlayer {
     private fun inputDeadline(now: Long, timeout: Long?): Long {
         if (timeout == null || timeout <= 0L || now > Long.MAX_VALUE - timeout) return Long.MAX_VALUE
         return now + timeout
-    }
-
-    private fun scopeAt(script: String, throughExclusive: Int): Int {
-        var scope = 0
-        var index = 0
-        while (index < throughExclusive.coerceAtMost(script.length)) {
-            if (script[index++] != '\\' || index >= throughExclusive) continue
-            when (script[index++]) {
-                'h', '0' -> scope = 0
-                'u', '1' -> scope = 1
-                'p' -> SakuraScriptCommandParser.parseScope(script, index)?.let {
-                    scope = it.first
-                    index = it.second
-                }
-                '_' -> {
-                    if (index < throughExclusive) index++
-                    val bracket = SakuraScriptCommandParser.readBracket(script, index)
-                    if (bracket != null) index = bracket.nextIndex
-                }
-                else -> {
-                    val bracket = SakuraScriptCommandParser.readBracket(script, index)
-                    if (bracket != null) index = bracket.nextIndex
-                }
-            }
-        }
-        return scope
     }
 
     private fun parseId(script: String, index: Int): Pair<String, Int>? =

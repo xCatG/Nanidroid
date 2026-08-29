@@ -104,6 +104,24 @@ class RuntimeHostStateTest {
     }
 
     @Test
+    fun cuePayloadRetainsExactEmissionSurfaceIdentity() {
+        val host = lease(1L, 3L)
+        val target = RuntimeSurfaceIdentity(7L, GhostSpeaker.SAKURA, "12", 4L)
+        val focused = registerAndFocus(RuntimeHostState.empty(), host).state
+
+        val transition = RuntimeHostReducer.reduce(
+            focused,
+            RuntimeHostInput.Cue(
+                cueId = 9L,
+                payload = RuntimeCuePayload(target, RuntimeCueKind.ONE_SHOT, "3"),
+            ),
+        )
+
+        assertEquals(target, transition.state.cues.single().target)
+        assertEquals(host, transition.state.cues.single().hostLease)
+    }
+
+    @Test
     fun newerTopResumedFalseFencesAndRevokesAnOlderTopLease() {
         val old = lease(1L, 3L)
         val newer = lease(1L, 4L)
@@ -362,7 +380,11 @@ class RuntimeHostStateTest {
         state,
         RuntimeHostInput.Cue(
             cueId = id,
-            payload = RuntimeCuePayload(7L, GhostSpeaker.SAKURA, RuntimeCueKind.ONE_SHOT, "1"),
+            payload = RuntimeCuePayload(
+                RuntimeSurfaceIdentity(7L, GhostSpeaker.SAKURA, "0", 0L),
+                RuntimeCueKind.ONE_SHOT,
+                "1",
+            ),
         ),
     )
 
@@ -374,9 +396,8 @@ class RuntimeHostStateTest {
 
     private fun presentationCue(id: Long, host: RuntimeHostLease) = RuntimePresentationCue(
         cueId = id,
-        generation = 7L,
+        target = RuntimeSurfaceIdentity(7L, GhostSpeaker.SAKURA, "0", 0L),
         hostLease = host,
-        speaker = GhostSpeaker.SAKURA,
         kind = RuntimeCueKind.ONE_SHOT,
         animationId = "1",
     )

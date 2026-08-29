@@ -376,7 +376,7 @@ internal class GhostRuntime private constructor(
                 )
             }
             clockState = clockState.copy(
-                running = afterTop != null && generation != null,
+                running = afterTop != null && generation != null && phase == GhostRuntimePhase.Attached,
                 epoch = clockState.epoch + 1L,
                 lastSecondBucket = null,
                 lastMinuteBucket = null,
@@ -576,8 +576,7 @@ internal class GhostRuntime private constructor(
         parentState = (parentState as? SnapshotParentState.Switch)?.let { parent ->
             parent.copy(phase = SnapshotParentPhase.ATTACHING, phaseRevision = parent.phaseRevision + 1L)
         }
-        clockState = clockState.copy(running = hostState.topResumed != null)
-        scheduleClockIfRunning()
+        clockState = clockState.copy(running = false)
         applicationOnboardingProvider.claimScript().forEach { script ->
             val current = playerState ?: return@forEach
             consumePlayerTransition(SakuraScriptPlayer.reduce(current, PlayerCommand.Enqueue(script, null)))
@@ -599,7 +598,7 @@ internal class GhostRuntime private constructor(
     }
 
     private fun playbackDue(command: RuntimeCommand.PlaybackDue) {
-        if (phase == GhostRuntimePhase.Poisoned) return
+        if (phase == GhostRuntimePhase.Poisoned || phase == GhostRuntimePhase.Attaching) return
         val current = playerState ?: return
         if (command.generation != current.generation || command.token != current.playbackToken) return
         consumePlayerTransition(
@@ -1117,6 +1116,14 @@ internal class GhostRuntime private constructor(
             parentState = null
             modeRevision += 1L
         }
+        clockState = clockState.copy(
+            running = hostState.topResumed != null,
+            epoch = clockState.epoch + 1L,
+            lastSecondBucket = null,
+            lastMinuteBucket = null,
+        )
+        scheduleClockIfRunning()
+        resumeDeferredPlaybackIfReady()
     }
 
     private fun settlePlayableResponse(
@@ -1170,7 +1177,7 @@ internal class GhostRuntime private constructor(
         transition.effects.forEach { effect ->
             when (effect) {
                 is PlayerEffect.SchedulePlayback -> {
-                    if (hostState.playerBackpressured) {
+                    if (phase == GhostRuntimePhase.Attaching || hostState.playerBackpressured) {
                         deferredPlayback = effect
                     } else {
                         schedulePlayback(effect, transition.state.generation)
@@ -1181,8 +1188,7 @@ internal class GhostRuntime private constructor(
                         RuntimeHostInput.Cue(
                             nextCueId++,
                             com.cattailsw.nanidroid.runtime.RuntimeCuePayload(
-                                transition.state.generation,
-                                effect.speaker,
+                                effect.target,
                                 effect.kind,
                                 effect.animationId,
                             ),
@@ -1311,7 +1317,11 @@ internal class GhostRuntime private constructor(
     }
 
     private fun resumeDeferredPlaybackIfReady() {
-        if (hostState.playerBackpressured || deferredCues.isNotEmpty()) return
+        if (
+            phase == GhostRuntimePhase.Attaching ||
+            hostState.playerBackpressured ||
+            deferredCues.isNotEmpty()
+        ) return
         deferredPlayback?.let { schedulePlayback(it, playerState?.generation) }
         deferredPlayback = null
     }
@@ -1769,7 +1779,7 @@ internal class GhostRuntime private constructor(
 
     private fun scheduleClockIfRunning() {
         val activeGeneration = generation ?: return
-        if (!clockState.running) return
+        if (phase != GhostRuntimePhase.Attached || !clockState.running) return
         val key = com.cattailsw.nanidroid.runtime.RuntimeScheduleKey(
             activeGeneration,
             com.cattailsw.nanidroid.runtime.RuntimeScheduleKind.CLOCK,

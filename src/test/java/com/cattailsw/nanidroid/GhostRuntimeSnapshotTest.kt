@@ -304,19 +304,9 @@ class GhostRuntimeSnapshotTest {
 
     // Mutation caught: application onboarding is claimed after, or submitted as, a second native attachment request.
     @Test
-    fun localOnboardingIsQueuedBeforeTheSingleNativeAttachmentRequest() {
+    fun localOnboardingIsClaimedBeforeTheSingleNativeAttachmentRequest() {
         val root = File("build/runtime-snapshot/onboarding-order").canonicalFile
         val events = mutableListOf<String>()
-        val scheduler = object : ManualSnapshotRuntimeScheduler() {
-            override fun schedule(
-                key: com.cattailsw.nanidroid.runtime.RuntimeScheduleKey,
-                delayMillis: Long,
-                action: () -> Unit,
-            ) {
-                events += "queue"
-                super.schedule(key, delayMillis, action)
-            }
-        }
         val nativePort = object : RecordingRuntimeNativePort() {
             override fun request(
                 token: com.cattailsw.nanidroid.runtime.RuntimeRequestToken,
@@ -329,7 +319,6 @@ class GhostRuntimeSnapshotTest {
             }
         }
         SnapshotRuntimeFixture(
-            scheduler = scheduler,
             nativePort = nativePort,
             applicationOnboardingProvider = ApplicationOnboardingProvider {
                 events += "claim"
@@ -346,9 +335,46 @@ class GhostRuntimeSnapshotTest {
             fixture.drain()
             fixture.awaitNativeWork()
 
-            assertEquals(listOf("claim", "queue", "request"), events)
+            assertEquals(listOf("claim", "request"), events)
             assertEquals(1, fixture.nativePort.requests.size)
             assertTrue(fixture.nativePort.requests.single().intent.protocolText.contains("ID: OnFirstBoot\r\n"))
+        }
+    }
+
+    // Mutations caught: attaching schedules hidden onboarding playback or starts timer-native work.
+    @Test
+    fun unresolvedAttachmentDefersOnboardingPlaybackAndClockUntilAttached() {
+        val root = File("build/runtime-snapshot/onboarding-attachment-fence").canonicalFile
+        SnapshotRuntimeFixture(
+            applicationOnboardingProvider = ApplicationOnboardingProvider { listOf("\\hLOCAL\\e") },
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("onboarding-attachment-fence", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            fixture.makeTopHost(17L)
+            fixture.startLoaded("onboarding-attachment-fence", root)
+            fixture.awaitNativeWork()
+
+            assertEquals(1, fixture.nativePort.requests.size)
+            val attachment = fixture.nativePort.requests.remove()
+            assertEquals(GhostRuntimePhase.Attaching, fixture.runtime.snapshots.value.phase)
+            assertFalse(fixture.runtime.snapshots.value.clockRunning)
+            assertTrue(fixture.scheduler.scheduled().isEmpty())
+            fixture.scheduler.runAll()
+            fixture.drain()
+            assertEquals("", fixture.runtime.snapshots.value.presentation.sakura.text)
+            assertTrue(fixture.runtime.snapshots.value.dialogue.state.contents.isEmpty())
+            assertTrue(fixture.runtime.snapshots.value.cues.isEmpty())
+            assertTrue(fixture.nativePort.requests.isEmpty())
+
+            attachment.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
+            assertEquals("", fixture.runtime.snapshots.value.presentation.sakura.text)
+            assertTrue(fixture.runtime.snapshots.value.clockRunning)
+
+            fixture.runPlaybackUntil { it.presentation.sakura.text == "LOCAL" }
+            assertEquals("LOCAL", fixture.runtime.snapshots.value.presentation.sakura.text)
+            assertTrue(fixture.nativePort.requests.isEmpty())
         }
     }
 
@@ -375,6 +401,30 @@ class GhostRuntimeSnapshotTest {
         }
     }
 
+    // Mutation caught: 200 attachment content jumps ahead of the already-queued local onboarding.
+    @Test
+    fun attachmentContentPlaysAfterLocalOnboarding() {
+        val root = File("build/runtime-snapshot/onboarding-before-attachment-content").canonicalFile
+        SnapshotRuntimeFixture(
+            applicationOnboardingProvider = ApplicationOnboardingProvider { listOf("\\hLOCAL\\e") },
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("onboarding-before-attachment-content", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            fixture.startLoaded("onboarding-before-attachment-content", root)
+            fixture.awaitNativeWork()
+            fixture.nativePort.requests.remove().complete(
+                RuntimeResult.Success(TaggedShioriResponse(1L, response(200, "\\hGHOST\\e"))),
+            )
+            fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
+
+            fixture.runPlaybackUntil { it.presentation.sakura.text == "LOCAL" }
+            assertEquals("LOCAL", fixture.runtime.snapshots.value.presentation.sakura.text)
+            fixture.runPlaybackUntil { it.presentation.sakura.text == "GHOST" }
+            assertEquals("GHOST", fixture.runtime.snapshots.value.presentation.sakura.text)
+        }
+    }
+
     // Mutation caught: runtime reconstruction reclaims and requeues application onboarding.
     @Test
     fun secondRuntimeSharingClaimedOnboardingProviderDoesNotRequeue() {
@@ -395,10 +445,17 @@ class GhostRuntimeSnapshotTest {
         fixture().use { first ->
             first.startLoaded("onboarding-once", root)
             first.awaitNativeWork()
-            assertTrue(first.scheduler.scheduled().any {
+            assertTrue(first.scheduler.scheduled().none {
                 it.key.kind == com.cattailsw.nanidroid.runtime.RuntimeScheduleKind.PLAYBACK
             })
             assertEquals(1, first.nativePort.requests.size)
+            first.nativePort.requests.remove().complete(
+                RuntimeResult.Success(TaggedShioriResponse(1L, response(204))),
+            )
+            first.drainUntil { first.runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
+            assertTrue(first.scheduler.scheduled().any {
+                it.key.kind == com.cattailsw.nanidroid.runtime.RuntimeScheduleKind.PLAYBACK
+            })
         }
         fixture().use { second ->
             second.startLoaded("onboarding-once", root)
@@ -1907,14 +1964,14 @@ class GhostRuntimeSnapshotTest {
             }
             val firstWindow = fixture.runtime.snapshots.value.cues
             assertEquals(64, firstWindow.size)
-            assertEquals(GhostSpeaker.SAKURA, firstWindow.last().speaker)
+            assertEquals(GhostSpeaker.SAKURA, firstWindow.last().target.speaker)
             assertEquals(com.cattailsw.nanidroid.runtime.RuntimeCueKind.TALKING, firstWindow.last().kind)
             assertTrue(fixture.scheduler.scheduled().none { it.key.kind == RuntimeScheduleKind.PLAYBACK })
 
             fixture.runtime.submit(RuntimeCommand.AcknowledgeCues(top, firstWindow.last().cueId))
             fixture.drain()
             val overflow = fixture.runtime.snapshots.value.cues.single()
-            assertEquals(GhostSpeaker.KERO, overflow.speaker)
+            assertEquals(GhostSpeaker.KERO, overflow.target.speaker)
             assertEquals(com.cattailsw.nanidroid.runtime.RuntimeCueKind.TALKING, overflow.kind)
             assertEquals(firstWindow.last().cueId + 1L, overflow.cueId)
 

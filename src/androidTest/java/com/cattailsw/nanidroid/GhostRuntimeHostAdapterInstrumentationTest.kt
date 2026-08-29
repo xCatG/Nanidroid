@@ -148,6 +148,14 @@ class GhostRuntimeHostAdapterInstrumentationTest {
             fixture.awaitForeground(old.hostId)
             fixture.enqueueAndAdvance("\\i[old]\\e", cueCount = 1)
             val oldCue = fixture.runtime.snapshots.value.cues.single()
+            assertEquals(
+                fixture.runtime.snapshots.value.presentation.sakura.surfaceId,
+                oldCue.target.surfaceId,
+            )
+            assertEquals(
+                fixture.runtime.snapshots.value.presentation.sakura.surfaceEpoch,
+                oldCue.target.surfaceEpoch,
+            )
 
             oldScenario.onActivity { it.launchOverlappingHostForTesting() }
             val replacement = fixture.awaitReplacement(old.hostId)
