@@ -24,6 +24,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -346,6 +347,67 @@ class GhostRuntimeSnapshotTest {
         }
     }
 
+    @Test
+    fun fatalOnClosePreservesSameOneShotExitOperation() {
+        val root = File("build/runtime-snapshot/fatal-close").canonicalFile
+        fixtureFor("fatal-close", root).use { fixture ->
+            fixture.startAttached("fatal-close", root)
+            val top = fixture.makeTopHost(52L)
+            val before = fixture.runtime.snapshots.value
+            val back = RuntimeCommand.Back(1L, top, before.modeIdentity)
+            fixture.runtime.submit(back)
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val close = fixture.nativePort.requests.remove()
+            val operationId = requireNotNull(close.token.parentOperationId)
+
+            close.complete(RuntimeResult.Failure(RuntimeFailure.Fatal(IllegalStateException("fatal close"))))
+            fixture.drain()
+            assertEquals(GhostRuntimePhase.Poisoned, fixture.runtime.snapshots.value.phase)
+            assertEquals(operationId, fixture.runtime.snapshots.value.exit?.operationId)
+
+            fixture.runtime.submit(back)
+            fixture.drain()
+            assertEquals(operationId, fixture.runtime.snapshots.value.exit?.operationId)
+            assertTrue(fixture.nativePort.requests.isEmpty())
+        }
+    }
+
+    @Test
+    fun fatalExitOwnedPlaybackPreservesSameOneShotExitOperation() {
+        val root = File("build/runtime-snapshot/fatal-exit-playback").canonicalFile
+        fixtureFor("fatal-exit-playback", root).use { fixture ->
+            fixture.startAttached("fatal-exit-playback", root)
+            val top = fixture.makeTopHost(53L)
+            val before = fixture.runtime.snapshots.value
+            val back = RuntimeCommand.Back(1L, top, before.modeIdentity)
+            fixture.runtime.submit(back)
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val close = fixture.nativePort.requests.remove()
+            val operationId = requireNotNull(close.token.parentOperationId)
+            close.complete(
+                RuntimeResult.Success(TaggedShioriResponse(1L, response(200, "\\s[42]A\\e"))),
+            )
+            fixture.drain()
+            fixture.scheduler.runNext(RuntimeScheduleKind.PLAYBACK)
+            fixture.drain()
+            fixture.awaitNativeWork()
+
+            fixture.nativePort.requests.remove().complete(
+                RuntimeResult.Failure(RuntimeFailure.Fatal(IllegalStateException("fatal playback"))),
+            )
+            fixture.drain()
+            assertEquals(GhostRuntimePhase.Poisoned, fixture.runtime.snapshots.value.phase)
+            assertEquals(operationId, fixture.runtime.snapshots.value.exit?.operationId)
+
+            fixture.runtime.submit(back)
+            fixture.drain()
+            assertEquals(operationId, fixture.runtime.snapshots.value.exit?.operationId)
+            assertTrue(fixture.nativePort.requests.isEmpty())
+        }
+    }
+
     // Mutation caught: switch target preparation starts before outgoing unload is proven successful.
     @Test
     fun switchNoContentUnloadsBeforePreparingAndAttachesReplacementOnce() {
@@ -597,6 +659,219 @@ class GhostRuntimeSnapshotTest {
             assertEquals("RegisterHost", fixture.runtime.snapshotCommandTraceForTesting().last())
             release.countDown()
             thread.join(5_000L)
+        }
+    }
+
+    @Test
+    fun nullableBackCannotOrphanNativeOwnedLoadDuringBlockedCommit() {
+        val root = File("build/runtime-snapshot/native-owned-back").canonicalFile
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val persistence = blockingLastRunPersistence(entered, release)
+        SnapshotRuntimeFixture(
+            persistence = persistence,
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("native-owned-back", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            fixture.runtime.submit(RuntimeCommand.StartGhost("native-owned-back", root))
+            fixture.awaitNativeWork()
+            fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.drain()
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val blocked = fixture.runtime.snapshots.value
+
+            fixture.runtime.submit(
+                RuntimeCommand.Back(null, RuntimeHostLease(RuntimeHostId(0L), 0L), blocked.modeIdentity),
+            )
+            fixture.drain()
+            assertEquals(null, fixture.runtime.snapshots.value.exit)
+            assertEquals(blocked.pending, fixture.runtime.snapshots.value.pending)
+
+            release.countDown()
+            fixture.drainUntil { fixture.runtime.snapshots.value.generation == 1L }
+        }
+    }
+
+    @Test
+    fun closeCleansNativeOwnedLoadWhileCommitIsBlocked() {
+        val root = File("build/runtime-snapshot/native-owned-close").canonicalFile
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val fixture = SnapshotRuntimeFixture(
+            persistence = blockingLastRunPersistence(entered, release),
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("native-owned-close", root, null, null, File(root, "readme.txt")))
+            },
+        )
+        try {
+            fixture.runtime.submit(RuntimeCommand.StartGhost("native-owned-close", root))
+            fixture.awaitNativeWork()
+            fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.drain()
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+
+            fixture.close()
+            val cleanup = fixture.nativePort.unloads.single()
+            assertEquals(1L, cleanup.generation)
+            assertTrue(cleanup.invocationThreadName.startsWith("GhostRuntime-SnapshotNative"))
+        } finally {
+            release.countDown()
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun blockingThrowingCancelSerializesWithCloseAndCannotKillCoordination() {
+        val root = File("build/runtime-snapshot/cancel-close").canonicalFile
+        val scheduler = BlockingThrowingCancelRuntimeScheduler()
+        val fixture = SnapshotRuntimeFixture(
+            scheduler = scheduler,
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("cancel-close", root, null, null, File(root, "readme.txt")))
+            },
+        )
+        val coordinationFailure = AtomicReference<Throwable?>()
+        val closeFailure = AtomicReference<Throwable?>()
+        try {
+            fixture.startAttached("cancel-close", root)
+            val top = fixture.makeTopHost(66L)
+            scheduler.armed.set(true)
+            fixture.runtime.submit(RuntimeCommand.SetTopResumed(top.copy(hostEpoch = 4L), false))
+            val coordination = Thread {
+                runCatching { fixture.drain() }.exceptionOrNull()?.let(coordinationFailure::set)
+            }
+            coordination.start()
+            assertTrue(scheduler.cancelEntered.await(5, TimeUnit.SECONDS))
+            val closing = Thread {
+                runCatching { fixture.close() }.exceptionOrNull()?.let(closeFailure::set)
+            }
+            closing.start()
+            Thread.sleep(50L)
+            val closeWaitedForCancel = closing.isAlive
+            scheduler.cancelRelease.countDown()
+            coordination.join(5_000L)
+            closing.join(5_000L)
+
+            assertTrue("close did not serialize behind in-flight cancel", closeWaitedForCancel)
+            assertEquals(null, coordinationFailure.get())
+            assertEquals(null, closeFailure.get())
+        } finally {
+            scheduler.cancelRelease.countDown()
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun synchronousNativeThrowCompletesItsSequenceBeforeLaterResponse() {
+        val root = File("build/runtime-snapshot/native-throw").canonicalFile
+        val port = object : RecordingRuntimeNativePort() {
+            val throwNextPointer = AtomicBoolean(true)
+
+            override fun request(
+                token: com.cattailsw.nanidroid.runtime.RuntimeRequestToken,
+                intent: ShioriRequestIntent,
+                fallback: ShioriRequestIntent?,
+                complete: (RuntimeResult<TaggedShioriResponse>) -> Unit,
+            ) {
+                if (intent.protocolText.contains("ID: OnMouseClick\r\n") && throwNextPointer.compareAndSet(true, false)) {
+                    throw IllegalStateException("native request threw")
+                }
+                super.request(token, intent, fallback, complete)
+            }
+        }
+        SnapshotRuntimeFixture(
+            nativePort = port,
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("native-throw", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            fixture.startAttached("native-throw", root)
+            val top = fixture.makeTopHost(67L)
+            val effect = SurfaceInteractionEffect(
+                PointerEventKind.CLICK,
+                SurfaceSpeaker.SAKURA,
+                IntOffset(1, 2),
+                0,
+                PointerSource.TOUCH,
+                "head",
+                null,
+            )
+            val surface = RuntimeSurfaceIdentity(1L, GhostSpeaker.SAKURA, "0", 0L)
+            fixture.runtime.submit(RuntimeCommand.Pointer(1L, top, surface, effect))
+            fixture.runtime.submit(RuntimeCommand.Pointer(1L, top, surface, effect))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            port.requests.remove().complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            fixture.drain()
+
+            assertEquals(GhostRuntimePhase.Poisoned, fixture.runtime.snapshots.value.phase)
+            assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+            assertEquals("NativeResponseRejected", fixture.runtime.snapshotCommandTraceForTesting().last())
+        }
+    }
+
+    @Test
+    fun synchronousNativeLoadThrowReturnsFatalLifecycleCompletion() {
+        val root = File("build/runtime-snapshot/load-throw").canonicalFile
+        val port = object : RecordingRuntimeNativePort() {
+            override fun load(
+                operationId: Long,
+                generation: Long,
+                prepared: PreparedGhost,
+                complete: (RuntimeNativeLifecycleOutcome) -> Unit,
+            ) = throw IllegalStateException("native load threw")
+        }
+        SnapshotRuntimeFixture(
+            nativePort = port,
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("load-throw", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            fixture.runtime.submit(RuntimeCommand.StartGhost("load-throw", root))
+            fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Poisoned }
+
+            assertEquals(RuntimeNoticeCode.NATIVE_LOAD_FAILED, fixture.runtime.snapshots.value.notice?.code)
+            assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+        }
+    }
+
+    @Test
+    fun synchronousNativeUnloadThrowReturnsFatalLifecycleCompletion() {
+        val oldRoot = File("build/runtime-snapshot/unload-throw-old").canonicalFile
+        val newRoot = File("build/runtime-snapshot/unload-throw-new").canonicalFile
+        val port = object : RecordingRuntimeNativePort() {
+            val throwUnload = AtomicBoolean(false)
+
+            override fun unload(
+                operationId: Long,
+                generation: Long,
+                complete: (RuntimeNativeLifecycleOutcome) -> Unit,
+            ) {
+                if (throwUnload.get()) throw IllegalStateException("native unload threw")
+                super.unload(operationId, generation, complete)
+            }
+        }
+        SnapshotRuntimeFixture(
+            nativePort = port,
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(
+                    InstalledGhostMetadata("unload-throw-old", oldRoot, "Old", null, File(oldRoot, "readme.txt")),
+                    InstalledGhostMetadata("unload-throw-new", newRoot, "New", null, File(newRoot, "readme.txt")),
+                )
+            },
+        ).use { fixture ->
+            fixture.startAttached("unload-throw-old", oldRoot)
+            val top = fixture.makeTopHost(68L)
+            val before = fixture.runtime.snapshots.value
+            port.throwUnload.set(true)
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, before.modeIdentity, "unload-throw-new"))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            port.requests.remove().complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Poisoned }
+
+            assertEquals(RuntimeNoticeCode.NATIVE_UNLOAD_FAILED, fixture.runtime.snapshots.value.notice?.code)
         }
     }
 
@@ -987,6 +1262,19 @@ class GhostRuntimeSnapshotTest {
             listOf(InstalledGhostMetadata(id, root, null, null, File(root, "readme.txt")))
         },
     )
+
+    private fun blockingLastRunPersistence(
+        entered: CountDownLatch,
+        release: CountDownLatch,
+    ): GhostRuntimePersistence = object : GhostRuntimePersistence {
+        override fun readLastRunGhostId(): String? = null
+        override fun commitLastRunGhostId(ghostId: String) {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+        }
+        override fun readActivationCount(ghostId: String) = 0L
+        override fun commitActivationCount(ghostId: String, count: Long) = Unit
+    }
 
     private fun response(status: Int, value: String? = null): ShioriResponse = ShioriResponse(
         "SHIORI/3.0 $status ${if (status == 200) "OK" else "No Content"}",

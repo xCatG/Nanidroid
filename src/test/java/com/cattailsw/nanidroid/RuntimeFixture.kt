@@ -107,7 +107,7 @@ internal class ManualRuntimeCommandDispatcher : RuntimeCommandDispatcher {
     }
 }
 
-internal class ManualSnapshotRuntimeScheduler : RuntimeScheduler {
+internal open class ManualSnapshotRuntimeScheduler : RuntimeScheduler {
     data class Scheduled(
         val key: RuntimeScheduleKey,
         val delayMillis: Long,
@@ -139,6 +139,19 @@ internal class ManualSnapshotRuntimeScheduler : RuntimeScheduler {
     override fun close() = pending.clear()
 }
 
+internal class BlockingThrowingCancelRuntimeScheduler : ManualSnapshotRuntimeScheduler() {
+    val cancelEntered = java.util.concurrent.CountDownLatch(1)
+    val cancelRelease = java.util.concurrent.CountDownLatch(1)
+    val armed = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    override fun cancel(key: RuntimeScheduleKey) {
+        if (!armed.get()) return super.cancel(key)
+        cancelEntered.countDown()
+        check(cancelRelease.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        throw IllegalStateException("cancel failed")
+    }
+}
+
 internal open class RecordingRuntimeNativePort : RuntimeNativePort {
     data class PendingLoad(
         val operationId: Long,
@@ -157,6 +170,7 @@ internal open class RecordingRuntimeNativePort : RuntimeNativePort {
     data class PendingUnload(
         val operationId: Long,
         val generation: Long,
+        val invocationThreadName: String,
         val complete: (RuntimeNativeLifecycleOutcome) -> Unit,
     )
 
@@ -187,7 +201,7 @@ internal open class RecordingRuntimeNativePort : RuntimeNativePort {
         generation: Long,
         complete: (RuntimeNativeLifecycleOutcome) -> Unit,
     ) {
-        unloads += PendingUnload(operationId, generation, complete)
+        unloads += PendingUnload(operationId, generation, Thread.currentThread().name, complete)
     }
 }
 
