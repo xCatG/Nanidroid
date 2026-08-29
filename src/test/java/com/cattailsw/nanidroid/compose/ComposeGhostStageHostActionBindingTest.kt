@@ -18,6 +18,7 @@ import com.cattailsw.nanidroid.runtime.RuntimeDialogueSnapshot
 import com.cattailsw.nanidroid.runtime.RuntimeSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Test
 
@@ -105,7 +106,7 @@ class ComposeGhostStageHostActionBindingTest {
     }
 
     @Test
-    fun equalCrossSpeakerActionsRetainTheirExactRuntimeKeys() {
+    fun equalButNonidenticalActionsCannotAcquireRuntimeKeys() {
         val sakuraChoice = DialogueAction.Normal("Same", "same", emptyList())
         val keroChoice = DialogueAction.Normal("Same", "same", emptyList())
         val sakuraAnchor = AnchorAction.Normal("Same", "same", emptyList())
@@ -130,9 +131,9 @@ class ComposeGhostStageHostActionBindingTest {
             RuntimeAnchorAction::action,
         )
 
-        assertEquals(3L, choiceBindings[sakuraChoice]?.key?.actionId)
-        assertEquals(4L, choiceBindings[keroChoice]?.key?.actionId)
-        assertEquals(5L, anchorBindings[sakuraAnchor]?.key?.actionId)
-        assertEquals(6L, anchorBindings[keroAnchor]?.key?.actionId)
+        assertNull(choiceBindings[sakuraChoice])
+        assertNull(choiceBindings[keroChoice])
+        assertNull(anchorBindings[sakuraAnchor])
+        assertNull(anchorBindings[keroAnchor])
     }
 }

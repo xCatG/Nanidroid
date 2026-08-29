@@ -428,7 +428,7 @@ private fun frozenDialogue(source: RuntimeDialogueSnapshot): RuntimeDialogueSnap
 private fun frozenDialogueState(source: DialogueRuntimeState): DialogueRuntimeState =
     DialogueGraphFreezer().freezeState(source)
 
-private class DialogueGraphFreezer {
+internal class DialogueGraphFreezer {
     private val dialogueActions = IdentityHashMap<DialogueAction, DialogueAction>()
     private val anchorActions = IdentityHashMap<AnchorAction, AnchorAction>()
     private val inputSpecs = IdentityHashMap<InputBoxSpec, InputBoxSpec>()
@@ -451,6 +451,9 @@ private class DialogueGraphFreezer {
         pendingInput = source.pendingInput?.let(::freezePendingInput),
     )
 
+    fun freezeContents(source: List<DialogueContent>): List<DialogueContent> =
+        frozenList(source.map(::freezeContent))
+
     private fun freezeContent(source: DialogueContent): DialogueContent = source.copy(
         segments = frozenList(source.segments.map(::freezeSegment)),
     )
@@ -462,7 +465,7 @@ private class DialogueGraphFreezer {
         else -> source
     }
 
-    private fun freezeDialogueAction(source: DialogueAction): DialogueAction =
+    fun freezeDialogueAction(source: DialogueAction): DialogueAction =
         dialogueActions.getOrPut(source) {
             when (source) {
                 is DialogueAction.Normal -> source.copy(extraReferences = frozenList(source.extraReferences))
@@ -471,7 +474,7 @@ private class DialogueGraphFreezer {
             }
         }
 
-    private fun freezeAnchorAction(source: AnchorAction): AnchorAction =
+    fun freezeAnchorAction(source: AnchorAction): AnchorAction =
         anchorActions.getOrPut(source) {
             when (source) {
                 is AnchorAction.Normal -> source.copy(extraReferences = frozenList(source.extraReferences))
@@ -479,10 +482,10 @@ private class DialogueGraphFreezer {
             }
         }
 
-    private fun freezePendingInput(source: PendingInputState): PendingInputState =
+    fun freezePendingInput(source: PendingInputState): PendingInputState =
         pendingInputs.getOrPut(source) { source.copy(spec = freezeInputSpec(source.spec)) }
 
-    private fun freezeInputSpec(source: InputBoxSpec): InputBoxSpec = inputSpecs.getOrPut(source) {
+    fun freezeInputSpec(source: InputBoxSpec): InputBoxSpec = inputSpecs.getOrPut(source) {
         source.copy(
             dispatch = when (val dispatch = source.dispatch) {
                 is InputDispatch.Normal -> dispatch.copy()

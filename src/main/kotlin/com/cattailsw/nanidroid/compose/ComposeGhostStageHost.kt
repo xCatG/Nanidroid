@@ -243,7 +243,7 @@ internal class ComposeGhostStageHost private constructor(
             onDialogueExternalUrl = onDialogueExternalUrl,
             onDialogueInput = { segment ->
                 snapshot.dialogue.input
-                    ?.takeIf { it.pending.spec == segment.spec }
+                    ?.takeIf { it.pending.spec === segment.spec }
                     ?.let(onDialogueInputDraft)
             },
             sakuraSurface = { snapshot ->
@@ -481,6 +481,6 @@ internal fun <A : Any, B : Any> identityActionBindings(
     bindingAction: (B) -> A,
 ): IdentityHashMap<A, B> = IdentityHashMap<A, B>().apply {
     sourceActions.zip(bindings).forEach { (source, binding) ->
-        if (source == bindingAction(binding)) put(source, binding)
+        if (source === bindingAction(binding)) put(source, binding)
     }
 }

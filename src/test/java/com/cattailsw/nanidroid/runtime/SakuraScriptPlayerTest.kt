@@ -2,15 +2,20 @@ package com.cattailsw.nanidroid.runtime
 
 import com.cattailsw.nanidroid.ShioriRequestIntent
 import com.cattailsw.nanidroid.ShioriResponse
+import com.cattailsw.nanidroid.compose.identityActionBindings
 import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueActionKey
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueSpeakerOwnership
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
+import com.cattailsw.nanidroid.runtime.dialogue.RuntimeChoiceAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -518,6 +523,69 @@ class SakuraScriptPlayerTest {
                 .flatMap { it.segments }.filterIsInstance<DialogueSegment.Choice>()
                 .map { it.action.label() },
         )
+    }
+
+    // Mutation caught: revealed and runtime projections independently reparse or freeze equal choices.
+    @Test
+    fun duplicateEqualChoicesShareCanonicalIdentityThroughPlayerAndRuntimeSnapshot() {
+        val shown = drive(
+            "\\h\\q[Same,same]\\u\\q[Same,same]\\e",
+            stopOnAction = true,
+        ).state
+        val runtimeChoices = shown.dialogue.choices
+        val sakuraContentChoice = shown.dialogue.state.contents
+            .single { it.speaker == GhostSpeaker.SAKURA }
+            .segments.filterIsInstance<DialogueSegment.Choice>().single().action
+        val keroContentChoice = shown.dialogue.state.contents
+            .single { it.speaker == GhostSpeaker.KERO }
+            .segments.filterIsInstance<DialogueSegment.Choice>().single().action
+
+        assertEquals(listOf(1L, 2L), runtimeChoices.map { it.key.actionId })
+        assertNotSame(runtimeChoices[0].action, runtimeChoices[1].action)
+        assertSame(runtimeChoices[0].action, sakuraContentChoice)
+        assertSame(runtimeChoices[1].action, keroContentChoice)
+        assertSame(runtimeChoices[0].action, shown.dialogue.state.pendingChoices[0])
+        assertSame(runtimeChoices[1].action, shown.dialogue.state.pendingChoices[1])
+
+        val frozen = RuntimeSnapshot.freeze(
+            RuntimeSnapshot.initial().copy(
+                generation = shown.generation,
+                dialogue = shown.dialogue,
+            ),
+        )
+        val ownership = DialogueSpeakerOwnership.from(frozen.dialogue.state)
+        val sakuraPending = ownership.pendingChoices(GhostSpeaker.SAKURA).single()
+        val keroPending = ownership.pendingChoices(GhostSpeaker.KERO).single()
+        val bindings = identityActionBindings(
+            frozen.dialogue.state.pendingChoices,
+            frozen.dialogue.choices,
+            RuntimeChoiceAction::action,
+        )
+
+        assertSame(frozen.dialogue.choices[0].action, sakuraPending)
+        assertSame(frozen.dialogue.choices[1].action, keroPending)
+        assertEquals(1L, bindings[sakuraPending]?.key?.actionId)
+        assertEquals(2L, bindings[keroPending]?.key?.actionId)
+    }
+
+    // Mutation caught: adjacent revealed anchors and inputs lose their authored instances at projection/freezing.
+    @Test
+    fun revealedAnchorAndInputShareCanonicalIdentityAcrossPlayerProjections() {
+        val shown = drive(
+            "\\h\\_a[anchor-id]Link\\_a\\u\\![open,inputbox,input-id]",
+            stopOnAction = true,
+        ).state
+        val contentAnchor = shown.dialogue.state.contents
+            .single { it.speaker == GhostSpeaker.SAKURA }
+            .segments.filterIsInstance<DialogueSegment.Anchor>().single().action
+        val contentInput = shown.dialogue.state.contents
+            .single { it.speaker == GhostSpeaker.KERO }
+            .segments.filterIsInstance<DialogueSegment.InputBox>().single().spec
+
+        assertSame(shown.dialogue.anchors.single().action, contentAnchor)
+        assertSame(shown.dialogue.input?.pending?.spec, contentInput)
+        assertSame(shown.dialogue.state.pendingInput?.spec, contentInput)
+        assertSame(shown.dialogue.input?.pending, shown.dialogue.state.pendingInput)
     }
 
     // Mutation caught: a local-script choice calls SHIORI or leaves sibling choices claimable.

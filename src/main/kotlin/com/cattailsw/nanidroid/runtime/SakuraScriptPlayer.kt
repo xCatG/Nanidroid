@@ -26,6 +26,7 @@ internal data class PlayerPayload(
 
 internal data class PlayerCursor(
     val payload: PlayerPayload,
+    val authoredDialogue: AuthoredDialogueScript,
     val charIndex: Int,
     val adoptedElapsedMillis: Long,
     val speaker: GhostSpeaker,
@@ -34,6 +35,25 @@ internal data class PlayerCursor(
     val quickSession: Boolean,
     val synchronizedSession: Boolean,
     val renderedFrameIndex: Int,
+)
+
+internal data class AuthoredDialogueScript(
+    val contents: List<DialogueContent>,
+    val markers: List<ActionMarker>,
+)
+
+internal enum class ActionKind { CHOICE, ANCHOR, INPUT }
+
+internal data class ActionMarker(
+    val sourceEnd: Int,
+    val kind: ActionKind,
+    val value: Any,
+)
+
+internal data class PendingInputSeed(
+    val spec: InputBoxSpec,
+    val timeoutMillis: Long?,
+    val speaker: GhostSpeaker,
 )
 
 internal data class PlayerState(
@@ -169,7 +189,8 @@ internal object SakuraScriptPlayer {
         elapsedMillis: Long,
     ): PlayerState {
         val payload = state.queue.first()
-        val markers = actionMarkers(payload.script)
+        val authoredDialogue = authoredDialogue(payload.script)
+        val markers = authoredDialogue.markers
         val nextDialogue = state.dialogue.copy(
             state = DialogueRuntimeState(
                 revision = state.dialogue.state.revision + 1,
@@ -187,6 +208,7 @@ internal object SakuraScriptPlayer {
             queue = state.queue.drop(1),
             current = PlayerCursor(
                 payload = payload,
+                authoredDialogue = authoredDialogue,
                 charIndex = 0,
                 adoptedElapsedMillis = elapsedMillis,
                 speaker = GhostSpeaker.SAKURA,
@@ -698,15 +720,13 @@ internal object SakuraScriptPlayer {
         throughIndex: Int,
     ): PlayerState {
         val cursor = state.current ?: return state
-        val markers = actionMarkers(cursor.payload.script)
+        val authored = cursor.authoredDialogue
+        val markers = authored.markers
         val baseActionId = state.nextActionId - markers.size
         val revealed = SakuraScriptTokenizer.tokenizeRevealed(
             cursor.payload.script.take(throughIndex.coerceIn(0, cursor.payload.script.length)),
         )
-        // The tokenizer preserves source action values inside each speaker's content.
-        // Stable identity is carried by DialogueActionKey, so regrouping those values here
-        // would only risk swapping alternating-speaker actions.
-        val mapped = revealed
+        val mapped = projectRevealed(authored, revealed)
         val visible = visibleSegments(mapped)
         val visibleChoices = visible.filterIsInstance<DialogueSegment.Choice>().map(DialogueSegment.Choice::action)
         val visibleAnchors = visible.filterIsInstance<DialogueSegment.Anchor>().map(DialogueSegment.Anchor::action)
@@ -718,12 +738,12 @@ internal object SakuraScriptPlayer {
             (marker.value as? DialogueAction)?.let {
                 RuntimeChoiceAction(DialogueActionKey(state.generation, incarnation, baseActionId + index), it)
             }
-        }).filter { candidate -> visibleChoices.any { it == candidate.action } }
+        }).filter { candidate -> visibleChoices.any { it === candidate.action } }
         val anchors = (state.dialogue.anchors + crossed.mapNotNull { (index, marker) ->
             (marker.value as? AnchorAction)?.let {
                 RuntimeAnchorAction(DialogueActionKey(state.generation, incarnation, baseActionId + index), it)
             }
-        }).filter { candidate -> visibleAnchors.any { it == candidate.action } }
+        }).filter { candidate -> visibleAnchors.any { it === candidate.action } }
         val existingInput = state.dialogue.input
         val input = existingInput ?: crossed.firstNotNullOfOrNull { (index, marker) ->
             val pending = marker.value as? PendingInputSeed ?: return@firstNotNullOfOrNull null
@@ -753,10 +773,14 @@ internal object SakuraScriptPlayer {
         )
     }
 
-    private fun actionMarkers(script: String): List<ActionMarker> {
-        val choices = SakuraScriptTokenizer.tokenizeWithInteractions(script).interactions
+    private fun authoredDialogue(script: String): AuthoredDialogueScript {
+        val tokenization = SakuraScriptTokenizer.tokenizeWithInteractions(script)
+        val choices = tokenization.interactions
             .map { ActionMarker(it.sourceEnd, ActionKind.CHOICE, it.action) }
         val others = mutableListOf<ActionMarker>()
+        val authoredBySpeaker = tokenization.contents.associateBy(DialogueContent::speaker)
+        val nextAnchor = GhostSpeaker.entries.associateWith { 0 }.toMutableMap()
+        val nextInput = GhostSpeaker.entries.associateWith { 0 }.toMutableMap()
         var index = 0
         var speaker = GhostSpeaker.SAKURA
         var scope = 0
@@ -781,10 +805,17 @@ internal object SakuraScriptPlayer {
                                 .asSequence().flatMap { it.segments.asSequence() }
                                 .filterIsInstance<DialogueSegment.InputBox>().lastOrNull()
                             input?.let {
+                                val inputIndex = nextInput.getValue(speaker)
+                                val canonical = authoredBySpeaker[speaker]?.segments
+                                    ?.filterIsInstance<DialogueSegment.InputBox>()
+                                    ?.getOrNull(inputIndex)
+                                    ?.spec
+                                    ?: it.spec
+                                nextInput[speaker] = inputIndex + 1
                                 others += ActionMarker(
                                     index,
                                     ActionKind.INPUT,
-                                    PendingInputSeed(it.spec, it.spec.timeoutMillis, speaker),
+                                    PendingInputSeed(canonical, canonical.timeoutMillis, speaker),
                                 )
                             }
                         }
@@ -802,7 +833,16 @@ internal object SakuraScriptPlayer {
                                 val anchor = SakuraScriptTokenizer.tokenize(prefix + script.substring(start, index))
                                     .asSequence().flatMap { it.segments.asSequence() }
                                     .filterIsInstance<DialogueSegment.Anchor>().lastOrNull()
-                                anchor?.let { others += ActionMarker(index, ActionKind.ANCHOR, it.action) }
+                                anchor?.let {
+                                    val anchorIndex = nextAnchor.getValue(speaker)
+                                    val canonical = authoredBySpeaker[speaker]?.segments
+                                        ?.filterIsInstance<DialogueSegment.Anchor>()
+                                        ?.getOrNull(anchorIndex)
+                                        ?.action
+                                        ?: it.action
+                                    nextAnchor[speaker] = anchorIndex + 1
+                                    others += ActionMarker(index, ActionKind.ANCHOR, canonical)
+                                }
                             }
                         } else index = bracket.nextIndex
                     }
@@ -816,7 +856,42 @@ internal object SakuraScriptPlayer {
                 }
             }
         }
-        return (choices + others).sortedBy(ActionMarker::sourceEnd)
+        return AuthoredDialogueScript(
+            contents = tokenization.contents,
+            markers = (choices + others).sortedBy(ActionMarker::sourceEnd),
+        )
+    }
+
+    private fun projectRevealed(
+        authored: AuthoredDialogueScript,
+        revealed: List<DialogueContent>,
+    ): List<DialogueContent> {
+        val authoredBySpeaker = authored.contents.associateBy(DialogueContent::speaker)
+        return revealed.map { content ->
+            val authoredSegments = authoredBySpeaker[content.speaker]?.segments.orEmpty()
+            var choiceIndex = 0
+            var anchorIndex = 0
+            var inputIndex = 0
+            content.copy(
+                segments = content.segments.map { segment ->
+                    when (segment) {
+                        is DialogueSegment.Choice -> DialogueSegment.Choice(
+                            authoredSegments.filterIsInstance<DialogueSegment.Choice>()
+                                .getOrNull(choiceIndex++)?.action ?: segment.action,
+                        )
+                        is DialogueSegment.Anchor -> DialogueSegment.Anchor(
+                            authoredSegments.filterIsInstance<DialogueSegment.Anchor>()
+                                .getOrNull(anchorIndex++)?.action ?: segment.action,
+                        )
+                        is DialogueSegment.InputBox -> DialogueSegment.InputBox(
+                            authoredSegments.filterIsInstance<DialogueSegment.InputBox>()
+                                .getOrNull(inputIndex++)?.spec ?: segment.spec,
+                        )
+                        else -> segment
+                    }
+                },
+            )
+        }
     }
 
     private fun visibleSegments(contents: List<DialogueContent>): List<DialogueSegment> = GhostSpeaker.entries.flatMap { speaker ->
@@ -981,13 +1056,6 @@ internal object SakuraScriptPlayer {
         is PlayerParent.Exit -> operationId
     }
 
-    private enum class ActionKind { CHOICE, ANCHOR, INPUT }
-    private data class ActionMarker(val sourceEnd: Int, val kind: ActionKind, val value: Any)
-    private data class PendingInputSeed(
-        val spec: com.cattailsw.nanidroid.runtime.dialogue.InputBoxSpec,
-        val timeoutMillis: Long?,
-        val speaker: GhostSpeaker,
-    )
 }
 
 private fun PlayerTransition.frozen(): PlayerTransition = PlayerTransition(
@@ -995,60 +1063,31 @@ private fun PlayerTransition.frozen(): PlayerTransition = PlayerTransition(
     effects = immutableList(effects),
 )
 
-private fun freeze(state: PlayerState): PlayerState = state.copy(
-    queue = immutableList(state.queue.map { it.copy() }),
-    current = state.current?.copy(payload = state.current.payload.copy()),
-    dialogue = state.dialogue.copy(
-        state = state.dialogue.state.copy(
-            contents = immutableList(state.dialogue.state.contents.map { content ->
-                content.copy(segments = immutableList(content.segments.map(::freezeSegment)))
-            }),
-            pendingChoices = immutableList(state.dialogue.state.pendingChoices.map(::freezeChoice)),
-            pendingInput = state.dialogue.state.pendingInput?.let(::freezePending),
-        ),
-        choices = immutableList(state.dialogue.choices.map {
-            it.copy(key = it.key.copy(), action = freezeChoice(it.action))
-        }),
-        anchors = immutableList(state.dialogue.anchors.map {
-            it.copy(key = it.key.copy(), action = freezeAnchor(it.action))
-        }),
-        input = state.dialogue.input?.let {
-            it.copy(key = it.key.copy(), pending = freezePending(it.pending))
+private fun freeze(state: PlayerState): PlayerState {
+    val freezer = DialogueGraphFreezer()
+    return state.copy(
+        queue = immutableList(state.queue.map { it.copy() }),
+        current = state.current?.let { cursor ->
+            cursor.copy(
+                payload = cursor.payload.copy(),
+                authoredDialogue = cursor.authoredDialogue.copy(
+                    contents = freezer.freezeContents(cursor.authoredDialogue.contents),
+                    markers = immutableList(cursor.authoredDialogue.markers.map { marker ->
+                        marker.copy(
+                            value = when (val value = marker.value) {
+                                is DialogueAction -> freezer.freezeDialogueAction(value)
+                                is AnchorAction -> freezer.freezeAnchorAction(value)
+                                is PendingInputSeed -> value.copy(spec = freezer.freezeInputSpec(value.spec))
+                                else -> value
+                            },
+                        )
+                    }),
+                ),
+            )
         },
-    ),
-)
-
-private fun freezeSegment(segment: DialogueSegment): DialogueSegment = when (segment) {
-    is DialogueSegment.Choice -> segment.copy(action = freezeChoice(segment.action))
-    is DialogueSegment.Anchor -> segment.copy(action = freezeAnchor(segment.action))
-    is DialogueSegment.InputBox -> segment.copy(spec = freezeInputSpec(segment.spec))
-    else -> segment
+        dialogue = freezer.freeze(state.dialogue),
+    )
 }
-
-private fun freezeChoice(action: DialogueAction): DialogueAction = when (action) {
-    is DialogueAction.Normal -> action.copy(extraReferences = immutableList(action.extraReferences))
-    is DialogueAction.DirectEvent -> action.copy(references = immutableList(action.references))
-    is DialogueAction.Script -> action.copy()
-}
-
-private fun freezeAnchor(action: AnchorAction): AnchorAction = when (action) {
-    is AnchorAction.Normal -> action.copy(extraReferences = immutableList(action.extraReferences))
-    is AnchorAction.DirectEvent -> action.copy(references = immutableList(action.references))
-}
-
-private fun freezePending(pending: PendingInputState): PendingInputState =
-    pending.copy(spec = freezeInputSpec(pending.spec))
-
-private fun freezeInputSpec(spec: InputBoxSpec): InputBoxSpec = spec.copy(
-    dispatch = when (val dispatch = spec.dispatch) {
-        is InputDispatch.Normal -> dispatch.copy()
-        is InputDispatch.DirectEvent -> dispatch.copy()
-    },
-    behaviorOptions = Collections.unmodifiableSet(LinkedHashSet(spec.behaviorOptions)),
-    presentation = spec.presentation.copy(),
-    extraReferences = immutableList(spec.extraReferences),
-    unknownOptions = immutableList(spec.unknownOptions),
-)
 
 private fun <T> immutableList(values: Collection<T>): List<T> =
     Collections.unmodifiableList(ArrayList(values))
