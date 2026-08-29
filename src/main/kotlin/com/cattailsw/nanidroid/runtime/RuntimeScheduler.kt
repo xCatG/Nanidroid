@@ -40,7 +40,7 @@ internal class SerializedRuntimeCommandDispatcher : RuntimeCommandDispatcher {
     }
 
     override fun dispatch(action: () -> Unit) {
-        check(commands.trySend(action).isSuccess) { "Runtime coordination dispatcher is closed" }
+        commands.trySend(action)
     }
 
     override fun close() {

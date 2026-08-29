@@ -86,7 +86,7 @@ internal class ManualRuntimeCommandDispatcher : RuntimeCommandDispatcher {
     private var closed = false
 
     override fun dispatch(action: () -> Unit) {
-        check(!closed)
+        if (closed) return
         pending += action
     }
 
@@ -215,21 +215,24 @@ internal class SnapshotRuntimeFixture(
     val dispatcher: ManualRuntimeCommandDispatcher = ManualRuntimeCommandDispatcher(),
     val scheduler: ManualSnapshotRuntimeScheduler = ManualSnapshotRuntimeScheduler(),
     val nativePort: RecordingRuntimeNativePort = RecordingRuntimeNativePort(),
+    persistence: GhostRuntimePersistence = InMemoryGhostRuntimePersistence(),
     catalogScanner: RuntimeCatalogScanner = RuntimeCatalogScanner { emptyList() },
     preparer: GhostPreparer = scriptedPreparer(),
     elapsedRealtimeMillis: () -> Long = { 0L },
+    canonicalizeRoot: (File) -> File = File::getCanonicalFile,
     awaitInitialCatalog: Boolean = true,
 ) : AutoCloseable {
     val runtime = GhostRuntime.testRuntime(
         context = null,
         preparer = preparer,
-        persistence = InMemoryGhostRuntimePersistence(),
+        persistence = persistence,
         ownershipMode = RuntimeOwnershipMode.SNAPSHOT_CORE_TEST,
         nativePort = nativePort,
         runtimeScheduler = scheduler,
         coordinationDispatcher = dispatcher,
         catalogScanner = catalogScanner,
         elapsedRealtimeMillis = elapsedRealtimeMillis,
+        canonicalizeRoot = canonicalizeRoot,
     )
 
     init {
@@ -244,6 +247,15 @@ internal class SnapshotRuntimeFixture(
     }
 
     fun drain(): Int = dispatcher.drain()
+
+    fun drainUntil(timeoutMillis: Long = 5_000L, predicate: () -> Boolean) {
+        val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
+        while (!predicate()) {
+            dispatcher.drain()
+            if (System.nanoTime() >= deadline) throw AssertionError("coordination condition did not settle")
+            Thread.yield()
+        }
+    }
 
     fun awaitNativeWork(timeoutMillis: Long = 5_000L) {
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
@@ -272,7 +284,7 @@ internal class SnapshotRuntimeFixture(
                 ),
             ),
         )
-        dispatcher.drain()
+        drainUntil { runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
     }
 
     fun makeTopHost(hostId: Long): com.cattailsw.nanidroid.runtime.RuntimeHostLease {

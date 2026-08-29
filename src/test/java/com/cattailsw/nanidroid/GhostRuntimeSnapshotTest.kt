@@ -8,6 +8,7 @@ import com.cattailsw.nanidroid.runtime.RuntimeGhostMetadata
 import com.cattailsw.nanidroid.runtime.RuntimeHostId
 import com.cattailsw.nanidroid.runtime.RuntimeHostLease
 import com.cattailsw.nanidroid.runtime.RuntimeNativeLifecycleOutcome
+import com.cattailsw.nanidroid.runtime.RuntimeNoticeCode
 import com.cattailsw.nanidroid.runtime.RuntimeScheduleKind
 import com.cattailsw.nanidroid.runtime.RuntimeSurfaceIdentity
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
@@ -21,6 +22,7 @@ import java.io.File
 import java.util.Hashtable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -104,6 +106,7 @@ class GhostRuntimeSnapshotTest {
             fixture.awaitNativeWork()
             fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
             fixture.drain()
+            fixture.drainUntil { fixture.runtime.snapshots.value.generation != null }
             val before = fixture.runtime.snapshots.value
 
             fixture.runtime.submit(
@@ -239,7 +242,7 @@ class GhostRuntimeSnapshotTest {
             assertEquals(GhostRuntimePhase.Attaching, fixture.runtime.snapshots.value.phase)
 
             fixture.drain()
-            assertEquals(GhostRuntimePhase.Attached, fixture.runtime.snapshots.value.phase)
+            fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
             assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
         }
     }
@@ -298,6 +301,11 @@ class GhostRuntimeSnapshotTest {
                 listOf("OnSecondChange", "OnMinuteChange"),
                 firstTick.map { it.intent.protocolText.lineSequence().first { line -> line.startsWith("ID: ") }.removePrefix("ID: ") },
             )
+            firstTick.forEach {
+                it.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            }
+            fixture.drain()
+            assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
 
             elapsed.set(61_000L)
             fixture.scheduler.runNext(RuntimeScheduleKind.CLOCK)
@@ -387,11 +395,101 @@ class GhostRuntimeSnapshotTest {
             val changed = fixture.nativePort.requests.remove()
             assertTrue(changed.intent.protocolText.contains("ID: OnGhostChanged\r\n"))
             changed.complete(RuntimeResult.Success(TaggedShioriResponse(2L, response(204))))
-            fixture.drain()
+            fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
 
             assertEquals(2L, fixture.runtime.snapshots.value.generation)
             assertEquals("switch-new", fixture.runtime.snapshots.value.activeGhostId)
             assertEquals(GhostRuntimePhase.Attached, fixture.runtime.snapshots.value.phase)
+
+            val replacementMode = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.Back(2L, top, replacementMode.modeIdentity))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            assertTrue(fixture.nativePort.requests.remove().intent.protocolText.contains("ID: OnClose\r\n"))
+        }
+    }
+
+    @Test
+    fun mismatchedParentGenerationCannotAdvanceSwitch() {
+        val oldRoot = File("build/runtime-snapshot/mismatch-old").canonicalFile
+        val newRoot = File("build/runtime-snapshot/mismatch-new").canonicalFile
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(
+                    InstalledGhostMetadata("mismatch-old", oldRoot, "Old", null, File(oldRoot, "readme.txt")),
+                    InstalledGhostMetadata("mismatch-new", newRoot, "New", null, File(newRoot, "readme.txt")),
+                )
+            },
+        ).use { fixture ->
+            fixture.startAttached("mismatch-old", oldRoot)
+            val top = fixture.makeTopHost(62L)
+            val before = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, before.modeIdentity, "mismatch-new"))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            fixture.nativePort.requests.remove().complete(
+                RuntimeResult.Success(TaggedShioriResponse(99L, response(204))),
+            )
+            fixture.drain()
+
+            assertEquals(GhostRuntimePhase.SwitchPlayback, fixture.runtime.snapshots.value.phase)
+            assertTrue(fixture.nativePort.unloads.isEmpty())
+        }
+    }
+
+    @Test
+    fun asynchronousNativeResponsesReduceInSubmissionOrder() {
+        val root = File("build/runtime-snapshot/async-fifo").canonicalFile
+        fixtureFor("async-fifo", root).use { fixture ->
+            fixture.startAttached("async-fifo", root)
+            fixture.runtime.enqueueScriptForTesting("\\_a[first]One\\_a\\_a[second]Two\\_a\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { it.dialogue.anchors.size == 2 }
+            val anchors = fixture.runtime.snapshots.value.dialogue.anchors
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[0].key))
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[1].key))
+            fixture.drain()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (fixture.nativePort.requests.size < 2 && System.nanoTime() < deadline) Thread.yield()
+            val first = fixture.nativePort.requests.remove()
+            val second = fixture.nativePort.requests.remove()
+
+            second.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(200, "\\hSECOND\\e"))))
+            fixture.drain()
+            assertFalse(fixture.runtime.snapshots.value.presentation.sakura.text.contains("SECOND"))
+            first.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(200, "\\hFIRST\\e"))))
+            fixture.drain()
+            fixture.runPlaybackUntil { it.presentation.sakura.text.contains("FIRST") }
+
+            assertFalse(fixture.runtime.snapshots.value.presentation.sakura.text.contains("SECOND"))
+        }
+    }
+
+    @Test
+    fun presentationAndClockHousekeepingDoNotStalePublishedMode() {
+        val root = File("build/runtime-snapshot/mode-stability").canonicalFile
+        val elapsed = AtomicLong(60_000L)
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("mode-stability", root, null, null, File(root, "readme.txt")))
+            },
+            elapsedRealtimeMillis = elapsed::get,
+        ).use { fixture ->
+            fixture.startAttached("mode-stability", root)
+            val top = fixture.makeTopHost(63L)
+            fixture.runtime.enqueueScriptForTesting("\\hAB\\e")
+            fixture.drain()
+            val published = fixture.runtime.snapshots.value.modeIdentity
+            fixture.scheduler.runNext(RuntimeScheduleKind.PLAYBACK)
+            fixture.drain()
+            fixture.scheduler.runNext(RuntimeScheduleKind.CLOCK)
+            fixture.drain()
+            assertEquals(published, fixture.runtime.snapshots.value.modeIdentity)
+
+            fixture.runtime.submit(RuntimeCommand.Back(1L, top, published))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            assertTrue(fixture.nativePort.requests.any { it.intent.protocolText.contains("ID: OnClose\r\n") })
         }
     }
 
@@ -427,6 +525,171 @@ class GhostRuntimeSnapshotTest {
             assertEquals(null, fixture.runtime.snapshots.value.generation)
             assertTrue(fixture.nativePort.loads.isEmpty())
         }
+    }
+
+    @Test
+    fun poisonedUnloadFencesNativeWorkAndBackOffersOneLocalExit() {
+        val oldRoot = File("build/runtime-snapshot/poison-old").canonicalFile
+        val newRoot = File("build/runtime-snapshot/poison-new").canonicalFile
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(
+                    InstalledGhostMetadata("poison-old", oldRoot, "Old", null, File(oldRoot, "readme.txt")),
+                    InstalledGhostMetadata("poison-new", newRoot, "New", null, File(newRoot, "readme.txt")),
+                )
+            },
+        ).use { fixture ->
+            fixture.startAttached("poison-old", oldRoot)
+            val top = fixture.makeTopHost(64L)
+            var snapshot = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, snapshot.modeIdentity, "poison-new"))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            fixture.nativePort.requests.remove().complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            fixture.nativePort.unloads.remove().complete(
+                RuntimeNativeLifecycleOutcome.Failed(RuntimeNoticeCode.NATIVE_UNLOAD_FAILED, ownershipCertain = false),
+            )
+            fixture.drain()
+            snapshot = fixture.runtime.snapshots.value
+            assertEquals(GhostRuntimePhase.Poisoned, snapshot.phase)
+            assertFalse(snapshot.clockRunning)
+
+            fixture.runtime.submit(RuntimeCommand.Back(1L, top, snapshot.modeIdentity))
+            fixture.runtime.submit(RuntimeCommand.Back(1L, top, snapshot.modeIdentity))
+            fixture.drain()
+            assertEquals(0, fixture.nativePort.requests.size)
+            assertTrue(fixture.runtime.snapshots.value.exit != null)
+        }
+    }
+
+    @Test
+    fun blockedPersistenceCannotDelayHostLoss() {
+        val root = File("build/runtime-snapshot/io-tail").canonicalFile
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val persistence = object : GhostRuntimePersistence {
+            override fun readLastRunGhostId(): String? = null
+            override fun commitLastRunGhostId(ghostId: String) {
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+            }
+            override fun readActivationCount(ghostId: String) = 0L
+            override fun commitActivationCount(ghostId: String, count: Long) = Unit
+        }
+        SnapshotRuntimeFixture(
+            persistence = persistence,
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("io-tail", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            fixture.runtime.submit(RuntimeCommand.StartGhost("io-tail", root))
+            fixture.awaitNativeWork()
+            fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.runtime.submit(RuntimeCommand.RegisterHost(RuntimeHostLease(RuntimeHostId(65L), 1L)))
+            val drained = AtomicBoolean(false)
+            val thread = Thread { fixture.drain(); drained.set(true) }
+            thread.start()
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            Thread.sleep(50L)
+            assertTrue("coordination tail was blocked by persistence", drained.get())
+            assertEquals("RegisterHost", fixture.runtime.snapshotCommandTraceForTesting().last())
+            release.countDown()
+            thread.join(5_000L)
+        }
+    }
+
+    @Test
+    fun blockedCanonicalizationCannotDelayBackOrStartAfterExit() {
+        val root = File("build/runtime-snapshot/canonical-tail")
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        SnapshotRuntimeFixture(
+            canonicalizeRoot = {
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                it.canonicalFile
+            },
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(InstalledGhostMetadata("canonical-tail", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            fixture.runtime.submit(RuntimeCommand.StartGhost("canonical-tail", root))
+            fixture.drain()
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val snapshot = fixture.runtime.snapshots.value
+            fixture.runtime.submit(
+                RuntimeCommand.Back(null, RuntimeHostLease(RuntimeHostId(0L), 0L), snapshot.modeIdentity),
+            )
+            fixture.drain()
+            assertTrue(fixture.runtime.snapshots.value.exit != null)
+
+            release.countDown()
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(500L)
+            while (System.nanoTime() < deadline && fixture.nativePort.loads.isEmpty()) {
+                fixture.drain()
+                Thread.yield()
+            }
+            assertTrue(fixture.nativePort.loads.isEmpty())
+        }
+    }
+
+    @Test
+    fun startupDecisionJoinsLoadingAndResumesOnceAfterReady() {
+        val root = File("build/runtime-snapshot/startup-join").canonicalFile
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val scanner = RuntimeCatalogScanner {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+            listOf(InstalledGhostMetadata("startup-join", root, null, null, File(root, "readme.txt")))
+        }
+        SnapshotRuntimeFixture(catalogScanner = scanner, awaitInitialCatalog = false).use { fixture ->
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            repeat(2) { fixture.runtime.submit(RuntimeCommand.StartGhost("startup-join", root)) }
+            fixture.drain()
+            release.countDown()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (fixture.dispatcher.isEmpty() && System.nanoTime() < deadline) Thread.yield()
+            fixture.drain()
+            fixture.awaitNativeWork()
+            assertEquals(1, fixture.nativePort.loads.size)
+        }
+    }
+
+    @Test
+    fun startupDecisionSurvivesFailedCatalogUntilRetryIsReady() {
+        val root = File("build/runtime-snapshot/startup-retry").canonicalFile
+        val scans = AtomicLong()
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                if (scans.incrementAndGet() == 1L) error("first scan fails")
+                listOf(InstalledGhostMetadata("startup-retry", root, null, null, File(root, "readme.txt")))
+            },
+        ).use { fixture ->
+            val failed = fixture.runtime.snapshots.value.catalog as RuntimeCatalogState.Failed
+            repeat(2) { fixture.runtime.submit(RuntimeCommand.StartGhost("startup-retry", root)) }
+            fixture.runtime.submit(RuntimeCommand.RetryCatalog(null, failed.epoch))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            assertEquals(1, fixture.nativePort.loads.size)
+        }
+    }
+
+    @Test
+    fun dispatcherAndLateNativeCompletionAreSafeAfterClose() {
+        val dispatcher = com.cattailsw.nanidroid.runtime.SerializedRuntimeCommandDispatcher()
+        dispatcher.close()
+        dispatcher.dispatch { error("must not run") }
+
+        val root = File("build/runtime-snapshot/close-race").canonicalFile
+        val fixture = fixtureFor("close-race", root)
+        fixture.runtime.submit(RuntimeCommand.StartGhost("close-race", root))
+        fixture.awaitNativeWork()
+        val load = fixture.nativePort.loads.remove()
+        fixture.close()
+        load.complete(RuntimeNativeLifecycleOutcome.Success)
     }
 
     // Mutation caught: initial scan failure is interpreted as Ready(empty) for bundled installation.
@@ -512,6 +775,89 @@ class GhostRuntimeSnapshotTest {
             fixture.scheduler.runNext(RuntimeScheduleKind.PLAYBACK)
             fixture.drain()
             assertEquals(1, fixture.runtime.snapshots.value.cues.size)
+        }
+    }
+
+    @Test
+    fun successfulSwitchRetiresOutgoingCueWindowAndAllowsAnotherSwitch() {
+        val oldRoot = File("build/runtime-snapshot/cue-switch-old").canonicalFile
+        val newRoot = File("build/runtime-snapshot/cue-switch-new").canonicalFile
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(
+                    InstalledGhostMetadata("cue-switch-old", oldRoot, "Old", null, File(oldRoot, "readme.txt")),
+                    InstalledGhostMetadata("cue-switch-new", newRoot, "New", null, File(newRoot, "readme.txt")),
+                )
+            },
+        ).use { fixture ->
+            fixture.startAttached("cue-switch-old", oldRoot)
+            val top = fixture.makeTopHost(83L)
+            fixture.runtime.enqueueScriptForTesting(buildString { repeat(65) { append("\\i[1]") }; append("\\e") })
+            fixture.drain()
+            while (fixture.runtime.snapshots.value.cues.size < 64) {
+                fixture.scheduler.runNext(RuntimeScheduleKind.PLAYBACK)
+                fixture.drain()
+            }
+            val before = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, before.modeIdentity, "cue-switch-new"))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            fixture.nativePort.requests.remove().complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            fixture.nativePort.unloads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.drainUntil { fixture.nativePort.loads.isNotEmpty() }
+
+            assertTrue(fixture.runtime.snapshots.value.cues.isEmpty())
+            assertTrue(fixture.scheduler.scheduled().none { it.key.kind == RuntimeScheduleKind.PLAYBACK })
+            fixture.nativePort.loads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.drainUntil { fixture.nativePort.requests.isNotEmpty() }
+            fixture.nativePort.requests.remove().complete(RuntimeResult.Success(TaggedShioriResponse(2L, response(204))))
+            fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Attached }
+
+            val replaced = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(2L, top, replaced.modeIdentity, "cue-switch-old"))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            assertTrue(fixture.nativePort.requests.remove().intent.protocolText.contains("ID: OnGhostChanging\r\n"))
+        }
+    }
+
+    @Test
+    fun pointerFailureUsesRequestIdentityAndFatalPoisonsRuntime() {
+        val root = File("build/runtime-snapshot/pointer-failure").canonicalFile
+        fixtureFor("pointer-failure", root).use { fixture ->
+            fixture.startAttached("pointer-failure", root)
+            val top = fixture.makeTopHost(84L)
+            val effect = SurfaceInteractionEffect(
+                PointerEventKind.CLICK,
+                SurfaceSpeaker.SAKURA,
+                IntOffset(1, 2),
+                0,
+                PointerSource.TOUCH,
+                "head",
+                null,
+            )
+            val surface = RuntimeSurfaceIdentity(1L, GhostSpeaker.SAKURA, "0", 0L)
+            fixture.runtime.submit(RuntimeCommand.Pointer(1L, top, surface, effect))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val replayable = fixture.nativePort.requests.remove()
+            replayable.complete(RuntimeResult.Failure(RuntimeFailure.Replayable(IllegalStateException("retry"))))
+            fixture.drain()
+            assertEquals(replayable.token.requestId, fixture.runtime.snapshots.value.notice?.operationId)
+
+            fixture.runtime.submit(RuntimeCommand.Pointer(1L, top, surface, effect))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            fixture.nativePort.requests.remove().complete(
+                RuntimeResult.Failure(RuntimeFailure.Fatal(IllegalStateException("fatal"))),
+            )
+            fixture.drain()
+            assertEquals(GhostRuntimePhase.Poisoned, fixture.runtime.snapshots.value.phase)
+            fixture.runtime.submit(RuntimeCommand.Pointer(1L, top, surface, effect))
+            fixture.drain()
+            assertTrue(fixture.nativePort.requests.isEmpty())
         }
     }
 
