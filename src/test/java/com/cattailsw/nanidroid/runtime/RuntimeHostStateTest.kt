@@ -9,51 +9,112 @@ import org.junit.Test
 
 class RuntimeHostStateTest {
     @Test
+    fun strictlyNewerLifecycleEpochsMigrateResumedAndTopStateInOrder() {
+        val registered = lease(1L, 1L)
+        val resumed = lease(1L, 2L)
+        val top = lease(1L, 3L)
+        var transition = reduce(RuntimeHostState.empty(), RuntimeCommand.RegisterHost(registered))
+
+        transition = reduce(transition.state, RuntimeCommand.SetResumed(resumed, true))
+        assertEquals(2L, transition.state.registeredEpochs[registered.hostId])
+        assertEquals(setOf(resumed), transition.state.resumed)
+
+        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(top, true))
+        assertEquals(3L, transition.state.registeredEpochs[registered.hostId])
+        assertEquals(setOf(top), transition.state.resumed)
+        assertEquals(top, transition.state.topResumed)
+
+        val equalEpoch = reduce(transition.state, RuntimeCommand.SetTopResumed(top, false))
+        val olderEpoch = reduce(transition.state, RuntimeCommand.UnregisterHost(resumed))
+        assertEquals(transition.state, equalEpoch.state)
+        assertEquals(transition.state, olderEpoch.state)
+        assertTrue(equalEpoch.effects.isEmpty())
+        assertTrue(olderEpoch.effects.isEmpty())
+    }
+
+    @Test
+    fun topResumedFalsePreservesResumedStatusForANewerFocusEpoch() {
+        val top = lease(1L, 3L)
+        var transition = registerAndFocus(RuntimeHostState.empty(), top)
+
+        val notTop = lease(1L, 4L)
+        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(notTop, false))
+        assertNull(transition.state.topResumed)
+        assertEquals(setOf(notTop), transition.state.resumed)
+
+        val focusedAgain = lease(1L, 5L)
+        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(focusedAgain, true))
+        assertEquals(focusedAgain, transition.state.topResumed)
+        assertEquals(setOf(focusedAgain), transition.state.resumed)
+    }
+
+    @Test
+    fun unregisterTombstoneBlocksResurrectionUntilStrictlyNewerRegistration() {
+        val top = lease(1L, 3L)
+        var transition = registerAndFocus(RuntimeHostState.empty(), top)
+        val unregistered = lease(1L, 4L)
+        transition = reduce(transition.state, RuntimeCommand.UnregisterHost(unregistered))
+        assertEquals(4L, transition.state.registeredEpochs[top.hostId])
+        assertNull(transition.state.topResumed)
+        assertTrue(transition.state.resumed.isEmpty())
+
+        val sameEpochResume = reduce(transition.state, RuntimeCommand.SetResumed(unregistered, true))
+        val olderRegister = reduce(transition.state, RuntimeCommand.RegisterHost(top))
+        assertEquals(transition.state, sameEpochResume.state)
+        assertEquals(transition.state, olderRegister.state)
+
+        transition = reduce(transition.state, RuntimeCommand.RegisterHost(lease(1L, 5L)))
+        transition = reduce(transition.state, RuntimeCommand.SetResumed(lease(1L, 6L), true))
+        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(lease(1L, 7L), true))
+        assertEquals(lease(1L, 7L), transition.state.topResumed)
+    }
+
+    @Test
     fun newerRegistrationSupersedesTheOldLeaseAndRejectsStaleLifecycleCommands() {
-        val old = lease(hostId = 1L, epoch = 1L)
-        val newer = lease(hostId = 1L, epoch = 2L)
+        val old = lease(hostId = 1L, epoch = 3L)
+        val newer = lease(hostId = 1L, epoch = 4L)
         var transition = registerAndFocus(RuntimeHostState.empty(), old)
         transition = reduce(transition.state, RuntimeCommand.RegisterHost(newer))
 
-        assertEquals(mapOf(RuntimeHostId(1L) to 2L), transition.state.registeredEpochs)
+        assertEquals(mapOf(RuntimeHostId(1L) to 4L), transition.state.registeredEpochs)
         assertNull(transition.state.topResumed)
 
         transition = reduce(transition.state, RuntimeCommand.SetResumed(old, true))
         transition = reduce(transition.state, RuntimeCommand.SetTopResumed(old, true))
         transition = reduce(transition.state, RuntimeCommand.UnregisterHost(old))
 
-        assertEquals(mapOf(RuntimeHostId(1L) to 2L), transition.state.registeredEpochs)
+        assertEquals(mapOf(RuntimeHostId(1L) to 4L), transition.state.registeredEpochs)
         assertTrue(transition.state.resumed.isEmpty())
         assertNull(transition.state.topResumed)
     }
 
     @Test
     fun onlyARegisteredResumedLeaseCanBecomeTopResumed() {
-        val host = lease(1L, 1L)
-        var transition = reduce(RuntimeHostState.empty(), RuntimeCommand.SetTopResumed(host, true))
+        val hostId = 1L
+        var transition = reduce(RuntimeHostState.empty(), RuntimeCommand.SetTopResumed(lease(hostId, 1L), true))
         assertNull(transition.state.topResumed)
 
-        transition = reduce(transition.state, RuntimeCommand.RegisterHost(host))
-        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(host, true))
+        transition = reduce(transition.state, RuntimeCommand.RegisterHost(lease(hostId, 1L)))
+        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(lease(hostId, 2L), true))
         assertNull(transition.state.topResumed)
 
-        transition = reduce(transition.state, RuntimeCommand.SetResumed(host, true))
-        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(host, true))
-        assertEquals(host, transition.state.topResumed)
+        transition = reduce(transition.state, RuntimeCommand.SetResumed(lease(hostId, 3L), true))
+        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(lease(hostId, 4L), true))
+        assertEquals(lease(hostId, 4L), transition.state.topResumed)
     }
 
     @Test
     fun newerTopResumedFalseFencesAndRevokesAnOlderTopLease() {
-        val old = lease(1L, 1L)
-        val newer = lease(1L, 2L)
+        val old = lease(1L, 3L)
+        val newer = lease(1L, 4L)
         var state = registerAndFocus(RuntimeHostState.empty(), old).state
         for (id in 1L..64L) state = cue(state, id).state
 
         val transition = reduce(state, RuntimeCommand.SetTopResumed(newer, false))
 
-        assertEquals(2L, transition.state.registeredEpochs[old.hostId])
+        assertEquals(4L, transition.state.registeredEpochs[old.hostId])
         assertNull(transition.state.topResumed)
-        assertTrue(transition.state.resumed.isEmpty())
+        assertEquals(setOf(newer), transition.state.resumed)
         assertTrue(transition.state.cues.isEmpty())
         assertFalse(transition.state.playerBackpressured)
         assertEquals(listOf(RuntimeHostEffect.BackpressureChanged(false)), transition.effects)
@@ -61,13 +122,13 @@ class RuntimeHostStateTest {
 
     @Test
     fun newerUnregisterFencesAndRevokesAnOlderTopLease() {
-        val old = lease(1L, 1L)
-        val newer = lease(1L, 2L)
+        val old = lease(1L, 3L)
+        val newer = lease(1L, 4L)
         val state = registerAndFocus(RuntimeHostState.empty(), old).state
 
         val transition = reduce(state, RuntimeCommand.UnregisterHost(newer))
 
-        assertEquals(2L, transition.state.registeredEpochs[old.hostId])
+        assertEquals(4L, transition.state.registeredEpochs[old.hostId])
         assertNull(transition.state.topResumed)
         assertTrue(transition.state.resumed.isEmpty())
         val stale = reduce(transition.state, RuntimeCommand.SetTopResumed(old, true))
@@ -76,8 +137,8 @@ class RuntimeHostStateTest {
 
     @Test
     fun exitOfferMovesBetweenValidHostsOnlyBeforeItIsClaimed() {
-        val first = lease(1L, 1L)
-        val second = lease(2L, 1L)
+        val first = lease(1L, 3L)
+        val second = lease(2L, 3L)
         var transition = registerAndFocus(RuntimeHostState.empty(), first)
         transition = registerAndFocus(transition.state, second)
         transition = RuntimeHostReducer.reduce(
@@ -87,18 +148,20 @@ class RuntimeHostStateTest {
         val firstOffer = transition.effects.single() as RuntimeHostEffect.OfferExit
         assertEquals(second, firstOffer.lease.hostLease)
 
-        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(second, false))
+        val secondNotTop = second.copy(hostEpoch = second.hostEpoch + 1L)
+        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(secondNotTop, false))
         assertNull(transition.state.exit?.offeredLease)
 
-        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(first, true))
+        val firstFocusedAgain = first.copy(hostEpoch = first.hostEpoch + 1L)
+        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(firstFocusedAgain, true))
         val reassigned = transition.effects.single() as RuntimeHostEffect.OfferExit
-        assertEquals(first, reassigned.lease.hostLease)
+        assertEquals(firstFocusedAgain, reassigned.lease.hostLease)
         assertTrue(reassigned.lease.leaseId > firstOffer.lease.leaseId)
     }
 
     @Test
     fun exitClaimAndAcknowledgementRequireTheExactInternalClaim() {
-        val host = lease(1L, 1L)
+        val host = lease(1L, 3L)
         val offered = offeredExit(registerAndFocus(RuntimeHostState.empty(), host).state)
 
         val stale = offered.copy(leaseId = offered.leaseId + 1L)
@@ -120,11 +183,14 @@ class RuntimeHostStateTest {
 
     @Test
     fun claimThenAckPrecedeFinishTriggeredLifecycleLoss() {
-        val host = lease(1L, 1L)
+        val host = lease(1L, 3L)
         val offered = offeredExit(registerAndFocus(RuntimeHostState.empty(), host).state)
         val afterClaim = reduce(stateWith(offered), RuntimeCommand.ClaimExit(offered))
         val afterAck = reduce(afterClaim.state, RuntimeCommand.AcknowledgeExit(offered))
-        val afterLoss = reduce(afterAck.state, RuntimeCommand.SetTopResumed(host, false))
+        val afterLoss = reduce(
+            afterAck.state,
+            RuntimeCommand.SetTopResumed(host.copy(hostEpoch = host.hostEpoch + 1L), false),
+        )
 
         assertNull(afterLoss.state.exit)
         assertTrue(afterLoss.effects.none { it is RuntimeHostEffect.OfferExit })
@@ -132,15 +198,21 @@ class RuntimeHostStateTest {
 
     @Test
     fun lifecycleLossCannotReassignAnAlreadyClaimedExit() {
-        val first = lease(1L, 1L)
-        val second = lease(2L, 1L)
+        val first = lease(1L, 3L)
+        val second = lease(2L, 3L)
         var state = registerAndFocus(RuntimeHostState.empty(), first).state
         state = registerAndFocus(state, second).state
         val offered = offeredExit(state)
         state = reduce(stateWith(offered), RuntimeCommand.ClaimExit(offered)).state
 
-        var transition = reduce(state, RuntimeCommand.SetTopResumed(second, false))
-        transition = reduce(transition.state, RuntimeCommand.SetTopResumed(first, true))
+        var transition = reduce(
+            state,
+            RuntimeCommand.SetTopResumed(second.copy(hostEpoch = second.hostEpoch + 1L), false),
+        )
+        transition = reduce(
+            transition.state,
+            RuntimeCommand.SetTopResumed(first.copy(hostEpoch = first.hostEpoch + 1L), true),
+        )
 
         assertEquals(offered, transition.state.claimedExitLease)
         assertNull(transition.state.exit?.offeredLease)
@@ -149,7 +221,7 @@ class RuntimeHostStateTest {
 
     @Test
     fun cueAcknowledgementConsumesOnlyAnExactContiguousPrefix() {
-        val host = lease(1L, 1L)
+        val host = lease(1L, 3L)
         var state = registerAndFocus(RuntimeHostState.empty(), host).state
         state = cue(state, 10L).state
         state = cue(state, 20L).state
@@ -167,7 +239,7 @@ class RuntimeHostStateTest {
 
     @Test
     fun activeHostCueCapacityPausesAtSixtyFourAndResumesAfterAcknowledgement() {
-        val host = lease(1L, 1L)
+        val host = lease(1L, 3L)
         var state = registerAndFocus(RuntimeHostState.empty(), host).state
         var last = RuntimeHostTransition(state, emptyList())
         for (id in 1L..64L) {
@@ -193,11 +265,14 @@ class RuntimeHostStateTest {
 
     @Test
     fun hostLossExpiresCuesAndClearsBackpressure() {
-        val host = lease(1L, 1L)
+        val host = lease(1L, 3L)
         var state = registerAndFocus(RuntimeHostState.empty(), host).state
         for (id in 1L..64L) state = cue(state, id).state
 
-        val transition = reduce(state, RuntimeCommand.UnregisterHost(host))
+        val transition = reduce(
+            state,
+            RuntimeCommand.UnregisterHost(host.copy(hostEpoch = host.hostEpoch + 1L)),
+        )
 
         assertTrue(transition.state.cues.isEmpty())
         assertFalse(transition.state.playerBackpressured)
@@ -217,10 +292,12 @@ class RuntimeHostStateTest {
     @Test
     fun returnedHostCollectionsAreCopiedAndJavaUnmodifiable() {
         val epochs = linkedMapOf(RuntimeHostId(1L) to 1L)
+        val activeHostIds = linkedSetOf(RuntimeHostId(1L))
         val resumed = linkedSetOf(lease(1L, 1L))
         val cues = arrayListOf<RuntimePresentationCue>()
         val source = RuntimeHostState(
             registeredEpochs = epochs,
+            activeHostIds = activeHostIds,
             resumed = resumed,
             topResumed = null,
             nextExitLeaseId = 1L,
@@ -235,14 +312,19 @@ class RuntimeHostStateTest {
             RuntimeHostInput.Command(RuntimeCommand.ActivateChoice(dialogueKey())),
         ).state
         epochs.clear()
+        activeHostIds.clear()
         resumed.clear()
         cues += presentationCue(1L, lease(1L, 1L))
 
         assertEquals(1, returned.registeredEpochs.size)
+        assertEquals(1, returned.activeHostIds.size)
         assertEquals(1, returned.resumed.size)
         assertTrue(returned.cues.isEmpty())
         assertThrows(UnsupportedOperationException::class.java) {
             (returned.registeredEpochs as MutableMap<RuntimeHostId, Long>).clear()
+        }
+        assertThrows(UnsupportedOperationException::class.java) {
+            (returned.activeHostIds as MutableSet<RuntimeHostId>).clear()
         }
         assertThrows(UnsupportedOperationException::class.java) {
             (returned.resumed as MutableSet<RuntimeHostLease>).clear()
@@ -265,8 +347,14 @@ class RuntimeHostStateTest {
     }
 
     private fun registerAndFocus(state: RuntimeHostState, host: RuntimeHostLease): RuntimeHostTransition {
-        var transition = reduce(state, RuntimeCommand.RegisterHost(host))
-        transition = reduce(transition.state, RuntimeCommand.SetResumed(host, true))
+        var transition = reduce(
+            state,
+            RuntimeCommand.RegisterHost(host.copy(hostEpoch = host.hostEpoch - 2L)),
+        )
+        transition = reduce(
+            transition.state,
+            RuntimeCommand.SetResumed(host.copy(hostEpoch = host.hostEpoch - 1L), true),
+        )
         return reduce(transition.state, RuntimeCommand.SetTopResumed(host, true))
     }
 
