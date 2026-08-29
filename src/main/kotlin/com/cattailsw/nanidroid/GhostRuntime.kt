@@ -1,7 +1,33 @@
 package com.cattailsw.nanidroid
 
 import android.content.Context
+import com.cattailsw.nanidroid.runtime.PlayerCommand
+import com.cattailsw.nanidroid.runtime.PlayerEffect
+import com.cattailsw.nanidroid.runtime.PlayerParent
+import com.cattailsw.nanidroid.runtime.PlayerResponse
+import com.cattailsw.nanidroid.runtime.PlayerState
+import com.cattailsw.nanidroid.runtime.RuntimeCatalog
+import com.cattailsw.nanidroid.runtime.RuntimeCatalogEffect
+import com.cattailsw.nanidroid.runtime.RuntimeCatalogOwner
+import com.cattailsw.nanidroid.runtime.RuntimeCatalogScanOutcome
+import com.cattailsw.nanidroid.runtime.RuntimeCatalogScanner
+import com.cattailsw.nanidroid.runtime.RuntimeCatalogState
+import com.cattailsw.nanidroid.runtime.RuntimeCommand
+import com.cattailsw.nanidroid.runtime.RuntimeCommandDispatcher
+import com.cattailsw.nanidroid.runtime.RuntimeHostInput
+import com.cattailsw.nanidroid.runtime.RuntimeHostReducer
+import com.cattailsw.nanidroid.runtime.RuntimeHostState
+import com.cattailsw.nanidroid.runtime.RuntimeNativeLifecycleOutcome
+import com.cattailsw.nanidroid.runtime.RuntimeNativePort
+import com.cattailsw.nanidroid.runtime.RuntimePendingGhostIdentity
+import com.cattailsw.nanidroid.runtime.RuntimeRequestOrigin
+import com.cattailsw.nanidroid.runtime.RuntimeRequestToken
+import com.cattailsw.nanidroid.runtime.RuntimeScheduler
+import com.cattailsw.nanidroid.runtime.RuntimeSnapshot
+import com.cattailsw.nanidroid.runtime.SakuraScriptPlayer
+import com.cattailsw.nanidroid.runtime.SerializedRuntimeCommandDispatcher
 import com.cattailsw.nanidroid.runtime.dialogue.GhostEventCapabilityDiscovery
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueActionKey
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.shiori.Kawari
@@ -34,6 +60,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+internal enum class RuntimeOwnershipMode { LEGACY_RUNNER, SNAPSHOT_CORE_TEST }
 
 internal data class GhostHandle(
     val ghost: Ghost,
@@ -188,14 +219,42 @@ internal class GhostRuntime private constructor(
     private val injectedAdmission: AttachmentAdmission?,
     runnerConfiguration: SScriptRunnerConfiguration?,
     private val testConstructed: Boolean,
+    private val ownershipMode: RuntimeOwnershipMode,
+    injectedNativePort: RuntimeNativePort?,
+    injectedRuntimeScheduler: RuntimeScheduler?,
+    injectedCoordinationDispatcher: RuntimeCommandDispatcher?,
+    injectedCatalogScanner: RuntimeCatalogScanner?,
+    elapsedRealtimeMillis: () -> Long,
 ) : Closeable {
     private val applicationContext = context?.applicationContext ?: context
-    val runner = if (runnerConfiguration == null) {
-        SScriptRunner(context, runtimePort = this)
+    private val legacyRunner = if (ownershipMode == RuntimeOwnershipMode.LEGACY_RUNNER) {
+        if (runnerConfiguration == null) {
+            SScriptRunner(context, runtimePort = this)
+        } else {
+            SScriptRunner(context, runtimePort = this, configuration = runnerConfiguration)
+        }
     } else {
-        SScriptRunner(context, runtimePort = this, configuration = runnerConfiguration)
+        null
     }
-    private val attachmentAdmission = injectedAdmission ?: AttachmentAdmission(runner::admitAttachment)
+    val runner: SScriptRunner get() = checkNotNull(legacyRunner) { "Legacy runner authority is inactive" }
+    private val attachmentAdmission = if (ownershipMode == RuntimeOwnershipMode.LEGACY_RUNNER) {
+        injectedAdmission ?: AttachmentAdmission(runner::admitAttachment)
+    } else {
+        injectedAdmission
+    }
+    private val snapshotCore = if (ownershipMode == RuntimeOwnershipMode.SNAPSHOT_CORE_TEST) {
+        SnapshotRuntimeCore(
+            preparer = preparer,
+            persistence = persistence,
+            nativePort = requireNotNull(injectedNativePort),
+            scheduler = requireNotNull(injectedRuntimeScheduler),
+            dispatcher = injectedCoordinationDispatcher ?: SerializedRuntimeCommandDispatcher(),
+            catalogScanner = requireNotNull(injectedCatalogScanner),
+            elapsedRealtimeMillis = elapsedRealtimeMillis,
+        )
+    } else {
+        null
+    }
 
     private val stateLock = Any()
     private val hooks = AtomicReference<GhostRuntimeTestHooks?>(null)
@@ -231,7 +290,39 @@ internal class GhostRuntime private constructor(
         injectedAdmission = null,
         runnerConfiguration = null,
         testConstructed = false,
+        ownershipMode = RuntimeOwnershipMode.LEGACY_RUNNER,
+        injectedNativePort = null,
+        injectedRuntimeScheduler = null,
+        injectedCoordinationDispatcher = null,
+        injectedCatalogScanner = null,
+        elapsedRealtimeMillis = { TimeUnit.NANOSECONDS.toMillis(System.nanoTime()) },
     )
+
+    internal val snapshots: StateFlow<RuntimeSnapshot>
+        get() = checkNotNull(snapshotCore) { "Snapshot authority is inactive" }.snapshots
+
+    internal fun submit(command: RuntimeCommand) {
+        snapshotCore?.submit(command)
+    }
+
+    internal fun enqueueScriptForTesting(script: String, parent: PlayerParent? = null) {
+        snapshotCore?.enqueueScript(script, parent)
+    }
+
+    internal fun hasLegacyRunnerAuthorityForTesting(): Boolean = legacyRunner != null
+
+    internal fun hasSnapshotAuthorityForTesting(): Boolean = snapshotCore != null
+
+    internal fun snapshotRevisionForTesting(): Long = snapshotCore?.snapshots?.value?.revision ?: 0L
+
+    internal fun snapshotCommandTraceForTesting(): List<String> = snapshotCore?.commandTrace() ?: emptyList()
+
+    internal fun pendingSnapshotRequestCountForTesting(): Int = snapshotCore?.pendingRequestCount() ?: 0
+
+    internal fun claimedDialogueCountForTesting(): Int = snapshotCore?.claimedDialogueCount() ?: 0
+
+    internal fun shouldInstallBundledGhostForTesting(storageEntries: Array<out File>): Boolean =
+        snapshotCore?.shouldInstallBundledGhost(storageEntries) == true
 
     internal suspend fun startOrJoin(
         ghostId: String,
@@ -815,6 +906,10 @@ internal class GhostRuntime private constructor(
     }
 
     override fun close() {
+        if (ownershipMode == RuntimeOwnershipMode.SNAPSHOT_CORE_TEST) {
+            snapshotCore?.close()
+            return
+        }
         var staleAttachment: CompletableDeferred<RuntimeResult<AttachmentReceipt>>? = null
         val (stale, staleSwitch) = synchronized(stateLock) {
             if (closed) return
@@ -975,7 +1070,7 @@ internal class GhostRuntime private constructor(
         }
         val outcome = requireNotNull(operation.outcome)
         val admitted = try {
-            attachmentAdmission.admit(operation.operationId, operation.handle, outcome)
+            requireNotNull(attachmentAdmission).admit(operation.operationId, operation.handle, outcome)
         } catch (failure: Throwable) {
             RuntimeResult.Failure(RuntimeFailure.Replayable(failure))
         }
@@ -1336,6 +1431,12 @@ internal class GhostRuntime private constructor(
             persistence: GhostRuntimePersistence,
             admission: AttachmentAdmission? = null,
             runnerConfiguration: SScriptRunnerConfiguration? = null,
+            ownershipMode: RuntimeOwnershipMode = RuntimeOwnershipMode.LEGACY_RUNNER,
+            nativePort: RuntimeNativePort? = null,
+            runtimeScheduler: RuntimeScheduler? = null,
+            coordinationDispatcher: RuntimeCommandDispatcher? = null,
+            catalogScanner: RuntimeCatalogScanner? = null,
+            elapsedRealtimeMillis: () -> Long = { TimeUnit.NANOSECONDS.toMillis(System.nanoTime()) },
         ): GhostRuntime = GhostRuntime(
             context = context,
             preparer = preparer,
@@ -1344,8 +1445,1120 @@ internal class GhostRuntime private constructor(
             injectedAdmission = admission,
             runnerConfiguration = runnerConfiguration,
             testConstructed = true,
+            ownershipMode = ownershipMode,
+            injectedNativePort = nativePort,
+            injectedRuntimeScheduler = runtimeScheduler,
+            injectedCoordinationDispatcher = coordinationDispatcher,
+            injectedCatalogScanner = catalogScanner,
+            elapsedRealtimeMillis = elapsedRealtimeMillis,
         )
     }
+}
+
+private class SnapshotRuntimeCore(
+    private val preparer: GhostPreparer,
+    @Suppress("unused") private val persistence: GhostRuntimePersistence,
+    private val nativePort: RuntimeNativePort,
+    private val scheduler: RuntimeScheduler,
+    private val dispatcher: RuntimeCommandDispatcher,
+    private val catalogScanner: RuntimeCatalogScanner,
+    private val elapsedRealtimeMillis: () -> Long,
+) : Closeable {
+    private val mutableSnapshots = MutableStateFlow(RuntimeSnapshot.initial())
+    val snapshots: StateFlow<RuntimeSnapshot> = mutableSnapshots.asStateFlow()
+
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(4))
+    private val nativeExecutor = Executors.newSingleThreadExecutor { action ->
+        Thread(action, "GhostRuntime-SnapshotNative").apply { isDaemon = true }
+    }
+    private val traceLock = Any()
+    private val trace = mutableListOf<String>()
+
+    private var hostState = RuntimeHostState.empty()
+    private var catalogOwner = RuntimeCatalogOwner(
+        state = RuntimeSnapshot.initial().catalog,
+        requestedEpoch = 0L,
+        scanInFlight = true,
+        dirty = false,
+    )
+    private var playerState: PlayerState? = null
+    private var pending: SnapshotPendingOperation? = null
+    private var activePrepared: PreparedGhost? = null
+    private var generation: Long? = null
+    private var nextGeneration = 0L
+    private var nextOperationId = 0L
+    private var phase = GhostRuntimePhase.Idle
+    private var notice: com.cattailsw.nanidroid.runtime.RuntimeNotice? = null
+    private var modeRevision = 0L
+    private var clockState = RuntimeClockState(
+        running = false,
+        epoch = 0L,
+        lastSecondBucket = null,
+        lastMinuteBucket = null,
+    )
+    private var attachmentOperationId: Long? = null
+    private var parentState: SnapshotParentState? = null
+    private var deferredPlayback: PlayerEffect.SchedulePlayback? = null
+    private var nextCueId = 1L
+    private var requestRegistry = RuntimeRequestRegistry(
+        nextRequestId = 1L,
+        pending = emptySet(),
+        claimedDialogue = emptyMap(),
+    )
+    @Volatile
+    private var closed = false
+
+    init {
+        startCatalogScan(0L)
+    }
+
+    fun submit(command: RuntimeCommand) {
+        if (closed) return
+        dispatcher.dispatch { admit(command) }
+    }
+
+    fun enqueueScript(script: String, parent: PlayerParent?) {
+        if (closed) return
+        dispatcher.dispatch {
+            record("EnqueueScript")
+            val current = playerState ?: return@dispatch
+            consumePlayerTransition(SakuraScriptPlayer.reduce(current, PlayerCommand.Enqueue(script, parent)))
+            publishSnapshot()
+        }
+    }
+
+    fun commandTrace(): List<String> = synchronized(traceLock) { trace.toList() }
+
+    fun pendingRequestCount(): Int = requestRegistry.pending.size
+
+    fun claimedDialogueCount(): Int = requestRegistry.claimedDialogue.size
+
+    fun shouldInstallBundledGhost(storageEntries: Array<out File>): Boolean {
+        val ready = catalogOwner.state as? RuntimeCatalogState.Ready ?: return false
+        return shouldInstallBundledGhost(ready.entries.size, storageEntries)
+    }
+
+    private fun admit(command: RuntimeCommand) {
+        if (closed) return
+        record(command.javaClass.simpleName)
+        when (command) {
+            is RuntimeCommand.RegisterHost,
+            is RuntimeCommand.SetResumed,
+            is RuntimeCommand.SetTopResumed,
+            is RuntimeCommand.UnregisterHost,
+            is RuntimeCommand.ClaimExit,
+            is RuntimeCommand.AcknowledgeExit,
+            is RuntimeCommand.AcknowledgeCues,
+            -> admitHost(command)
+            is RuntimeCommand.CatalogChanged,
+            is RuntimeCommand.CatalogScanned,
+            is RuntimeCommand.RetryCatalog,
+            -> admitCatalog(command)
+            is RuntimeCommand.StartGhost -> startGhost(command)
+            is RuntimeCommand.PreparationCompleted -> preparationCompleted(command)
+            is RuntimeCommand.NativeLoadCompleted -> nativeLoadCompleted(command)
+            is RuntimeCommand.NativeUnloadCompleted -> nativeUnloadCompleted(command)
+            is RuntimeCommand.PlaybackDue -> playbackDue(command)
+            is RuntimeCommand.NativeResponse -> nativeResponse(command)
+            is RuntimeCommand.TimerDue -> timerDue(command)
+            is RuntimeCommand.ActivateChoice -> dialogueCommand(
+                PlayerCommand.ActivateChoice(command.key),
+                RuntimeDialogueClaimKind.CHOICE,
+            )
+            is RuntimeCommand.ActivateAnchor -> dialogueCommand(
+                PlayerCommand.ActivateAnchor(command.key),
+                RuntimeDialogueClaimKind.ANCHOR,
+            )
+            is RuntimeCommand.SubmitInput -> dialogueCommand(
+                PlayerCommand.SubmitInput(command.key, command.value),
+                RuntimeDialogueClaimKind.INPUT_SUBMIT,
+            )
+            is RuntimeCommand.DismissInput -> dialogueCommand(
+                PlayerCommand.DismissInput(command.key),
+                RuntimeDialogueClaimKind.INPUT_DISMISS,
+            )
+            is RuntimeCommand.InputExpired -> dialogueCommand(
+                PlayerCommand.InputExpired(command.key, command.elapsedMillis),
+                RuntimeDialogueClaimKind.INPUT_TIMEOUT,
+            )
+            is RuntimeCommand.Back -> back(command)
+            is RuntimeCommand.SwitchGhost -> switchGhost(command)
+            is RuntimeCommand.Pointer -> pointer(command)
+        }
+        publishSnapshot()
+    }
+
+    private fun admitHost(command: RuntimeCommand) {
+        val beforeTop = hostState.topResumed
+        val beforeExit = hostState.exit
+        val transition = RuntimeHostReducer.reduce(hostState, RuntimeHostInput.Command(command))
+        hostState = transition.state
+        if (transition.effects.any {
+                it is com.cattailsw.nanidroid.runtime.RuntimeHostEffect.BackpressureChanged && !it.paused
+            }
+        ) {
+            deferredPlayback?.let { schedulePlayback(it, playerState?.generation) }
+            deferredPlayback = null
+        }
+        if (command is RuntimeCommand.AcknowledgeExit && beforeExit != null && hostState.exit == null) {
+            parentState = null
+            modeRevision += 1L
+        }
+        val afterTop = hostState.topResumed
+        if (beforeTop != afterTop) {
+            generation?.let { activeGeneration ->
+                scheduler.cancel(
+                    com.cattailsw.nanidroid.runtime.RuntimeScheduleKey(
+                        activeGeneration,
+                        com.cattailsw.nanidroid.runtime.RuntimeScheduleKind.CLOCK,
+                        clockState.epoch,
+                    ),
+                )
+            }
+            clockState = clockState.copy(
+                running = afterTop != null && generation != null,
+                epoch = clockState.epoch + 1L,
+                lastSecondBucket = null,
+                lastMinuteBucket = null,
+            )
+            scheduleClockIfRunning()
+        }
+    }
+
+    private fun admitCatalog(command: RuntimeCommand) {
+        val transition = RuntimeCatalog.reduce(catalogOwner, command)
+        catalogOwner = transition.owner
+        transition.effects.filterIsInstance<RuntimeCatalogEffect.StartScan>().forEach { effect ->
+            startCatalogScan(effect.epoch)
+        }
+    }
+
+    private fun startGhost(command: RuntimeCommand.StartGhost) {
+        if (phase != GhostRuntimePhase.Idle || pending != null || generation != null) return
+        val ready = catalogOwner.state as? RuntimeCatalogState.Ready ?: return
+        if (ready.entries.none { it.id.equals(command.ghostId, ignoreCase = true) }) return
+        val operation = SnapshotPendingOperation(
+            operationId = ++nextOperationId,
+            ghostId = command.ghostId,
+            canonicalRoot = runCatching { command.canonicalRoot.canonicalFile }.getOrElse {
+                notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(
+                    nextOperationId,
+                    com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.PREPARATION_FAILED,
+                )
+                return
+            },
+            switchOutgoingName = null,
+        )
+        pending = operation
+        phase = GhostRuntimePhase.Starting
+        ioScope.launch {
+            val outcome = runCatching {
+                preparer.prepare(operation.operationId, operation.ghostId, operation.canonicalRoot)
+            }.fold(
+                onSuccess = { com.cattailsw.nanidroid.runtime.RuntimePreparationOutcome.Prepared(it) },
+                onFailure = {
+                    com.cattailsw.nanidroid.runtime.RuntimePreparationOutcome.Failed(
+                        com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.PREPARATION_FAILED,
+                    )
+                },
+            )
+            submit(RuntimeCommand.PreparationCompleted(operation.operationId, outcome))
+        }
+    }
+
+    private fun preparationCompleted(command: RuntimeCommand.PreparationCompleted) {
+        val operation = pending?.takeIf { it.operationId == command.operationId } ?: return
+        when (val outcome = command.outcome) {
+            is com.cattailsw.nanidroid.runtime.RuntimePreparationOutcome.Failed -> {
+                pending = null
+                phase = GhostRuntimePhase.Idle
+                parentState = null
+                notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(operation.operationId, outcome.reason)
+            }
+            is com.cattailsw.nanidroid.runtime.RuntimePreparationOutcome.Prepared -> {
+                if (
+                    outcome.value.operationId != operation.operationId ||
+                    outcome.value.id != operation.ghostId ||
+                    outcome.value.canonicalRoot != operation.canonicalRoot
+                ) {
+                    pending = null
+                    phase = GhostRuntimePhase.Idle
+                    parentState = null
+                    notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(
+                        operation.operationId,
+                        com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.PREPARATION_FAILED,
+                    )
+                    return
+                }
+                operation.prepared = outcome.value
+                val candidateGeneration = nextGeneration + 1L
+                nativeExecutor.execute {
+                    nativePort.load(
+                        operation.operationId,
+                        candidateGeneration,
+                        outcome.value,
+                    ) { result ->
+                        submit(RuntimeCommand.NativeLoadCompleted(operation.operationId, candidateGeneration, result))
+                    }
+                }
+            }
+        }
+    }
+
+    private fun nativeLoadCompleted(command: RuntimeCommand.NativeLoadCompleted) {
+        val operation = pending?.takeIf {
+            it.operationId == command.operationId && command.generation == nextGeneration + 1L
+        } ?: return
+        val prepared = operation.prepared ?: return
+        when (val outcome = command.outcome) {
+            RuntimeNativeLifecycleOutcome.Success -> {
+                val preferenceCommitted = runCatching {
+                    persistence.commitLastRunGhostId(prepared.id)
+                }.isSuccess
+                if (!preferenceCommitted) {
+                    pending = null
+                    parentState = null
+                    phase = GhostRuntimePhase.Poisoned
+                    notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(
+                        operation.operationId,
+                        com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.RUNTIME_POISONED,
+                    )
+                    return
+                }
+                nextGeneration = command.generation
+                generation = command.generation
+                activePrepared = prepared
+                playerState = PlayerState.initial(command.generation)
+                pending = null
+                phase = GhostRuntimePhase.Attaching
+                notice = null
+                modeRevision += 1L
+                attachmentOperationId = operation.operationId
+                parentState = (parentState as? SnapshotParentState.Switch)?.let { parent ->
+                    parent.copy(
+                        phase = SnapshotParentPhase.ATTACHING,
+                        phaseRevision = parent.phaseRevision + 1L,
+                    )
+                }
+                clockState = clockState.copy(running = hostState.topResumed != null)
+                scheduleClockIfRunning()
+                val activationCount = runCatching { persistence.readActivationCount(prepared.id) }.getOrDefault(0L)
+                val intent = if (operation.switchOutgoingName != null) {
+                    ShioriRequestIntent.event("OnGhostChanged", listOf(operation.switchOutgoingName, null))
+                } else if (activationCount == 0L) {
+                    ShioriRequestIntent.event("OnFirstBoot", listOf("0"))
+                } else {
+                    ShioriRequestIntent.event("OnBoot", listOf(prepared.shellName ?: "master"))
+                }
+                submitRequest(
+                    origin = RuntimeRequestOrigin.Attachment(operation.operationId),
+                    intent = intent,
+                    fallback = null,
+                    parentOperationId = operation.operationId,
+                    dialogueClaim = null,
+                )
+            }
+            is RuntimeNativeLifecycleOutcome.Failed -> {
+                pending = null
+                phase = if (outcome.ownershipCertain) GhostRuntimePhase.Idle else GhostRuntimePhase.Poisoned
+                parentState = null
+                notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(command.operationId, outcome.reason)
+            }
+        }
+    }
+
+    private fun playbackDue(command: RuntimeCommand.PlaybackDue) {
+        val current = playerState ?: return
+        if (command.generation != current.generation || command.token != current.playbackToken) return
+        consumePlayerTransition(
+            SakuraScriptPlayer.reduce(
+                current,
+                PlayerCommand.Advance(command.token, elapsedRealtimeMillis()),
+            ),
+        )
+    }
+
+    private fun timerDue(command: RuntimeCommand.TimerDue) {
+        val activeGeneration = generation ?: return
+        if (
+            !clockState.running ||
+            command.generation != activeGeneration ||
+            command.clockEpoch != clockState.epoch
+        ) return
+        val duplicate = when (command.kind) {
+            com.cattailsw.nanidroid.runtime.RuntimeTimerKind.SECOND -> clockState.lastSecondBucket == command.bucket
+            com.cattailsw.nanidroid.runtime.RuntimeTimerKind.MINUTE -> clockState.lastMinuteBucket == command.bucket
+        }
+        if (duplicate) return
+        clockState = when (command.kind) {
+            com.cattailsw.nanidroid.runtime.RuntimeTimerKind.SECOND -> clockState.copy(lastSecondBucket = command.bucket)
+            com.cattailsw.nanidroid.runtime.RuntimeTimerKind.MINUTE -> clockState.copy(lastMinuteBucket = command.bucket)
+        }
+        modeRevision += 1L
+        val origin = RuntimeRequestOrigin.Timer(
+            clockEpoch = command.clockEpoch,
+            kind = command.kind,
+            bucket = command.bucket,
+            mode = currentModeIdentity(),
+        )
+        submitRequest(
+            origin = origin,
+            intent = ShioriRequestIntent.event(
+                if (command.kind == com.cattailsw.nanidroid.runtime.RuntimeTimerKind.SECOND) {
+                    "OnSecondChange"
+                } else {
+                    "OnMinuteChange"
+                },
+            ),
+            fallback = null,
+            parentOperationId = null,
+            dialogueClaim = null,
+        )
+        if (command.kind == com.cattailsw.nanidroid.runtime.RuntimeTimerKind.SECOND) {
+            val minuteBucket = command.bucket / 60L
+            if (clockState.lastMinuteBucket != minuteBucket) {
+                submit(
+                    RuntimeCommand.TimerDue(
+                        activeGeneration,
+                        command.clockEpoch,
+                        com.cattailsw.nanidroid.runtime.RuntimeTimerKind.MINUTE,
+                        minuteBucket,
+                    ),
+                )
+            }
+        }
+        scheduleClockIfRunning()
+    }
+
+    private fun back(command: RuntimeCommand.Back) {
+        val existing = parentState
+        if (existing is SnapshotParentState.Exit) return
+        if (existing != null || command.expected != currentModeIdentity()) return
+        if (generation != command.generation) return
+        if (command.generation != null && (phase != GhostRuntimePhase.Attached || hostState.topResumed != command.host)) {
+            return
+        }
+        val operationId = ++nextOperationId
+        parentState = SnapshotParentState.Exit(
+            operationId = operationId,
+            generation = command.generation,
+            phase = SnapshotParentPhase.REQUEST,
+            phaseRevision = 1L,
+        )
+        modeRevision += 1L
+        if (command.generation == null) {
+            offerExit(operationId, null)
+            return
+        }
+        clearGenerationRequests(command.generation)
+        playerState?.let {
+            consumePlayerTransition(SakuraScriptPlayer.reduce(it, PlayerCommand.Clear(null)))
+        }
+        submitRequest(
+            origin = RuntimeRequestOrigin.Parent(operationId, 1L),
+            intent = ShioriRequestIntent.event("OnClose"),
+            fallback = null,
+            parentOperationId = operationId,
+            dialogueClaim = null,
+        )
+    }
+
+    private fun switchGhost(command: RuntimeCommand.SwitchGhost) {
+        if (
+            parentState != null ||
+            phase != GhostRuntimePhase.Attached ||
+            generation != command.generation ||
+            hostState.topResumed != command.host ||
+            command.expected != currentModeIdentity()
+        ) return
+        val ready = catalogOwner.state as? RuntimeCatalogState.Ready ?: return
+        val target = ready.entries.firstOrNull { it.id.equals(command.targetGhostId, ignoreCase = true) } ?: return
+        if (target.id.equals(activePrepared?.id, ignoreCase = true)) return
+        val operationId = ++nextOperationId
+        parentState = SnapshotParentState.Switch(
+            operationId = operationId,
+            generation = command.generation,
+            targetGhostId = target.id,
+            targetRoot = File(target.canonicalRootPath),
+            outgoingName = activePrepared?.name ?: activePrepared?.id.orEmpty(),
+            phase = SnapshotParentPhase.REQUEST,
+            phaseRevision = 1L,
+        )
+        phase = GhostRuntimePhase.SwitchPlayback
+        modeRevision += 1L
+        clearGenerationRequests(command.generation)
+        playerState?.let {
+            consumePlayerTransition(SakuraScriptPlayer.reduce(it, PlayerCommand.Clear(null)))
+        }
+        submitRequest(
+            origin = RuntimeRequestOrigin.Parent(operationId, 1L),
+            intent = ShioriRequestIntent.event(
+                "OnGhostChanging",
+                listOf(target.name ?: target.id, "ghost", null, target.canonicalRootPath),
+            ),
+            fallback = null,
+            parentOperationId = operationId,
+            dialogueClaim = null,
+        )
+    }
+
+    private fun pointer(command: RuntimeCommand.Pointer) {
+        val current = playerState ?: return
+        if (
+            parentState != null ||
+            command.generation != current.generation ||
+            hostState.topResumed != command.host ||
+            !isCurrentSurface(command.surface)
+        ) return
+        val eventId = when (command.effect.kind) {
+            com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind.CLICK -> "OnMouseClick"
+            com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind.DOUBLE_CLICK -> "OnMouseDoubleClick"
+            else -> return
+        }
+        if (command.effect.button != 0) return
+        modeRevision += 1L
+        submitRequest(
+            origin = RuntimeRequestOrigin.Pointer(command.surface),
+            intent = ShioriRequestIntent.event(
+                eventId,
+                listOf(
+                    command.effect.intrinsic.x.toString(),
+                    command.effect.intrinsic.y.toString(),
+                    "0",
+                    command.effect.speaker.legacyReference,
+                    command.effect.collisionIdentifier.orEmpty(),
+                    command.effect.button.toString(),
+                    command.effect.source.shioriReference,
+                ),
+            ),
+            fallback = null,
+            parentOperationId = null,
+            dialogueClaim = null,
+        )
+    }
+
+    private fun isCurrentSurface(surface: com.cattailsw.nanidroid.runtime.RuntimeSurfaceIdentity): Boolean {
+        val current = playerState ?: return false
+        if (surface.generation != current.generation) return false
+        val presentation = when (surface.speaker) {
+            com.cattailsw.nanidroid.runtime.GhostSpeaker.SAKURA -> current.presentation.sakura
+            com.cattailsw.nanidroid.runtime.GhostSpeaker.KERO -> current.presentation.kero
+        }
+        return presentation.surfaceId == surface.surfaceId && presentation.surfaceEpoch == surface.surfaceEpoch
+    }
+
+    private fun dialogueCommand(command: PlayerCommand, claimKind: RuntimeDialogueClaimKind) {
+        val current = playerState ?: return
+        consumePlayerTransition(SakuraScriptPlayer.reduce(current, command), claimKind)
+    }
+
+    private fun nativeResponse(command: RuntimeCommand.NativeResponse) {
+        if (command.token !in requestRegistry.pending) {
+            record("NativeResponseRejected")
+            return
+        }
+        val claim = requestRegistry.claimedDialogue[command.token.requestId]
+        requestRegistry = requestRegistry.copy(
+            pending = requestRegistry.pending - command.token,
+            claimedDialogue = requestRegistry.claimedDialogue - command.token.requestId,
+        )
+        val current = playerState
+        val valid = current != null && command.token.generation == current.generation && when (val origin = command.token.origin) {
+            is RuntimeRequestOrigin.Playback -> current.authoredRequest == origin
+            is RuntimeRequestOrigin.Dialogue -> claim?.action == origin.action
+            is RuntimeRequestOrigin.Attachment -> {
+                attachmentOperationId == origin.operationId && phase == GhostRuntimePhase.Attaching
+            }
+            is RuntimeRequestOrigin.Timer -> {
+                clockState.running &&
+                    clockState.epoch == origin.clockEpoch &&
+                    origin.mode == currentModeIdentity() &&
+                    when (origin.kind) {
+                        com.cattailsw.nanidroid.runtime.RuntimeTimerKind.SECOND -> {
+                            clockState.lastSecondBucket == origin.bucket
+                        }
+                        com.cattailsw.nanidroid.runtime.RuntimeTimerKind.MINUTE -> {
+                            clockState.lastMinuteBucket == origin.bucket
+                        }
+                    }
+            }
+            is RuntimeRequestOrigin.Parent -> {
+                val parent = parentState
+                parent != null &&
+                    parent.operationId == origin.operationId &&
+                    parent.phaseRevision == origin.phaseRevision &&
+                    parent.phase == SnapshotParentPhase.REQUEST
+            }
+            is RuntimeRequestOrigin.Pointer -> isCurrentSurface(origin.surface)
+        }
+        modeRevision += 1L
+        if (!valid) {
+            record("NativeResponseRejected")
+            return
+        }
+        when (command.token.origin) {
+            is RuntimeRequestOrigin.Playback -> consumePlayerTransition(
+                SakuraScriptPlayer.reduce(
+                    current,
+                    PlayerCommand.NativeResponse(command.token, command.result.toPlayerResponse(current.generation)),
+                ),
+            )
+            is RuntimeRequestOrigin.Dialogue -> when (val result = command.result) {
+                is RuntimeResult.Success -> {
+                    if (result.value.generation != current.generation) {
+                        record("NativeResponseRejected")
+                        return
+                    }
+                    val value = result.value.response.takeIf { it.getStatusCode() == 200 }?.getKey("Value")
+                    if (!value.isNullOrEmpty()) {
+                        consumePlayerTransition(
+                            SakuraScriptPlayer.reduce(current, PlayerCommand.Enqueue(value, null)),
+                        )
+                    }
+                }
+                is RuntimeResult.Failure -> {
+                    notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(
+                        command.token.requestId,
+                        com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.REQUEST_FAILED,
+                    )
+                }
+            }
+            is RuntimeRequestOrigin.Attachment -> settleAttachmentResponse(command)
+            is RuntimeRequestOrigin.Timer -> settlePlayableResponse(command.result, current)
+            is RuntimeRequestOrigin.Parent -> settleParentResponse(command)
+            is RuntimeRequestOrigin.Pointer -> settlePlayableResponse(command.result, current)
+        }
+    }
+
+    private fun settleParentResponse(command: RuntimeCommand.NativeResponse) {
+        val parent = parentState ?: return
+        val response = (command.result as? RuntimeResult.Success)?.value
+            ?.takeIf { it.generation == command.token.generation }
+            ?.response
+        val playable = response?.takeIf { it.getStatusCode() == 200 }?.getKey("Value")
+        when (parent) {
+            is SnapshotParentState.Exit -> {
+                if (playable.isNullOrEmpty()) {
+                    offerExit(parent.operationId, parent.generation)
+                } else {
+                    parentState = parent.copy(
+                        phase = SnapshotParentPhase.PLAYBACK,
+                        phaseRevision = parent.phaseRevision + 1L,
+                    )
+                    modeRevision += 1L
+                    playerState?.let {
+                        consumePlayerTransition(
+                            SakuraScriptPlayer.reduce(
+                                it,
+                                PlayerCommand.Enqueue(playable, PlayerParent.Exit(parent.operationId)),
+                            ),
+                        )
+                    }
+                }
+            }
+            is SnapshotParentState.Switch -> {
+                if (command.result is RuntimeResult.Failure) {
+                    notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(
+                        parent.operationId,
+                        com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.REQUEST_FAILED,
+                    )
+                    parentState = null
+                    phase = GhostRuntimePhase.Attached
+                    modeRevision += 1L
+                } else if (playable.isNullOrEmpty()) {
+                    startSwitchUnload(parent)
+                } else {
+                    parentState = parent.copy(
+                        phase = SnapshotParentPhase.PLAYBACK,
+                        phaseRevision = parent.phaseRevision + 1L,
+                    )
+                    modeRevision += 1L
+                    playerState?.let {
+                        consumePlayerTransition(
+                            SakuraScriptPlayer.reduce(
+                                it,
+                                PlayerCommand.Enqueue(playable, PlayerParent.Switch(parent.operationId)),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun offerExit(operationId: Long, exitGeneration: Long?) {
+        hostState = RuntimeHostReducer.reduce(
+            hostState,
+            RuntimeHostInput.OfferExit(operationId, exitGeneration),
+        ).state
+        parentState = (parentState as? SnapshotParentState.Exit)?.copy(
+            phase = SnapshotParentPhase.READY,
+            phaseRevision = parentState!!.phaseRevision + 1L,
+        )
+        modeRevision += 1L
+    }
+
+    private fun startSwitchUnload(parent: SnapshotParentState.Switch) {
+        val next = parent.copy(
+            phase = SnapshotParentPhase.UNLOADING,
+            phaseRevision = parent.phaseRevision + 1L,
+        )
+        parentState = next
+        phase = GhostRuntimePhase.Replacing
+        modeRevision += 1L
+        nativeExecutor.execute {
+            nativePort.unload(parent.operationId, parent.generation) { outcome ->
+                submit(RuntimeCommand.NativeUnloadCompleted(parent.operationId, parent.generation, outcome))
+            }
+        }
+    }
+
+    private fun nativeUnloadCompleted(command: RuntimeCommand.NativeUnloadCompleted) {
+        val parent = parentState as? SnapshotParentState.Switch ?: return
+        if (
+            parent.operationId != command.operationId ||
+            parent.generation != command.generation ||
+            parent.phase != SnapshotParentPhase.UNLOADING
+        ) return
+        when (command.outcome) {
+            RuntimeNativeLifecycleOutcome.Success -> {
+                generation = null
+                activePrepared = null
+                playerState = null
+                attachmentOperationId = null
+                clockState = clockState.copy(running = false, epoch = clockState.epoch + 1L)
+                val replacing = parent.copy(
+                    phase = SnapshotParentPhase.REPLACING,
+                    phaseRevision = parent.phaseRevision + 1L,
+                )
+                parentState = replacing
+                pending = SnapshotPendingOperation(
+                    operationId = parent.operationId,
+                    ghostId = parent.targetGhostId,
+                    canonicalRoot = parent.targetRoot,
+                    switchOutgoingName = parent.outgoingName,
+                )
+                phase = GhostRuntimePhase.Replacing
+                ioScope.launch {
+                    val outcome = runCatching {
+                        preparer.prepare(parent.operationId, parent.targetGhostId, parent.targetRoot)
+                    }.fold(
+                        onSuccess = { com.cattailsw.nanidroid.runtime.RuntimePreparationOutcome.Prepared(it) },
+                        onFailure = {
+                            com.cattailsw.nanidroid.runtime.RuntimePreparationOutcome.Failed(
+                                com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.PREPARATION_FAILED,
+                            )
+                        },
+                    )
+                    submit(RuntimeCommand.PreparationCompleted(parent.operationId, outcome))
+                }
+            }
+            is RuntimeNativeLifecycleOutcome.Failed -> {
+                parentState = null
+                phase = GhostRuntimePhase.Poisoned
+                notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(
+                    parent.operationId,
+                    com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.NATIVE_UNLOAD_FAILED,
+                )
+            }
+        }
+    }
+
+    private fun settleAttachmentResponse(command: RuntimeCommand.NativeResponse) {
+        val operationId = attachmentOperationId ?: return
+        val current = playerState ?: return
+        when (val result = command.result) {
+            is RuntimeResult.Success -> {
+                if (result.value.generation != current.generation) return
+                val value = result.value.response.takeIf { it.getStatusCode() == 200 }?.getKey("Value")
+                if (!value.isNullOrEmpty()) {
+                    consumePlayerTransition(SakuraScriptPlayer.reduce(current, PlayerCommand.Enqueue(value, null)))
+                }
+                activePrepared?.let { prepared ->
+                    val count = runCatching { persistence.readActivationCount(prepared.id) }.getOrDefault(0L)
+                    runCatching { persistence.commitActivationCount(prepared.id, count + 1L) }
+                }
+                phase = GhostRuntimePhase.Attached
+                attachmentOperationId = null
+            }
+            is RuntimeResult.Failure -> when (result.failure) {
+                is RuntimeFailure.Fatal -> {
+                    phase = GhostRuntimePhase.Poisoned
+                    notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(
+                        operationId,
+                        com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.RUNTIME_POISONED,
+                    )
+                    attachmentOperationId = null
+                }
+                else -> {
+                    phase = GhostRuntimePhase.Attached
+                    notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(
+                        operationId,
+                        com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.REQUEST_FAILED,
+                    )
+                    attachmentOperationId = null
+                }
+            }
+        }
+    }
+
+    private fun settlePlayableResponse(
+        result: RuntimeResult<TaggedShioriResponse>,
+        current: PlayerState,
+    ) {
+        when (result) {
+            is RuntimeResult.Success -> {
+                if (result.value.generation != current.generation) return
+                val value = result.value.response.takeIf { it.getStatusCode() == 200 }?.getKey("Value")
+                if (!value.isNullOrEmpty()) {
+                    consumePlayerTransition(SakuraScriptPlayer.reduce(current, PlayerCommand.Enqueue(value, null)))
+                }
+            }
+            is RuntimeResult.Failure -> notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(
+                result.hashCode().toLong(),
+                com.cattailsw.nanidroid.runtime.RuntimeNoticeCode.REQUEST_FAILED,
+            )
+        }
+    }
+
+    private fun consumePlayerTransition(
+        transition: com.cattailsw.nanidroid.runtime.PlayerTransition,
+        dialogueClaimKind: RuntimeDialogueClaimKind? = null,
+    ) {
+        if (transition.state == playerState && transition.effects.isEmpty()) return
+        val previousInput = playerState?.dialogue?.input
+        val previousIncarnation = playerState?.dialogue?.state?.incarnation
+        playerState = transition.state
+        if (
+            previousIncarnation != null &&
+            previousIncarnation != transition.state.dialogue.state.incarnation
+        ) {
+            val retiredClaims = requestRegistry.claimedDialogue
+                .filterValues { it.action.generation == transition.state.generation && it.action.incarnation != transition.state.dialogue.state.incarnation }
+                .keys
+            if (retiredClaims.isNotEmpty()) {
+                requestRegistry = requestRegistry.copy(
+                    pending = requestRegistry.pending.filterNot { it.requestId in retiredClaims }.toSet(),
+                    claimedDialogue = requestRegistry.claimedDialogue - retiredClaims,
+                )
+            }
+        }
+        modeRevision += 1L
+        transition.effects.forEach { effect ->
+            when (effect) {
+                is PlayerEffect.SchedulePlayback -> {
+                    if (hostState.playerBackpressured) {
+                        deferredPlayback = effect
+                    } else {
+                        schedulePlayback(effect, transition.state.generation)
+                    }
+                }
+                is PlayerEffect.PresentationCue -> {
+                    val cueId = nextCueId++
+                    hostState = RuntimeHostReducer.reduce(
+                        hostState,
+                        RuntimeHostInput.Cue(
+                            cueId,
+                            com.cattailsw.nanidroid.runtime.RuntimeCuePayload(
+                                transition.state.generation,
+                                effect.speaker,
+                                effect.kind,
+                                effect.animationId,
+                            ),
+                        ),
+                    ).state
+                }
+                is PlayerEffect.RequestShiori -> submitNativeRequest(effect, dialogueClaimKind)
+                is PlayerEffect.ParentCompleted -> when (val parent = effect.parent) {
+                    is PlayerParent.Exit -> {
+                        val active = parentState as? SnapshotParentState.Exit
+                        if (active?.operationId == parent.operationId && active.phase == SnapshotParentPhase.PLAYBACK) {
+                            offerExit(active.operationId, active.generation)
+                        }
+                    }
+                    is PlayerParent.Switch -> {
+                        val active = parentState as? SnapshotParentState.Switch
+                        if (active?.operationId == parent.operationId && active.phase == SnapshotParentPhase.PLAYBACK) {
+                            startSwitchUnload(active)
+                        }
+                    }
+                }
+                is PlayerEffect.Failure -> {
+                    val failedParent = effect.parent
+                    notice = com.cattailsw.nanidroid.runtime.RuntimeNotice(
+                        when (failedParent) {
+                            is PlayerParent.Exit -> failedParent.operationId
+                            is PlayerParent.Switch -> failedParent.operationId
+                            null -> transition.state.generation
+                        },
+                        effect.reason,
+                    )
+                    when (failedParent) {
+                        is PlayerParent.Exit -> offerExit(failedParent.operationId, generation)
+                        is PlayerParent.Switch -> {
+                            parentState = null
+                            phase = GhostRuntimePhase.Attached
+                        }
+                        null -> Unit
+                    }
+                }
+            }
+        }
+        val currentInput = transition.state.dialogue.input
+        if (previousInput?.key != currentInput?.key) {
+            previousInput?.let {
+                scheduler.cancel(
+                    com.cattailsw.nanidroid.runtime.RuntimeScheduleKey(
+                        it.key.generation,
+                        com.cattailsw.nanidroid.runtime.RuntimeScheduleKind.INPUT_TIMEOUT,
+                        it.key.actionId,
+                    ),
+                )
+            }
+            currentInput?.takeIf { it.pending.deadlineElapsedMillis != Long.MAX_VALUE }?.let { input ->
+                val key = com.cattailsw.nanidroid.runtime.RuntimeScheduleKey(
+                    input.key.generation,
+                    com.cattailsw.nanidroid.runtime.RuntimeScheduleKind.INPUT_TIMEOUT,
+                    input.key.actionId,
+                )
+                val delay = (input.pending.deadlineElapsedMillis - elapsedRealtimeMillis()).coerceAtLeast(0L)
+                scheduler.schedule(key, delay) {
+                    submit(RuntimeCommand.InputExpired(input.key, elapsedRealtimeMillis()))
+                }
+            }
+        }
+    }
+
+    private fun submitNativeRequest(
+        effect: PlayerEffect.RequestShiori,
+        dialogueClaimKind: RuntimeDialogueClaimKind?,
+    ) {
+        val current = playerState ?: return
+        val parentOperationId = current.current?.payload?.parent?.let { parent ->
+            when (parent) {
+                is PlayerParent.Switch -> parent.operationId
+                is PlayerParent.Exit -> parent.operationId
+            }
+        }
+        val claim = (effect.origin as? RuntimeRequestOrigin.Dialogue)?.let { origin ->
+            RuntimeDialogueRequestClaim(
+                action = origin.action,
+                kind = requireNotNull(dialogueClaimKind) { "Dialogue request requires an exact claim kind" },
+            )
+        }
+        submitRequest(
+            origin = effect.origin,
+            intent = effect.intent,
+            fallback = effect.fallback,
+            parentOperationId = parentOperationId,
+            dialogueClaim = claim,
+        )
+    }
+
+    private fun schedulePlayback(effect: PlayerEffect.SchedulePlayback, activeGeneration: Long?) {
+        val scheduledGeneration = activeGeneration ?: return
+        val key = com.cattailsw.nanidroid.runtime.RuntimeScheduleKey(
+            scheduledGeneration,
+            com.cattailsw.nanidroid.runtime.RuntimeScheduleKind.PLAYBACK,
+            effect.token,
+        )
+        scheduler.schedule(key, effect.delayMillis) {
+            submit(RuntimeCommand.PlaybackDue(key.generation, key.token))
+        }
+    }
+
+    private fun submitRequest(
+        origin: RuntimeRequestOrigin,
+        intent: ShioriRequestIntent,
+        fallback: ShioriRequestIntent?,
+        parentOperationId: Long?,
+        dialogueClaim: RuntimeDialogueRequestClaim?,
+    ) {
+        val activeGeneration = generation ?: return
+        val requestId = requestRegistry.nextRequestId
+        val token = RuntimeRequestToken(activeGeneration, requestId, parentOperationId, origin)
+        requestRegistry = requestRegistry.copy(
+            nextRequestId = requestId + 1L,
+            pending = requestRegistry.pending + token,
+            claimedDialogue = if (dialogueClaim == null) {
+                requestRegistry.claimedDialogue
+            } else {
+                requestRegistry.claimedDialogue + (requestId to dialogueClaim)
+            },
+        )
+        nativeExecutor.execute {
+            nativePort.request(token, intent, fallback) { result ->
+                submit(RuntimeCommand.NativeResponse(token, result))
+            }
+        }
+    }
+
+    private fun scheduleClockIfRunning() {
+        val activeGeneration = generation ?: return
+        if (!clockState.running) return
+        val key = com.cattailsw.nanidroid.runtime.RuntimeScheduleKey(
+            activeGeneration,
+            com.cattailsw.nanidroid.runtime.RuntimeScheduleKind.CLOCK,
+            clockState.epoch,
+        )
+        val scheduledEpoch = clockState.epoch
+        scheduler.schedule(key, 1_000L) {
+            val elapsed = elapsedRealtimeMillis()
+            submit(
+                RuntimeCommand.TimerDue(
+                    activeGeneration,
+                    scheduledEpoch,
+                    com.cattailsw.nanidroid.runtime.RuntimeTimerKind.SECOND,
+                    elapsed / 1_000L,
+                ),
+            )
+        }
+    }
+
+    private fun currentModeIdentity() = com.cattailsw.nanidroid.runtime.RuntimeModeIdentity(
+        generation = generation,
+        modeRevision = modeRevision,
+        parentOperationId = parentState?.operationId,
+        parentPhaseRevision = parentState?.phaseRevision,
+    )
+
+    private fun clearGenerationRequests(retiredGeneration: Long) {
+        val retained = requestRegistry.pending.filterNot { it.generation == retiredGeneration }.toSet()
+        val retainedIds = retained.mapTo(mutableSetOf()) { it.requestId }
+        requestRegistry = requestRegistry.copy(
+            pending = retained,
+            claimedDialogue = requestRegistry.claimedDialogue.filterKeys(retainedIds::contains),
+        )
+    }
+
+    private fun RuntimeResult<TaggedShioriResponse>.toPlayerResponse(expectedGeneration: Long): PlayerResponse =
+        when (this) {
+            is RuntimeResult.Success -> if (value.generation == expectedGeneration) {
+                PlayerResponse.Returned(value.response)
+            } else {
+                PlayerResponse.StaleGeneration
+            }
+            is RuntimeResult.Failure -> when (failure) {
+                RuntimeFailure.StaleGeneration -> PlayerResponse.StaleGeneration
+                is RuntimeFailure.Fatal -> PlayerResponse.FatalFailure
+                else -> PlayerResponse.ReplayableFailure
+            }
+        }
+
+    private fun startCatalogScan(epoch: Long) {
+        ioScope.launch { submit(catalogScanner.scanCommand(epoch)) }
+    }
+
+    private fun publishSnapshot() {
+        val current = mutableSnapshots.value
+        val player = playerState
+        val candidate = RuntimeSnapshot.freeze(
+            current.copy(
+                generation = generation,
+                phase = phase,
+                activeGhostId = activePrepared?.id,
+                activeSurfaces = activePrepared?.surfaces,
+                pending = pending?.let {
+                    RuntimePendingGhostIdentity(it.operationId, it.ghostId, it.canonicalRoot.path)
+                } ?: (parentState as? SnapshotParentState.Switch)?.let {
+                    RuntimePendingGhostIdentity(it.operationId, it.targetGhostId, it.targetRoot.path)
+                },
+                catalog = catalogOwner.state,
+                presentation = player?.presentation ?: RuntimeSnapshot.initial().presentation,
+                cues = hostState.cues,
+                dialogue = player?.dialogue ?: RuntimeSnapshot.initial().dialogue,
+                mode = com.cattailsw.nanidroid.runtime.dialogue.GhostRuntimeMode(
+                    playingTalk = player?.let { it.current != null || it.queue.isNotEmpty() || it.authoredRequest != null } == true,
+                    pendingUserAction = player?.let {
+                        it.dialogue.choices.isNotEmpty() || it.dialogue.anchors.isNotEmpty() || it.dialogue.input != null
+                    } == true,
+                    passive = player?.passive == true,
+                ),
+                modeIdentity = currentModeIdentity(),
+                clockRunning = clockState.running,
+                foregroundHost = hostState.topResumed,
+                exit = hostState.exit,
+                notice = notice,
+            ),
+        )
+        if (candidate == current) return
+        mutableSnapshots.value = candidate.copy(revision = current.revision + 1L)
+    }
+
+    private fun record(value: String) {
+        synchronized(traceLock) { trace += value }
+    }
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        dispatcher.close()
+        ioScope.cancel()
+        scheduler.close()
+        nativeExecutor.shutdown()
+        if (!nativeExecutor.awaitTermination(5L, TimeUnit.SECONDS)) {
+            nativeExecutor.shutdownNow()
+        }
+    }
+
+    private data class SnapshotPendingOperation(
+        val operationId: Long,
+        val ghostId: String,
+        val canonicalRoot: File,
+        val switchOutgoingName: String?,
+        var prepared: PreparedGhost? = null,
+    )
+
+    private enum class SnapshotParentPhase { REQUEST, PLAYBACK, UNLOADING, REPLACING, ATTACHING, READY }
+
+    private sealed interface SnapshotParentState {
+        val operationId: Long
+        val phase: SnapshotParentPhase
+        val phaseRevision: Long
+
+        data class Exit(
+            override val operationId: Long,
+            val generation: Long?,
+            override val phase: SnapshotParentPhase,
+            override val phaseRevision: Long,
+        ) : SnapshotParentState
+
+        data class Switch(
+            override val operationId: Long,
+            val generation: Long,
+            val targetGhostId: String,
+            val targetRoot: File,
+            val outgoingName: String,
+            override val phase: SnapshotParentPhase,
+            override val phaseRevision: Long,
+        ) : SnapshotParentState
+    }
+
+    private data class RuntimeRequestRegistry(
+        val nextRequestId: Long,
+        val pending: Set<RuntimeRequestToken>,
+        val claimedDialogue: Map<Long, RuntimeDialogueRequestClaim>,
+    )
+
+    private data class RuntimeClockState(
+        val running: Boolean,
+        val epoch: Long,
+        val lastSecondBucket: Long?,
+        val lastMinuteBucket: Long?,
+    )
+
+    private enum class RuntimeDialogueClaimKind {
+        CHOICE,
+        ANCHOR,
+        INPUT_SUBMIT,
+        INPUT_DISMISS,
+        INPUT_TIMEOUT,
+    }
+
+    private data class RuntimeDialogueRequestClaim(
+        val action: DialogueActionKey,
+        val kind: RuntimeDialogueClaimKind,
+    )
 }
 
 private class PreferenceGhostRuntimePersistence(
