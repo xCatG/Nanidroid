@@ -26,6 +26,7 @@ private class FrozenNanidroidContent(
     override val contentFilePresent: Boolean,
 ) : NanidroidContentPresence, Map<String, String> by contentValues
 
+/** Recursively frozen by [freeze]; instances are safe to reuse across runtime snapshots. */
 internal class SurfaceCatalog private constructor(
     private val definitions: Map<String, SurfaceDefinition>,
 ) {
@@ -36,8 +37,6 @@ internal class SurfaceCatalog private constructor(
     fun sakuraDefinition(id: String): SurfaceDefinition? = definitions[id] ?: definitions["0"]
 
     fun keroDefinition(id: String): SurfaceDefinition? = definitions[id] ?: definitions["10"]
-
-    internal fun frozenCopy(): SurfaceCatalog = freeze(definitions)
 
     internal fun definitionsForTesting(): Map<String, SurfaceDefinition> = definitions
 

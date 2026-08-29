@@ -47,7 +47,7 @@ import java.util.function.Supplier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -81,20 +81,27 @@ class RuntimeSnapshotTest {
     }
 
     @Test
-    fun snapshotFreezeCopiesIndependentlyEqualSurfaceCatalogs() {
+    fun snapshotFreezeReusesAlreadyFrozenSurfaceCatalogAcrossPublications() {
         val sourceDefinitions = surfaceDefinitions()
         val sourceDefinition = sourceDefinitions.getValue("0")
         val sourceCatalog = SurfaceCatalog.freeze(sourceDefinitions)
         val independentlyConstructedCatalog = SurfaceCatalog.freeze(surfaceDefinitions())
 
         val snapshot = RuntimeSnapshot.freeze(mutableSnapshot(activeSurfaces = sourceCatalog))
+        val republished = RuntimeSnapshot.freeze(
+            snapshot.copy(
+                revision = snapshot.revision + 1,
+                clockRunning = !snapshot.clockRunning,
+            ),
+        )
         (sourceDefinition.collisions as MutableList<SurfaceCollision>).clear()
         sourceDefinitions.clear()
 
         assertEquals(independentlyConstructedCatalog, sourceCatalog)
         assertEquals(independentlyConstructedCatalog.hashCode(), sourceCatalog.hashCode())
         assertEquals(independentlyConstructedCatalog, snapshot.activeSurfaces)
-        assertNotSame(sourceCatalog, snapshot.activeSurfaces)
+        assertSame(sourceCatalog, snapshot.activeSurfaces)
+        assertSame(snapshot.activeSurfaces, republished.activeSurfaces)
     }
 
     @Test

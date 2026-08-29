@@ -222,7 +222,6 @@ internal data class RuntimeSnapshot(
 
         /** The only factory used before a snapshot is published by a runtime owner. */
         fun freeze(source: RuntimeSnapshot): RuntimeSnapshot = source.copy(
-            activeSurfaces = source.activeSurfaces?.frozenCopy(),
             catalog = frozenCatalog(source.catalog),
             cues = frozenList(source.cues.map { it.copy() }),
             dialogue = frozenDialogue(source.dialogue),
