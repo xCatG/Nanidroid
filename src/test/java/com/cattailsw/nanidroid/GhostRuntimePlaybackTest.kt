@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
+import com.cattailsw.nanidroid.install.NarImportPrimaryOutcome
 import com.cattailsw.nanidroid.runtime.CatalogPublicationToken
 import com.cattailsw.nanidroid.runtime.RuntimeCatalogScanner
 import com.cattailsw.nanidroid.runtime.RuntimeCatalogPublicationStatus
@@ -137,6 +138,79 @@ class GhostRuntimePlaybackTest {
         assertEquals(
             RuntimeCommand.RetryCatalog(publicationToken, expectedFailureEpoch = 14L),
             foregroundCatalogRetryCommand(requireNotNull(recovery)),
+        )
+    }
+
+    // Mutation caught: cleanup recovery hides the exact catalog-publication retry for its installed primary.
+    @Test
+    fun foregroundCatalogRecoveryDerivesOnlyFromInstalledOutcomeAndExactToken() {
+        val token = NarImportAttemptToken("process", 19L, 42)
+        val publicationToken = CatalogPublicationToken("foreground-import", "process:19:42")
+        val snapshot = RuntimeSnapshot.initial().copy(
+            catalog = RuntimeCatalogState.Ready(
+                epoch = 21L,
+                entries = emptyList(),
+                publications = mapOf(
+                    publicationToken to RuntimeCatalogPublicationStatus.RecoveryRequired(
+                        targetId = "alpha",
+                        failedEpoch = 21L,
+                        reason = RuntimeNoticeCode.CATALOG_TARGET_MISSING,
+                    ),
+                ),
+            ),
+        )
+        val expected = ForegroundCatalogRecovery(token, publicationToken, failedEpoch = 21L)
+
+        assertEquals(
+            expected,
+            foregroundCatalogRecovery(
+                ForegroundNarImportState.Installed(token, "/ghost/alpha", "alpha"),
+                snapshot,
+            ),
+        )
+        assertEquals(
+            expected,
+            foregroundCatalogRecovery(
+                ForegroundNarImportState.RecoveryRequired(
+                    token,
+                    NarImportPrimaryOutcome.Installed("/ghost/alpha", "alpha"),
+                    "cleanup failed",
+                ),
+                snapshot,
+            ),
+        )
+        assertNull(
+            foregroundCatalogRecovery(
+                ForegroundNarImportState.RecoveryRequired(
+                    token,
+                    NarImportPrimaryOutcome.Interrupted,
+                    "cleanup failed",
+                ),
+                snapshot,
+            ),
+        )
+        assertNull(
+            foregroundCatalogRecovery(
+                ForegroundNarImportState.RecoveryRequired(
+                    token,
+                    NarImportPrimaryOutcome.Failed(
+                        "install failed",
+                        com.cattailsw.nanidroid.install.ArchiveInstallFailure.InvalidArchive,
+                    ),
+                    "cleanup failed",
+                ),
+                snapshot,
+            ),
+        )
+        assertNull(
+            foregroundCatalogRecovery(
+                ForegroundNarImportState.Installed(
+                    NarImportAttemptToken("other", 1L, 7),
+                    "/ghost/other",
+                    "other",
+                ),
+                snapshot,
+            ),
         )
     }
 

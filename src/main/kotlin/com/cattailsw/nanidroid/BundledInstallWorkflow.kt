@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.install.ArchiveInstallResult
+import com.cattailsw.nanidroid.runtime.RuntimeCatalogState
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +42,22 @@ internal fun bundledInstallEligibility(
         exception.message?.takeIf(String::isNotBlank)
             ?: "Nanidroid cannot inspect its ghost storage.",
     )
+}
+
+internal fun performBundledInstallRetry(
+    workflow: BundledInstallWorkflow,
+    expectedFailureOperationId: Long,
+    currentCatalog: () -> RuntimeCatalogState,
+    currentEligibility: () -> BundledInstallEligibility,
+    install: (File) -> ArchiveInstallResult,
+    publish: (BundledInstallPublication) -> Unit,
+): BundledInstallPublication? {
+    val eligibility = currentEligibility() as? BundledInstallEligibility.Eligible ?: return null
+    val ready = currentCatalog() as? RuntimeCatalogState.Ready ?: return null
+    if (ready.entries.isNotEmpty()) return null
+    val operationId = workflow.retry(expectedFailureOperationId) ?: return null
+    return workflow.execute(operationId) { install(eligibility.storageRoot) }
+        ?.also(publish)
 }
 
 /** Process-owned state for the bundled archive adapter operation only. */

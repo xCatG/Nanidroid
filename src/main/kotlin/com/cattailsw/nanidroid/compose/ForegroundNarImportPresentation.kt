@@ -148,6 +148,20 @@ internal fun ForegroundNarImportPresentation(
                     Text(stringResource(R.string.nar_import_retry_cleanup))
                 }
             },
+            dismiss = catalogRecovery
+                ?.takeIf {
+                    state.primary is NarImportPrimaryOutcome.Installed && it.importToken == state.token
+                }
+                ?.let { exactRecovery ->
+                    {
+                        TextButton(
+                            onClick = { onRetryCatalog(exactRecovery) },
+                            modifier = Modifier.testTag("nar-import-retry-catalog"),
+                        ) {
+                            Text(stringResource(R.string.retry_action))
+                        }
+                    }
+                },
         )
     }
 }

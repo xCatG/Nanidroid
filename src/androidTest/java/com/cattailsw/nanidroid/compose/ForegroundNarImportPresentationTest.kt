@@ -221,6 +221,42 @@ class ForegroundNarImportPresentationTest {
         }
     }
 
+    // Mutation caught: cleanup recovery obscures the independently actionable exact catalog retry.
+    @Test
+    fun installedPrimaryRecoveryExposesIndependentCleanupAndCatalogRetries() {
+        val token = NarImportAttemptToken("process", 23L, 9)
+        val recovery = ForegroundCatalogRecovery(
+            token,
+            CatalogPublicationToken("foreground-import", "process:23:9"),
+            failedEpoch = 37L,
+        )
+        var cleanupRetry: NarImportAttemptToken? = null
+        var catalogRetry: ForegroundCatalogRecovery? = null
+
+        rule.setContent {
+            ForegroundNarImportPresentation(
+                state = ForegroundNarImportState.RecoveryRequired(
+                    token = token,
+                    primary = NarImportPrimaryOutcome.Installed("/ghosts/example", "example"),
+                    message = "Private staging could not be removed.",
+                ),
+                installedReadyToken = null,
+                catalogRecovery = recovery,
+                onAcknowledge = {},
+                onSelectAnother = {},
+                onRetryCleanup = { cleanupRetry = it },
+                onRetryCatalog = { catalogRetry = it },
+            )
+        }
+
+        rule.onNodeWithTag("nar-import-retry-cleanup").assertIsDisplayed().performClick()
+        rule.onNodeWithTag("nar-import-retry-catalog").assertIsDisplayed().performClick()
+        rule.runOnIdle {
+            assertEquals(token, cleanupRetry)
+            assertEquals(recovery, catalogRetry)
+        }
+    }
+
     @Test
     fun installedPrimaryRecoveryUsesJapanesePreservationStatement() = assertLocalizedInstalledRecovery(
         locale = Locale.JAPANESE,

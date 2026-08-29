@@ -131,12 +131,12 @@ internal fun foregroundCatalogRecovery(
     state: ForegroundNarImportState,
     snapshot: RuntimeSnapshot,
 ): ForegroundCatalogRecovery? {
-    val installed = state as? ForegroundNarImportState.Installed ?: return null
-    val publicationToken = foregroundPublicationToken(installed.token)
+    val importToken = foregroundCatalogPublication(state)?.first ?: return null
+    val publicationToken = foregroundPublicationToken(importToken)
     val recovery = snapshot.catalog.publications[publicationToken]
         as? RuntimeCatalogPublicationStatus.RecoveryRequired
         ?: return null
-    return ForegroundCatalogRecovery(installed.token, publicationToken, recovery.failedEpoch)
+    return ForegroundCatalogRecovery(importToken, publicationToken, recovery.failedEpoch)
 }
 
 internal fun foregroundCatalogRetryCommand(recovery: ForegroundCatalogRecovery): RuntimeCommand =

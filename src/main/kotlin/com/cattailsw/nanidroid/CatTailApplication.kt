@@ -82,8 +82,30 @@ class CatTailApplication : Application() {
     }
 
     internal fun retryBundledInstall(expectedFailureOperationId: Long) {
-        val operationId = bundledInstallWorkflow.retry(expectedFailureOperationId) ?: return
-        applicationScope.launch { performBundledInstall(operationId) }
+        applicationScope.launch {
+            performBundledInstallRetry(
+                workflow = bundledInstallWorkflow,
+                expectedFailureOperationId = expectedFailureOperationId,
+                currentCatalog = { ghostRuntime.snapshots.value.catalog },
+                currentEligibility = {
+                    bundledInstallEligibility(
+                        storageRoot = { getExternalFilesDir(null)?.let { File(it, "ghost") } },
+                    )
+                },
+                install = ::installBundledGhost,
+                publish = { publication ->
+                    ghostRuntime.submit(
+                        RuntimeCommand.CatalogChanged(
+                            CatalogPublicationToken(
+                                "bundled-install",
+                                publication.operationId.toString(),
+                            ),
+                            publication.targetId,
+                        ),
+                    )
+                },
+            )
+        }
     }
 
     private fun performBundledInstall(operationId: Long, acceptedStorageRoot: File? = null) {
