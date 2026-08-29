@@ -93,6 +93,48 @@ internal fun finishAfterRestoredNotice(message: Int): Boolean = message in setOf
 internal fun switchProgressVisibleFor(phase: GhostRuntimePhase): Boolean =
     phase == GhostRuntimePhase.Replacing
 
+internal fun runtimeBusy(snapshot: RuntimeSnapshot): Boolean =
+    snapshot.catalog is RuntimeCatalogState.Loading || snapshot.phase in setOf(
+        GhostRuntimePhase.Starting,
+        GhostRuntimePhase.Attaching,
+        GhostRuntimePhase.Replacing,
+    )
+
+internal fun installedGhostListDialog(
+    snapshot: RuntimeSnapshot,
+    onSelect: (com.cattailsw.nanidroid.runtime.RuntimeGhostMetadata) -> Unit,
+    onMore: () -> Unit,
+): NanidroidSimpleDialog.GhostList {
+    val entries = snapshot.catalog.lastProvenEntries
+    return NanidroidSimpleDialog.GhostList(
+        names = entries.map { it.name ?: it.id },
+        ids = entries.map { it.id },
+        onSelect = { index -> entries.getOrNull(index)?.let(onSelect) },
+        onMore = onMore,
+    )
+}
+
+internal fun installedGhostDialog(
+    snapshot: RuntimeSnapshot,
+    metadata: com.cattailsw.nanidroid.runtime.RuntimeGhostMetadata,
+    requestSwitch: (String) -> Unit,
+    openDocumentLink: (String) -> Unit,
+): NanidroidSimpleDialog {
+    val switch = { requestSwitch(metadata.id) }
+    val readme = File(metadata.readmePath)
+    return if (readme.exists()) {
+        NanidroidSimpleDialog.TextDocument(
+            metadata.name ?: metadata.id,
+            PlainTextDocument.read(readme),
+            openDocumentLink,
+            metadata.id,
+            switch.takeUnless { metadata.id == snapshot.activeGhostId },
+        )
+    } else {
+        NanidroidSimpleDialog.SwitchConfirmation(metadata.id, metadata.name ?: metadata.id, switch)
+    }
+}
+
 internal fun tryLaunchDialogueExternalUri(launch: () -> Unit): Boolean = try {
     launch()
     true
@@ -649,29 +691,20 @@ class Nanidroid : ComponentActivity() {
             }
             return
         }
-        val entries = snapshot.catalog.lastProvenEntries
-        simpleDialogState.value = NanidroidSimpleDialog.GhostList(
-            names = entries.map { it.name ?: it.id },
-            ids = entries.map { it.id },
-            onSelect = { index -> entries.getOrNull(index)?.let(::showInstalledGhost) },
+        simpleDialogState.value = installedGhostListDialog(
+            snapshot = snapshot,
+            onSelect = ::showInstalledGhost,
             onMore = { simpleDialogState.value = NanidroidSimpleDialog.MoreGhost(::launchNarPicker) },
         )
     }
 
     private fun showInstalledGhost(metadata: com.cattailsw.nanidroid.runtime.RuntimeGhostMetadata) {
-        val switch = { requestSwitch(metadata.id) }
-        val readme = File(metadata.readmePath)
-        simpleDialogState.value = if (readme.exists()) {
-            NanidroidSimpleDialog.TextDocument(
-                metadata.name ?: metadata.id,
-                PlainTextDocument.read(readme),
-                ::openDocumentLink,
-                metadata.id,
-                switch.takeUnless { metadata.id == snapshotState.value.activeGhostId },
-            )
-        } else {
-            NanidroidSimpleDialog.SwitchConfirmation(metadata.id, metadata.name ?: metadata.id, switch)
-        }
+        simpleDialogState.value = installedGhostDialog(
+            snapshot = snapshotState.value,
+            metadata = metadata,
+            requestSwitch = ::requestSwitch,
+            openDocumentLink = ::openDocumentLink,
+        )
     }
 
     private fun requestSwitch(targetId: String) {
@@ -734,13 +767,6 @@ class Nanidroid : ComponentActivity() {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         }
     }
-
-    private fun runtimeBusy(snapshot: RuntimeSnapshot): Boolean =
-        snapshot.catalog is RuntimeCatalogState.Loading || snapshot.phase in setOf(
-            GhostRuntimePhase.Starting,
-            GhostRuntimePhase.Attaching,
-            GhostRuntimePhase.Replacing,
-        )
 
     internal fun snapshotForTesting(): RuntimeSnapshot = snapshotState.value
     internal fun hostLeaseForTesting(): RuntimeHostLease? = hostLeaseState.value

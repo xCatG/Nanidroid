@@ -640,6 +640,50 @@ class SakuraScriptPlayerTest {
         assertEquals("Link", (transition.state.dialogue.anchors.single().action as AnchorAction.Normal).label)
     }
 
+    @Test
+    fun progressiveAnchorTextIsReplacedByTheExactCanonicalActionOnlyAtClose() {
+        val trace = drive("\\hA\\_a[anchor-id]Link\\_aZ\\e")
+        val publishedIndex = trace.states.indexOfFirst { it.dialogue.anchors.isNotEmpty() }
+        val progressive = trace.states[publishedIndex - 1]
+        val published = trace.states[publishedIndex]
+
+        assertEquals("ALink", progressive.sakuraDialogueText())
+        assertTrue(progressive.dialogue.anchors.isEmpty())
+        assertEquals("AZ", published.sakuraDialogueText())
+        val contentAnchor = published.dialogue.state.contents
+            .flatMap { it.segments }
+            .filterIsInstance<DialogueSegment.Anchor>()
+            .single()
+        assertSame(published.dialogue.anchors.single().action, contentAnchor.action)
+    }
+
+    @Test
+    fun speakerChangeAndClearRetireOnlyTheAffectedOwnedActions() {
+        val shown = drive(
+            "\\h\\q[S,s]\\_a[sa]SA\\_a" +
+                "\\u\\q[K,k]\\_a[ka]KA\\_a\\h\\c\\e",
+        ).state
+
+        assertEquals(listOf("K"), shown.dialogue.choices.map { it.action.label() })
+        assertEquals(
+            listOf("KA"),
+            shown.dialogue.anchors.map { (it.action as AnchorAction.Normal).label },
+        )
+    }
+
+    @Test
+    fun synchronizedChoiceMirrorsOnlyLabelAndPublishesOneCapability() {
+        val shown = drive("\\h\\_s\\q[Same,id]\\_s\\e").state
+
+        assertEquals(1, shown.dialogue.choices.size)
+        assertEquals(1, shown.dialogue.state.pendingChoices.size)
+        val sakura = shown.dialogue.state.contents.single { it.speaker == GhostSpeaker.SAKURA }
+        val kero = shown.dialogue.state.contents.single { it.speaker == GhostSpeaker.KERO }
+        assertEquals(1, sakura.segments.count { it is DialogueSegment.Choice })
+        assertEquals("Same", kero.segments.filterIsInstance<DialogueSegment.Text>().joinToString("") { it.value })
+        assertEquals(0, kero.segments.count { it is DialogueSegment.Choice })
+    }
+
     // Mutation caught: returned collections retain mutable input lists or expose mutable queue/dialogue/effect lists.
     @Test
     fun queueDialogueAndEffectCollectionsRejectMutation() {
@@ -790,8 +834,12 @@ class SakuraScriptPlayerTest {
     // Mutation caught: escaped or terminal backslashes are rendered instead of recovered and consumed.
     @Test
     fun escapedAndTrailingBackslashesAreConsumedLikeRunnerRecovery() {
-        assertEquals("AB", drive("\\hA\\\\B\\e").authoredTextBeforeStop())
-        assertEquals("A", drive("\\hA\\").authoredTextBeforeStop())
+        val escaped = drive("\\hA\\\\B\\e")
+        val trailing = drive("\\hA\\")
+        assertEquals("AB", escaped.authoredTextBeforeStop())
+        assertEquals("A", trailing.authoredTextBeforeStop())
+        assertEquals("AB", escaped.stateWithSakuraText("AB").sakuraDialogueText())
+        assertEquals("A", trailing.stateWithSakuraText("A").sakuraDialogueText())
 
         assertEquals(
             "AB",
@@ -857,6 +905,64 @@ class SakuraScriptPlayerTest {
         val trace = drive("\\hplain text\\e")
         assertEquals("plain text", trace.authoredTextBeforeStop())
         assertTrue(trace.state.dialogue.choices.isEmpty())
+        assertNull(trace.state.dialogue.input)
+    }
+
+    @Test
+    fun wholeLineDialogueProjectionVisitsEachSourceIntervalOnce() {
+        val body = "x".repeat(131_072)
+        val script = "\\h\\_q$body\\e"
+        val trace = driveWithWork(script)
+
+        assertEquals(body, trace.state.sakuraDialogueText())
+        assertTrue(trace.work.authoredSourceVisits <= script.length * 3)
+        assertTrue(trace.work.projectedSourceVisits <= script.length)
+        assertEquals(0, trace.work.canonicalOccurrenceVisits)
+    }
+
+    @Test
+    fun ordinaryDialogueProjectionVisitsEachSourceIntervalOnce() {
+        val body = "x".repeat(4_096)
+        val script = "\\h$body\\e"
+        val trace = driveWithWork(script)
+
+        assertEquals(body, trace.state.sakuraDialogueText())
+        assertTrue(trace.work.authoredSourceVisits <= script.length * 3)
+        assertTrue(trace.work.projectedSourceVisits <= script.length)
+        assertEquals(0, trace.work.canonicalOccurrenceVisits)
+    }
+
+    @Test
+    fun equalActionsUseLinearCanonicalOccurrenceWork() {
+        val repetitions = 48
+        val script = buildString {
+            append("\\h\\_q")
+            repeat(repetitions) {
+                append("\\q[Same,id]\\_a[id]Same\\_a\\![open,inputbox,same]")
+            }
+            append("\\e")
+        }
+        val trace = driveWithWork(script)
+
+        assertEquals(repetitions, trace.state.dialogue.choices.size)
+        assertEquals(repetitions, trace.state.dialogue.anchors.size)
+        assertTrue(trace.work.authoredSourceVisits <= script.length * 3)
+        assertTrue(trace.work.projectedSourceVisits <= script.length)
+        assertEquals(repetitions * 3, trace.work.canonicalOccurrenceVisits)
+    }
+
+    @Test
+    fun mixedAtomicCommandsProjectEachCrossedSourceIntervalOnce() {
+        val script = "\\hA\\p[2]hidden\\p[0]\\_sB\\nC\\_s" +
+            "\\q[Q,id]\\_a[anchor]Link\\_a\\![open,inputbox,name]" +
+            "\\c\\p[broken\\hZ\\e"
+        val trace = driveWithWork(script)
+
+        assertTrue(trace.work.authoredSourceVisits <= script.length * 3)
+        assertTrue(trace.work.projectedSourceVisits <= script.length)
+        assertEquals(3, trace.work.canonicalOccurrenceVisits)
+        assertTrue(trace.state.dialogue.choices.isEmpty())
+        assertTrue(trace.state.dialogue.anchors.isEmpty())
         assertNull(trace.state.dialogue.input)
     }
 
@@ -1105,6 +1211,29 @@ class SakuraScriptPlayerTest {
         throw AssertionError("player did not reach a terminal")
     }
 
+    private fun driveWithWork(script: String): WorkTrace {
+        var transition = SakuraScriptPlayer.reduce(
+            PlayerState.initial(4L),
+            PlayerCommand.Enqueue(script, null),
+        )
+        var state = transition.state
+        var work = transition.work
+        repeat(200_000) {
+            if (state.current == null && state.queue.isEmpty()) return WorkTrace(state, work)
+            transition = state.dialogue.input?.let { input ->
+                SakuraScriptPlayer.reduce(state, PlayerCommand.SubmitInput(input.key, "value"))
+            } ?: SakuraScriptPlayer.reduce(
+                state,
+                PlayerCommand.Advance(state.playbackToken, 0L),
+            )
+            state = transition.state
+            work += transition.work
+        }
+        throw AssertionError("player did not complete")
+    }
+
+    private data class WorkTrace(val state: PlayerState, val work: PlayerWork)
+
     private fun PlayerTransition.schedule(): PlayerEffect.SchedulePlayback =
         effects.filterIsInstance<PlayerEffect.SchedulePlayback>().single()
 
@@ -1121,6 +1250,8 @@ class SakuraScriptPlayerTest {
             }
 
         fun authoredTextBeforeStop(): String = states.map { it.presentation.sakura.text }.maxBy(String::length)
+
+        fun stateWithSakuraText(value: String): PlayerState = states.first { it.presentation.sakura.text == value }
 
         fun visibleEvents(): List<String> {
             val result = mutableListOf<String>()
@@ -1156,6 +1287,17 @@ class SakuraScriptPlayerTest {
             return result
         }
     }
+
+    private fun PlayerState.sakuraDialogueText(): String = dialogue.state.contents
+        .filter { it.speaker == GhostSpeaker.SAKURA }
+        .flatMap { it.segments }
+        .joinToString("") { segment ->
+            when (segment) {
+                is DialogueSegment.Text -> segment.value
+                DialogueSegment.NewLine -> "\n"
+                else -> ""
+            }
+        }
 
     private fun response(status: Int, value: String? = null): ShioriResponse = ShioriResponse(
         "SHIORI/3.0 $status ${if (status == 200) "OK" else "No Content"}",

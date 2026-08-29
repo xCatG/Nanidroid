@@ -4,6 +4,8 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -105,6 +107,40 @@ class ComposeGhostStageHostDialogueIdentityTest {
         composeRule.runOnIdle { assertEquals(emptyList<RuntimeCommand>(), commands) }
     }
 
+    @Test
+    fun productionHostUsesThePlayersConsumedBackslashProjection() {
+        val lease = RuntimeHostLease(RuntimeHostId(101L), 7L)
+        val snapshot = mutableStateOf(snapshot(driveUntilText("\\hA\\\\B\\e", "AB"), lease))
+
+        composeRule.setContent {
+            ComposeGhostStageHost().Stage(
+                snapshot = snapshot.value,
+                hostLease = lease,
+                submitCommand = {},
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        assertEquals("AB", bubbleText("ghost-bubble-sakura"))
+        composeRule.runOnIdle {
+            snapshot.value = snapshot(driveUntilText("\\hA\\", "A"), lease)
+        }
+        composeRule.waitForIdle()
+        assertEquals("A", bubbleText("ghost-bubble-sakura"))
+    }
+
+    private fun snapshot(player: PlayerState, lease: RuntimeHostLease): RuntimeSnapshot = RuntimeSnapshot.freeze(
+        RuntimeSnapshot.initial().copy(
+            revision = 1L,
+            generation = player.generation,
+            phase = GhostRuntimePhase.Attached,
+            activeGhostId = "escape-ghost",
+            presentation = player.presentation,
+            dialogue = player.dialogue,
+            foregroundHost = lease,
+        ),
+    )
+
     private fun drive(script: String): PlayerState {
         var transition = SakuraScriptPlayer.reduce(
             PlayerState.initial(generation = 8L),
@@ -121,5 +157,33 @@ class ComposeGhostStageHostDialogueIdentityTest {
             state = transition.state
         }
         throw AssertionError("player did not complete")
+    }
+
+    private fun driveUntilText(script: String, expected: String): PlayerState {
+        var transition = SakuraScriptPlayer.reduce(
+            PlayerState.initial(generation = 8L),
+            PlayerCommand.Enqueue(script, parent = null),
+        )
+        var state = transition.state
+        repeat(500) {
+            if (state.presentation.sakura.text == expected) return state
+            val scheduled = transition.effects.filterIsInstance<PlayerEffect.SchedulePlayback>().lastOrNull()
+            transition = SakuraScriptPlayer.reduce(
+                state,
+                PlayerCommand.Advance(state.playbackToken, scheduled?.delayMillis ?: 0L),
+            )
+            state = transition.state
+        }
+        throw AssertionError("player did not reveal $expected")
+    }
+
+    private fun bubbleText(tag: String): String = buildString {
+        fun appendText(node: SemanticsNode) {
+            if (SemanticsProperties.Text in node.config) {
+                node.config[SemanticsProperties.Text].forEach { append(it.text) }
+            }
+            node.children.forEach(::appendText)
+        }
+        appendText(composeRule.onNodeWithTag(tag).fetchSemanticsNode())
     }
 }

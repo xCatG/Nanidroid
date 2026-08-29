@@ -15,6 +15,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.RuntimeAnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.RuntimeChoiceAction
 import com.cattailsw.nanidroid.runtime.dialogue.RuntimeInputAction
 import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptCommandParser
+import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptOccurrence
 import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptTokenizer
 import com.cattailsw.nanidroid.runtime.dialogue.tokenizeWithInteractions
 import java.util.Collections
@@ -36,17 +37,36 @@ internal data class PlayerCursor(
     val quickSession: Boolean,
     val synchronizedSession: Boolean,
     val renderedFrameIndex: Int,
+    val dialogueProjection: DialogueProjectionCursor,
+)
+
+internal data class DialogueProjectionCursor(
+    val scope: Int,
+    val speaker: GhostSpeaker,
+    val synchronizedSession: Boolean,
+    val nextOccurrence: Int,
+    val activeAnchor: ActiveAnchorProjection?,
+)
+
+internal data class ActiveAnchorProjection(
+    val owner: GhostSpeaker,
+    val mirroredOwner: GhostSpeaker?,
+    val ownerStartIndex: Int,
+    val mirroredStartIndex: Int?,
+    val occurrenceIndex: Int?,
 )
 
 internal data class AuthoredDialogueScript(
     val contents: List<DialogueContent>,
     val markers: List<ActionMarker>,
+    val sourceVisits: Int,
 )
 
 internal enum class ActionKind { CHOICE, ANCHOR, INPUT }
 
 internal data class ActionMarker(
     val sourceEnd: Int,
+    val speaker: GhostSpeaker,
     val kind: ActionKind,
     val value: Any,
 )
@@ -138,7 +158,23 @@ internal sealed interface PlayerEffect {
     data class Failure(val parent: PlayerParent?, val reason: RuntimeNoticeCode) : PlayerEffect
 }
 
-internal data class PlayerTransition(val state: PlayerState, val effects: List<PlayerEffect>)
+internal data class PlayerWork(
+    val authoredSourceVisits: Int = 0,
+    val projectedSourceVisits: Int = 0,
+    val canonicalOccurrenceVisits: Int = 0,
+) {
+    operator fun plus(other: PlayerWork): PlayerWork = PlayerWork(
+        authoredSourceVisits = authoredSourceVisits + other.authoredSourceVisits,
+        projectedSourceVisits = projectedSourceVisits + other.projectedSourceVisits,
+        canonicalOccurrenceVisits = canonicalOccurrenceVisits + other.canonicalOccurrenceVisits,
+    )
+}
+
+internal data class PlayerTransition(
+    val state: PlayerState,
+    val effects: List<PlayerEffect>,
+    val work: PlayerWork = PlayerWork(),
+)
 
 internal object SakuraScriptPlayer {
     private const val WAIT_UNIT = 50L
@@ -170,16 +206,24 @@ internal object SakuraScriptPlayer {
         }
         return try {
             var adopted = state
+            var work = PlayerWork()
             if (adopted.current == null) {
                 if (adopted.queue.isEmpty()) return transition(adopted)
-                adopted = adopt(adopted, command.elapsedMillis)
+                val adoption = adopt(adopted, command.elapsedMillis)
+                adopted = adoption.first
+                work += adoption.second
             } else if (adopted.current.charIndex >= adopted.current.payload.script.length) {
                 val completed = completeCurrent(adopted, command.elapsedMillis)
                 if (completed.state.current != null || completed.state.queue.isEmpty()) return completed
-                adopted = adopt(completed.state, command.elapsedMillis)
-                return schedule(adopted, WAIT_UNIT, completed.effects)
+                val adoption = adopt(completed.state, command.elapsedMillis)
+                return schedule(
+                    adoption.first,
+                    WAIT_UNIT,
+                    completed.effects,
+                    completed.work + adoption.second,
+                )
             }
-            parseStep(adopted)
+            parseStep(adopted, work)
         } catch (_: Throwable) {
             failPlayback(state, state.current?.payload?.parent ?: state.queue.firstOrNull()?.parent)
         }
@@ -188,7 +232,7 @@ internal object SakuraScriptPlayer {
     private fun adopt(
         state: PlayerState,
         elapsedMillis: Long,
-    ): PlayerState {
+    ): Pair<PlayerState, PlayerWork> {
         val payload = state.queue.first()
         val authoredDialogue = authoredDialogue(payload.script)
         val markers = authoredDialogue.markers
@@ -219,14 +263,21 @@ internal object SakuraScriptPlayer {
                 quickSession = false,
                 synchronizedSession = false,
                 renderedFrameIndex = state.talkingFrameIndex,
+                dialogueProjection = DialogueProjectionCursor(
+                    scope = 0,
+                    speaker = GhostSpeaker.SAKURA,
+                    synchronizedSession = false,
+                    nextOccurrence = 0,
+                    activeAnchor = null,
+                ),
             ),
             presentation = resetTransient(state.presentation),
             dialogue = nextDialogue,
             nextActionId = state.nextActionId + markers.size,
-        ).let { projectDialogue(it, 0, 0) }
+        ) to PlayerWork(authoredSourceVisits = authoredDialogue.sourceVisits)
     }
 
-    private fun parseStep(state: PlayerState): PlayerTransition {
+    private fun parseStep(state: PlayerState, priorWork: PlayerWork = PlayerWork()): PlayerTransition {
         var next = state
         var cursor = requireNotNull(state.current)
         val script = cursor.payload.script
@@ -240,6 +291,157 @@ internal object SakuraScriptPlayer {
         val keroText = StringBuilder(presentation.kero.text)
         var sakuraBalloonVisible = presentation.sakura.balloonVisible
         var keroBalloonVisible = presentation.kero.balloonVisible
+        var projection = cursor.dialogueProjection
+        val projectedSegments = next.dialogue.state.contents.associate { content ->
+            content.speaker to content.segments.toMutableList()
+        }.toMutableMap()
+        val projectedText = mutableMapOf<GhostSpeaker, StringBuilder>()
+        var projectedChoices = next.dialogue.choices.toMutableList()
+        var projectedAnchors = next.dialogue.anchors.toMutableList()
+        var projectedInput = next.dialogue.input
+        var canonicalOccurrenceVisits = 0
+        val markers = cursor.authoredDialogue.markers
+        val baseActionId = next.nextActionId - markers.size
+
+        fun flushProjectedText(owner: GhostSpeaker) {
+            val builder = projectedText.remove(owner) ?: return
+            if (builder.isNotEmpty()) {
+                projectedSegments.getOrPut(owner) { mutableListOf() } += DialogueSegment.Text(builder.toString())
+            }
+        }
+
+        fun appendProjectedText(owner: GhostSpeaker, value: CharSequence) {
+            if (value.isEmpty()) return
+            projectedText.getOrPut(owner) { StringBuilder() }.append(value)
+        }
+
+        fun appendProjectedSegment(owner: GhostSpeaker, segment: DialogueSegment) {
+            flushProjectedText(owner)
+            projectedSegments.getOrPut(owner) { mutableListOf() } += segment
+        }
+
+        fun mirrorOf(owner: GhostSpeaker): GhostSpeaker = when (owner) {
+            GhostSpeaker.SAKURA -> GhostSpeaker.KERO
+            GhostSpeaker.KERO -> GhostSpeaker.SAKURA
+        }
+
+        fun projectText(value: CharSequence) {
+            val anchor = projection.activeAnchor
+            if (anchor != null) {
+                appendProjectedText(anchor.owner, value)
+                anchor.mirroredOwner?.let { appendProjectedText(it, value) }
+                return
+            }
+            if (projection.scope >= 2) return
+            appendProjectedText(projection.speaker, value)
+            if (projection.synchronizedSession) {
+                appendProjectedText(mirrorOf(projection.speaker), value)
+            }
+        }
+
+        fun projectSegment(segment: DialogueSegment) {
+            val anchor = projection.activeAnchor
+            if (anchor != null) {
+                if (segment == DialogueSegment.NewLine) projectText("\n")
+                return
+            }
+            if (projection.scope >= 2) return
+            appendProjectedSegment(projection.speaker, segment)
+            if (!projection.synchronizedSession) return
+            val other = mirrorOf(projection.speaker)
+            when (segment) {
+                DialogueSegment.NewLine -> appendProjectedSegment(other, DialogueSegment.NewLine)
+                is DialogueSegment.Choice -> appendProjectedText(other, segment.action.visibleLabel())
+                is DialogueSegment.Anchor -> appendProjectedText(other, segment.action.visibleLabel())
+                else -> Unit
+            }
+        }
+
+        fun markerOwner(key: DialogueActionKey): GhostSpeaker? {
+            val index = key.actionId - baseActionId
+            if (index < 0L || index > markers.lastIndex.toLong()) return null
+            return markers[index.toInt()].speaker
+        }
+
+        fun retireActions(owner: GhostSpeaker, speakerChange: Boolean) {
+            projectedAnchors.removeAll { markerOwner(it.key) == owner }
+            if (!speakerChange) {
+                projectedChoices.removeAll { markerOwner(it.key) == owner }
+                if (projectedInput?.pending?.owner == owner) projectedInput = null
+            }
+        }
+
+        fun projectClear(speakerChange: Boolean) {
+            if (projection.activeAnchor != null || projection.scope >= 2) return
+            val segment = if (speakerChange) DialogueSegment.SpeakerChangeClear else DialogueSegment.Clear
+            appendProjectedSegment(projection.speaker, segment)
+            retireActions(projection.speaker, speakerChange)
+        }
+
+        fun selectProjectionSpeaker(owner: GhostSpeaker, clearIfCurrent: Boolean = false) {
+            if (projection.activeAnchor != null) return
+            if (projection.speaker == owner) {
+                if (clearIfCurrent) projectClear(speakerChange = true)
+                return
+            }
+            projection = projection.copy(speaker = owner)
+            projectClear(speakerChange = true)
+        }
+
+        fun revealOccurrence(kind: ActionKind, sourceEnd: Int): ActionMarker? {
+            if (projection.activeAnchor != null || projection.scope >= 2) return null
+            val marker = markers.getOrNull(projection.nextOccurrence)
+                ?.takeIf { it.kind == kind && it.sourceEnd == sourceEnd }
+                ?: return null
+            projection = projection.copy(nextOccurrence = projection.nextOccurrence + 1)
+            canonicalOccurrenceVisits++
+            return marker
+        }
+
+        fun openAnchor() {
+            if (projection.activeAnchor != null || projection.scope >= 2) return
+            GhostSpeaker.entries.forEach(::flushProjectedText)
+            val owner = projection.speaker
+            val mirror = mirrorOf(owner).takeIf { projection.synchronizedSession }
+            val markerIndex = projection.nextOccurrence.takeIf { index ->
+                markers.getOrNull(index)?.kind == ActionKind.ANCHOR
+            }
+            projection = projection.copy(
+                activeAnchor = ActiveAnchorProjection(
+                    owner = owner,
+                    mirroredOwner = mirror,
+                    ownerStartIndex = projectedSegments[owner].orEmpty().size,
+                    mirroredStartIndex = mirror?.let { projectedSegments[it].orEmpty().size },
+                    occurrenceIndex = markerIndex,
+                ),
+            )
+        }
+
+        fun closeAnchor(sourceEnd: Int) {
+            val active = projection.activeAnchor ?: return
+            GhostSpeaker.entries.forEach(::flushProjectedText)
+            projectedSegments.getOrPut(active.owner) { mutableListOf() }.let { values ->
+                while (values.size > active.ownerStartIndex) values.removeAt(values.lastIndex)
+            }
+            active.mirroredOwner?.let { owner ->
+                val start = requireNotNull(active.mirroredStartIndex)
+                projectedSegments.getOrPut(owner) { mutableListOf() }.let { values ->
+                    while (values.size > start) values.removeAt(values.lastIndex)
+                }
+            }
+            val marker = active.occurrenceIndex?.let(markers::getOrNull)
+                ?.takeIf { it.kind == ActionKind.ANCHOR && it.sourceEnd == sourceEnd }
+            if (marker != null) {
+                val action = marker.value as AnchorAction
+                appendProjectedSegment(active.owner, DialogueSegment.Anchor(action))
+                active.mirroredOwner?.let { appendProjectedText(it, action.visibleLabel()) }
+                val key = DialogueActionKey(next.generation, next.dialogue.state.incarnation, baseActionId + active.occurrenceIndex)
+                projectedAnchors += RuntimeAnchorAction(key, action)
+                projection = projection.copy(nextOccurrence = projection.nextOccurrence + 1)
+                canonicalOccurrenceVisits++
+            }
+            projection = projection.copy(activeAnchor = null)
+        }
 
         fun appendCharacter(activeCursor: PlayerCursor, value: Char) {
             val speakers = if (activeCursor.synchronizedSession) GhostSpeaker.entries else listOf(activeCursor.speaker)
@@ -299,6 +501,7 @@ internal object SakuraScriptPlayer {
             cursor = cursor.copy(charIndex = cursor.charIndex + 1, waitMillis = WAIT_UNIT)
             if (character != '\\') {
                 if (cursor.scope < 2) appendCharacter(cursor, character)
+                projectText(character.toString())
                 if (!cursor.wholeLine) scheduledDelay = WAIT_UNIT
                 continue
             }
@@ -313,12 +516,20 @@ internal object SakuraScriptPlayer {
                 '0', 'h' -> {
                     val previous = cursor.speaker
                     cursor = cursor.copy(scope = 0, speaker = GhostSpeaker.SAKURA)
+                    if (projection.activeAnchor == null) {
+                        projection = projection.copy(scope = 0)
+                        selectProjectionSpeaker(GhostSpeaker.SAKURA)
+                    }
                     if (previous == GhostSpeaker.KERO) {
                         clearText(GhostSpeaker.SAKURA)
                     }
                 }
                 '1', 'u' -> {
                     cursor = cursor.copy(scope = 1, speaker = GhostSpeaker.KERO)
+                    if (projection.activeAnchor == null) {
+                        projection = projection.copy(scope = 1)
+                        selectProjectionSpeaker(GhostSpeaker.KERO, clearIfCurrent = true)
+                    }
                     clearText(GhostSpeaker.KERO)
                 }
                 'p' -> {
@@ -334,6 +545,13 @@ internal object SakuraScriptPlayer {
                                 else -> oldSpeaker
                             },
                         )
+                        if (projection.activeAnchor == null) {
+                            projection = projection.copy(scope = parsed.first)
+                            when (parsed.first) {
+                                0 -> selectProjectionSpeaker(GhostSpeaker.SAKURA)
+                                1 -> selectProjectionSpeaker(GhostSpeaker.KERO)
+                            }
+                        }
                         if (parsed.first == 0 && oldSpeaker == GhostSpeaker.KERO) {
                             clearText(GhostSpeaker.SAKURA)
                         } else if (parsed.first == 1 && oldSpeaker == GhostSpeaker.SAKURA) {
@@ -395,15 +613,26 @@ internal object SakuraScriptPlayer {
                     val bracket = SakuraScriptCommandParser.readBracket(script, cursor.charIndex)
                     if (bracket != null) cursor = cursor.copy(charIndex = bracket.nextIndex)
                     if (scope < 2) appendText(cursor, "\n")
+                    projectSegment(DialogueSegment.NewLine)
                     scheduledDelay = WAIT_UNIT
                 }
-                'c' -> if (scope < 2) clearText(cursor.speaker)
+                'c' -> if (scope < 2) {
+                    clearText(cursor.speaker)
+                    projectClear(speakerChange = false)
+                }
                 '_' -> {
                     if (cursor.charIndex >= script.length) continue
                     val underscore = script[cursor.charIndex]
                     cursor = cursor.copy(charIndex = cursor.charIndex + 1)
                     when (underscore) {
-                        's' -> cursor = cursor.copy(synchronizedSession = !cursor.synchronizedSession)
+                        's' -> {
+                            cursor = cursor.copy(synchronizedSession = !cursor.synchronizedSession)
+                            if (projection.activeAnchor == null) {
+                                projection = projection.copy(
+                                    synchronizedSession = !projection.synchronizedSession,
+                                )
+                            }
+                        }
                         'q' -> cursor = cursor.copy(
                             wholeLine = !cursor.wholeLine,
                             quickSession = !cursor.quickSession,
@@ -414,6 +643,7 @@ internal object SakuraScriptPlayer {
                                 cursor = cursor.copy(charIndex = bracket.nextIndex)
                                 bracket.value.toLongOrNull()?.let {
                                     cursor = cursor.copy(waitMillis = it)
+                                    projectSegment(DialogueSegment.Wait(it))
                                     scheduledDelay = it
                                 }
                             }
@@ -432,6 +662,9 @@ internal object SakuraScriptPlayer {
                                 // Only consume the opening command. Its label is ordinary visible
                                 // playback text; the later payload-less \_a consumes the close.
                                 cursor = cursor.copy(charIndex = bracket.nextIndex)
+                                openAnchor()
+                            } else {
+                                closeAnchor(cursor.charIndex)
                             }
                         }
                         else -> {
@@ -450,10 +683,34 @@ internal object SakuraScriptPlayer {
                         val args = SakuraScriptCommandParser.splitArguments(bracket.value)
                         if (args.size == 2 && args[1] == "passivemode" && args[0] in setOf("enter", "leave")) {
                             next = next.copy(passive = args[0] == "enter")
+                            projectSegment(DialogueSegment.PassiveMode(args[0] == "enter"))
                         } else if (
                             scope < 2 && args.firstOrNull() == "open" &&
                             args.getOrNull(1) in setOf("inputbox", "passwordinput")
                         ) {
+                            revealOccurrence(ActionKind.INPUT, cursor.charIndex)?.let { marker ->
+                                val pending = marker.value as PendingInputSeed
+                                projectSegment(DialogueSegment.InputBox(pending.spec))
+                                if (projectedInput == null) {
+                                    val markerIndex = projection.nextOccurrence - 1
+                                    projectedInput = RuntimeInputAction(
+                                        DialogueActionKey(
+                                            next.generation,
+                                            next.dialogue.state.incarnation,
+                                            baseActionId + markerIndex,
+                                        ),
+                                        PendingInputState(
+                                            generation = baseActionId + markerIndex,
+                                            spec = pending.spec,
+                                            deadlineElapsedMillis = inputDeadline(
+                                                cursor.adoptedElapsedMillis,
+                                                pending.timeoutMillis,
+                                            ),
+                                            owner = pending.speaker,
+                                        ),
+                                    )
+                                }
+                            }
                             scheduledDelay = WAIT_UNIT
                         }
                     } else if (script.getOrNull(cursor.charIndex) == '[') {
@@ -467,6 +724,19 @@ internal object SakuraScriptPlayer {
                         val args = SakuraScriptCommandParser.splitArguments(bracket.value)
                         if (scope < 2 && args.size >= 2) {
                             appendText(cursor, args.first())
+                            revealOccurrence(ActionKind.CHOICE, cursor.charIndex)?.let { marker ->
+                                val action = marker.value as DialogueAction
+                                projectSegment(DialogueSegment.Choice(action))
+                                val markerIndex = projection.nextOccurrence - 1
+                                projectedChoices += RuntimeChoiceAction(
+                                    DialogueActionKey(
+                                        next.generation,
+                                        next.dialogue.state.incarnation,
+                                        baseActionId + markerIndex,
+                                    ),
+                                    action,
+                                )
+                            }
                             cursor = cursor.copy(wholeLine = true)
                         }
                     } else if (script.getOrNull(cursor.charIndex) == '[') {
@@ -477,7 +747,21 @@ internal object SakuraScriptPlayer {
                     val digit = script.getOrNull(cursor.charIndex)?.digitToIntOrNull()
                     if (digit != null) {
                         cursor = cursor.copy(charIndex = cursor.charIndex + 1, waitMillis = digit * WAIT_UNIT)
+                        projectSegment(DialogueSegment.Wait(cursor.waitMillis))
                         scheduledDelay = cursor.waitMillis
+                    }
+                }
+                'j' -> {
+                    val bracket = SakuraScriptCommandParser.readBracket(script, cursor.charIndex)
+                    if (bracket != null) {
+                        cursor = cursor.copy(charIndex = bracket.nextIndex)
+                        val uri = SakuraScriptCommandParser.splitArguments(bracket.value).singleOrNull()
+                            ?: bracket.value
+                        if (uri.startsWith("http://") || uri.startsWith("https://")) {
+                            projectSegment(DialogueSegment.ExternalUrl(uri, uri))
+                        }
+                    } else if (script.getOrNull(cursor.charIndex) == '[') {
+                        cursor = cursor.copy(charIndex = resumeAfterMalformed(script, cursor.charIndex))
                     }
                 }
                 else -> {
@@ -492,8 +776,12 @@ internal object SakuraScriptPlayer {
             }
         }
 
+        GhostSpeaker.entries.forEach(::flushProjectedText)
         val nextTalkingFrameIndex = (cursor.renderedFrameIndex + 1) % 10
-        cursor = cursor.copy(renderedFrameIndex = nextTalkingFrameIndex)
+        cursor = cursor.copy(
+            renderedFrameIndex = nextTalkingFrameIndex,
+            dialogueProjection = projection,
+        )
         presentation = presentation.copy(
             sakura = presentation.sakura.copy(
                 text = sakuraText.toString(),
@@ -509,8 +797,24 @@ internal object SakuraScriptPlayer {
             current = cursor,
             talkingFrameIndex = nextTalkingFrameIndex,
             presentation = presentation,
+            dialogue = next.dialogue.copy(
+                state = next.dialogue.state.copy(
+                    revision = next.dialogue.state.revision + 1,
+                    contents = projectedSegments.map { (owner, values) ->
+                        DialogueContent(owner, values.toList())
+                    },
+                    pendingChoices = projectedChoices.map(RuntimeChoiceAction::action),
+                    pendingInput = projectedInput?.pending,
+                ),
+                choices = projectedChoices,
+                anchors = projectedAnchors,
+                input = projectedInput,
+            ),
         )
-        next = projectDialogue(next, startIndex, cursor.charIndex)
+        val work = priorWork + PlayerWork(
+            projectedSourceVisits = cursor.charIndex - startIndex,
+            canonicalOccurrenceVisits = canonicalOccurrenceVisits,
+        )
         val effects = mutableListOf<PlayerEffect>()
         explicitCue?.let(effects::add)
         if (talkingFrame) {
@@ -527,10 +831,10 @@ internal object SakuraScriptPlayer {
         request?.let(effects::add)
         if (request == null && next.dialogue.input == null) {
             val delay = scheduledDelay ?: WAIT_UNIT
-            val scheduled = schedule(next, delay, effects)
+            val scheduled = schedule(next, delay, effects, work)
             return scheduled
         }
-        return transition(next, effects)
+        return transition(next, effects, work)
     }
 
     private fun nativeResponse(state: PlayerState, command: PlayerCommand.NativeResponse): PlayerTransition {
@@ -741,8 +1045,8 @@ internal object SakuraScriptPlayer {
         val stillOwned = next.queue.any { it.parent == parent }
         val effects = if (parent != null && !stillOwned) listOf(PlayerEffect.ParentCompleted(parent)) else emptyList()
         return if (next.queue.isNotEmpty()) {
-            val adopted = adopt(next, elapsedMillis)
-            schedule(adopted, WAIT_UNIT, effects)
+            val adoption = adopt(next, elapsedMillis)
+            schedule(adoption.first, WAIT_UNIT, effects, adoption.second)
         } else transition(next, effects)
     }
 
@@ -782,198 +1086,34 @@ internal object SakuraScriptPlayer {
         listOf(PlayerEffect.Failure(parent, RuntimeNoticeCode.RUNTIME_POISONED)),
     )
 
-    private fun projectDialogue(
-        state: PlayerState,
-        fromIndex: Int,
-        throughIndex: Int,
-    ): PlayerState {
-        val cursor = state.current ?: return state
-        val authored = cursor.authoredDialogue
-        val markers = authored.markers
-        val baseActionId = state.nextActionId - markers.size
-        val revealed = SakuraScriptTokenizer.tokenizeRevealed(
-            cursor.payload.script.take(throughIndex.coerceIn(0, cursor.payload.script.length)),
-        )
-        val mapped = projectRevealed(authored, revealed)
-        val visible = visibleSegments(mapped)
-        val visibleChoices = visible.filterIsInstance<DialogueSegment.Choice>().map(DialogueSegment.Choice::action)
-        val visibleAnchors = visible.filterIsInstance<DialogueSegment.Anchor>().map(DialogueSegment.Anchor::action)
-        val crossed = markers.withIndex().filter { (_, marker) ->
-            marker.sourceEnd > fromIndex && marker.sourceEnd <= throughIndex
-        }
-        val incarnation = state.dialogue.state.incarnation
-        val choices = (state.dialogue.choices + crossed.mapNotNull { (index, marker) ->
-            (marker.value as? DialogueAction)?.let {
-                RuntimeChoiceAction(DialogueActionKey(state.generation, incarnation, baseActionId + index), it)
-            }
-        }).filter { candidate -> visibleChoices.any { it === candidate.action } }
-        val anchors = (state.dialogue.anchors + crossed.mapNotNull { (index, marker) ->
-            (marker.value as? AnchorAction)?.let {
-                RuntimeAnchorAction(DialogueActionKey(state.generation, incarnation, baseActionId + index), it)
-            }
-        }).filter { candidate -> visibleAnchors.any { it === candidate.action } }
-        val existingInput = state.dialogue.input
-        val input = existingInput ?: crossed.firstNotNullOfOrNull { (index, marker) ->
-            val pending = marker.value as? PendingInputSeed ?: return@firstNotNullOfOrNull null
-            val deadline = inputDeadline(cursor.adoptedElapsedMillis, pending.timeoutMillis)
-            RuntimeInputAction(
-                DialogueActionKey(state.generation, incarnation, baseActionId + index),
-                PendingInputState(
-                    generation = baseActionId + index,
-                    spec = pending.spec,
-                    deadlineElapsedMillis = deadline,
-                    owner = pending.speaker,
-                ),
-            )
-        }
-        return state.copy(
-            dialogue = state.dialogue.copy(
-                state = state.dialogue.state.copy(
-                    revision = state.dialogue.state.revision + 1,
-                    contents = mapped,
-                    pendingChoices = choices.map(RuntimeChoiceAction::action),
-                    pendingInput = input?.pending,
-                ),
-                choices = choices.distinctBy(RuntimeChoiceAction::key),
-                anchors = anchors.distinctBy(RuntimeAnchorAction::key),
-                input = input,
-            ),
-        )
-    }
-
     private fun authoredDialogue(script: String): AuthoredDialogueScript {
         val tokenization = SakuraScriptTokenizer.tokenizeWithInteractions(script)
-        val choices = tokenization.interactions
-            .map { ActionMarker(it.sourceEnd, ActionKind.CHOICE, it.action) }
-        val others = mutableListOf<ActionMarker>()
-        val authoredBySpeaker = tokenization.contents.associateBy(DialogueContent::speaker)
-        val nextAnchor = GhostSpeaker.entries.associateWith { 0 }.toMutableMap()
-        val nextInput = GhostSpeaker.entries.associateWith { 0 }.toMutableMap()
-        var index = 0
-        var speaker = GhostSpeaker.SAKURA
-        var scope = 0
-        while (index < script.length) {
-            if (script[index++] != '\\' || index >= script.length) continue
-            when (script[index++]) {
-                'h', '0' -> { scope = 0; speaker = GhostSpeaker.SAKURA }
-                'u', '1' -> { scope = 1; speaker = GhostSpeaker.KERO }
-                'p' -> SakuraScriptCommandParser.parseScope(script, index)?.let {
-                    scope = it.first
-                    index = it.second
-                    if (scope == 0) speaker = GhostSpeaker.SAKURA else if (scope == 1) speaker = GhostSpeaker.KERO
-                }
-                '!' -> {
-                    val start = index - 2
-                    val bracket = SakuraScriptCommandParser.readBracket(script, index)
-                    if (bracket != null) {
-                        index = bracket.nextIndex
-                        if (scope < 2) {
-                            val prefix = if (speaker == GhostSpeaker.SAKURA) "\\h" else "\\u"
-                            val input = SakuraScriptTokenizer.tokenize(prefix + script.substring(start, index))
-                                .asSequence().flatMap { it.segments.asSequence() }
-                                .filterIsInstance<DialogueSegment.InputBox>().lastOrNull()
-                            input?.let {
-                                val inputIndex = nextInput.getValue(speaker)
-                                val canonical = authoredBySpeaker[speaker]?.segments
-                                    ?.filterIsInstance<DialogueSegment.InputBox>()
-                                    ?.getOrNull(inputIndex)
-                                    ?.spec
-                                    ?: it.spec
-                                nextInput[speaker] = inputIndex + 1
-                                others += ActionMarker(
-                                    index,
-                                    ActionKind.INPUT,
-                                    PendingInputSeed(canonical, canonical.timeoutMillis, speaker),
-                                )
-                            }
-                        }
-                    }
-                }
-                '_' -> if (index < script.length && script[index++] == 'a') {
-                    val start = index - 3
-                    val bracket = SakuraScriptCommandParser.readBracket(script, index)
-                    if (bracket != null) {
-                        val closing = findAnchorClosing(script, bracket.nextIndex)
-                        if (closing >= 0) {
-                            index = closing + 3
-                            if (scope < 2) {
-                                val prefix = if (speaker == GhostSpeaker.SAKURA) "\\h" else "\\u"
-                                val anchor = SakuraScriptTokenizer.tokenize(prefix + script.substring(start, index))
-                                    .asSequence().flatMap { it.segments.asSequence() }
-                                    .filterIsInstance<DialogueSegment.Anchor>().lastOrNull()
-                                anchor?.let {
-                                    val anchorIndex = nextAnchor.getValue(speaker)
-                                    val canonical = authoredBySpeaker[speaker]?.segments
-                                        ?.filterIsInstance<DialogueSegment.Anchor>()
-                                        ?.getOrNull(anchorIndex)
-                                        ?.action
-                                        ?: it.action
-                                    nextAnchor[speaker] = anchorIndex + 1
-                                    others += ActionMarker(index, ActionKind.ANCHOR, canonical)
-                                }
-                            }
-                        } else index = bracket.nextIndex
-                    }
-                } else {
-                    val bracket = SakuraScriptCommandParser.readBracket(script, index)
-                    if (bracket != null) index = bracket.nextIndex
-                }
-                else -> {
-                    val bracket = SakuraScriptCommandParser.readBracket(script, index)
-                    if (bracket != null) index = bracket.nextIndex
-                }
-            }
-        }
         return AuthoredDialogueScript(
             contents = tokenization.contents,
-            markers = (choices + others).sortedBy(ActionMarker::sourceEnd),
-        )
-    }
-
-    private fun projectRevealed(
-        authored: AuthoredDialogueScript,
-        revealed: List<DialogueContent>,
-    ): List<DialogueContent> {
-        val authoredBySpeaker = authored.contents.associateBy(DialogueContent::speaker)
-        return revealed.map { content ->
-            val authoredSegments = authoredBySpeaker[content.speaker]?.segments.orEmpty()
-            var choiceIndex = 0
-            var anchorIndex = 0
-            var inputIndex = 0
-            content.copy(
-                segments = content.segments.map { segment ->
-                    when (segment) {
-                        is DialogueSegment.Choice -> DialogueSegment.Choice(
-                            authoredSegments.filterIsInstance<DialogueSegment.Choice>()
-                                .getOrNull(choiceIndex++)?.action ?: segment.action,
-                        )
-                        is DialogueSegment.Anchor -> DialogueSegment.Anchor(
-                            authoredSegments.filterIsInstance<DialogueSegment.Anchor>()
-                                .getOrNull(anchorIndex++)?.action ?: segment.action,
-                        )
-                        is DialogueSegment.InputBox -> DialogueSegment.InputBox(
-                            authoredSegments.filterIsInstance<DialogueSegment.InputBox>()
-                                .getOrNull(inputIndex++)?.spec ?: segment.spec,
-                        )
-                        else -> segment
-                    }
-                },
-            )
-        }
-    }
-
-    private fun visibleSegments(contents: List<DialogueContent>): List<DialogueSegment> = GhostSpeaker.entries.flatMap { speaker ->
-        contents.asSequence().filter { it.speaker == speaker }.flatMap { it.segments.asSequence() }
-            .fold(mutableListOf()) { visible, segment ->
-                when (segment) {
-                    DialogueSegment.Clear -> visible.clear()
-                    DialogueSegment.SpeakerChangeClear -> visible.removeAll {
-                        it !is DialogueSegment.Choice && it !is DialogueSegment.InputBox
-                    }
-                    else -> visible += segment
+            markers = tokenization.occurrences.map { occurrence ->
+                when (occurrence) {
+                    is SakuraScriptOccurrence.Choice -> ActionMarker(
+                        occurrence.sourceEnd,
+                        occurrence.speaker,
+                        ActionKind.CHOICE,
+                        occurrence.action,
+                    )
+                    is SakuraScriptOccurrence.Anchor -> ActionMarker(
+                        occurrence.sourceEnd,
+                        occurrence.speaker,
+                        ActionKind.ANCHOR,
+                        occurrence.action,
+                    )
+                    is SakuraScriptOccurrence.Input -> ActionMarker(
+                        occurrence.sourceEnd,
+                        occurrence.speaker,
+                        ActionKind.INPUT,
+                        PendingInputSeed(occurrence.spec, occurrence.spec.timeoutMillis, occurrence.speaker),
+                    )
                 }
-                visible
-            }
+            },
+            sourceVisits = tokenization.sourceVisits,
+        )
     }
 
     private fun changeSurface(
@@ -1033,6 +1173,17 @@ internal object SakuraScriptPlayer {
         return now + timeout
     }
 
+    private fun DialogueAction.visibleLabel(): String = when (this) {
+        is DialogueAction.Normal -> label
+        is DialogueAction.DirectEvent -> label
+        is DialogueAction.Script -> label
+    }
+
+    private fun AnchorAction.visibleLabel(): String = when (this) {
+        is AnchorAction.Normal -> label
+        is AnchorAction.DirectEvent -> label
+    }
+
     private fun parseId(script: String, index: Int): Pair<String, Int>? =
         parseBracketId(script, index) ?: script.getOrNull(index)?.takeIf { it.isDigit() || it == '-' }
             ?.let { character ->
@@ -1046,28 +1197,21 @@ internal object SakuraScriptPlayer {
     private fun resumeAfterMalformed(script: String, start: Int): Int =
         script.indexOf('\\', start).takeIf { it >= 0 } ?: script.length
 
-    private fun findAnchorClosing(script: String, start: Int): Int {
-        var index = start
-        while (index < script.length - 2) {
-            if (script[index] == '\\' && script[index + 1] == '_' && script[index + 2] == 'a') return index
-            index += if (script[index] == '\\' && script.getOrNull(index + 1) == '\\') 2 else 1
-        }
-        return -1
-    }
-
     private fun schedule(
         state: PlayerState,
         delayMillis: Long,
         priorEffects: List<PlayerEffect> = emptyList(),
+        work: PlayerWork = PlayerWork(),
     ): PlayerTransition {
         val next = state.copy(playbackToken = state.playbackToken + 1)
-        return transition(next, priorEffects + PlayerEffect.SchedulePlayback(next.playbackToken, delayMillis))
+        return transition(next, priorEffects + PlayerEffect.SchedulePlayback(next.playbackToken, delayMillis), work)
     }
 
     private fun transition(
         state: PlayerState,
         effects: List<PlayerEffect> = emptyList(),
-    ): PlayerTransition = PlayerTransition(state, effects)
+        work: PlayerWork = PlayerWork(),
+    ): PlayerTransition = PlayerTransition(state, effects, work)
 
     private fun PlayerParent.operationId(): Long = when (this) {
         is PlayerParent.Switch -> operationId
@@ -1079,6 +1223,7 @@ internal object SakuraScriptPlayer {
 private fun PlayerTransition.frozen(): PlayerTransition = PlayerTransition(
     state = freeze(state),
     effects = immutableList(effects),
+    work = work.copy(),
 )
 
 private fun freeze(state: PlayerState): PlayerState {
