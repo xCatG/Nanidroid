@@ -50,10 +50,13 @@ internal class StartupCandidateAttempts {
             inFlight = null
             return null
         }
+        if (parentOperationId != null || exitPresent) {
+            completed = true
+            inFlight = null
+            return null
+        }
         if (
             completed ||
-            parentOperationId != null ||
-            exitPresent ||
             phase == GhostRuntimePhase.Poisoned
         ) return null
         if (phase != GhostRuntimePhase.Idle) {

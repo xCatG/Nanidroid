@@ -236,6 +236,28 @@ internal fun dispatchNarPickerResult(
     return consume(expectedToken, selection(), importAllowed())
 }
 
+internal fun handleNarPickerResult(
+    actionAllowed: () -> Boolean,
+    takeOwner: () -> NarImportAttemptToken?,
+    abandon: (NarImportAttemptToken) -> Boolean,
+    selection: () -> NarDocumentSelection?,
+    importAllowed: () -> Boolean,
+    consume: (NarImportAttemptToken, NarDocumentSelection?, Boolean) -> Boolean,
+): Boolean {
+    val allowed = actionAllowed()
+    if (!allowed) {
+        takeOwner()?.let(abandon)
+        return false
+    }
+    return dispatchNarPickerResult(
+        actionAllowed = { allowed },
+        takeOwner = takeOwner,
+        selection = selection,
+        importAllowed = importAllowed,
+        consume = consume,
+    )
+}
+
 private const val TRANSIENT_UI_PRESENT = "transient_ui_present"
 private const val TRANSIENT_TOOLBAR_VISIBLE = "transient_toolbar_visible"
 private const val NAR_PICKER_OWNER_PROCESS_NONCE = "nar_picker_owner_process_nonce"
@@ -309,17 +331,14 @@ class Nanidroid : ComponentActivity() {
     private val composeStage = ComposeGhostStageHost()
 
     private val narPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        val accepted = dispatchNarPickerResult(
+        handleNarPickerResult(
             actionAllowed = { userActionAllowed(GuardedAction.IMPORT_INSTALL) },
             takeOwner = { restoredPickerOwner.also { restoredPickerOwner = null } },
+            abandon = foregroundNarImport::abandonPicker,
             selection = { uri?.toNarSelection() },
             importAllowed = { getExternalFilesDir(null) != null },
             consume = foregroundNarImport::consumePickerResult,
         )
-        if (!accepted && !userActionAllowed(GuardedAction.IMPORT_INSTALL)) {
-            restoredPickerOwner?.also(foregroundNarImport::abandonPicker)
-            restoredPickerOwner = null
-        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

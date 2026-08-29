@@ -62,14 +62,28 @@ class StartupCandidateAttemptsTest {
 
     // Mutation caught: Idle Ready fallback starts while a no-generation exit/parent operation is in flight.
     @Test
-    fun exitAndParentSuppressAutoStartUntilBothAreAbsent() {
+    fun exitBeforeFirstCandidatePermanentlyCancelsAutoStartForTheEpoch() {
         val attempts = StartupCandidateAttempts()
         attempts.reserve(9L)
         attempts.configure(9L, listOf("candidate"))
 
         assertNull(next(attempts, 9L, GhostRuntimePhase.Idle, exitPresent = true, revision = 30L))
-        assertNull(next(attempts, 9L, GhostRuntimePhase.Idle, parentOperationId = 44L, revision = 30L))
-        assertEquals("candidate", next(attempts, 9L, GhostRuntimePhase.Idle, revision = 30L))
+        assertNull(next(attempts, 9L, GhostRuntimePhase.Idle, revision = 31L))
+    }
+
+    // Mutation caught: an acknowledged no-generation exit resumes a previously busy fallback chain.
+    @Test
+    fun observedExitPermanentlyCancelsBusyAutoStartChainForTheCatalogEpoch() {
+        val attempts = StartupCandidateAttempts()
+        attempts.reserve(91L)
+        attempts.configure(91L, listOf("bad", "must-not-start"))
+        assertEquals("bad", next(attempts, 91L, GhostRuntimePhase.Idle, revision = 1L))
+        assertNull(next(attempts, 91L, GhostRuntimePhase.Starting, revision = 2L))
+
+        assertNull(next(attempts, 91L, GhostRuntimePhase.Idle, parentOperationId = 44L, exitPresent = true, revision = 3L))
+        assertNull(next(attempts, 91L, GhostRuntimePhase.Idle, revision = 4L))
+        assertFalse(attempts.reserve(91L))
+        assertNull(next(attempts, 91L, GhostRuntimePhase.Idle, revision = 5L))
     }
 
     // Mutation caught: Starting is conflated and retryable failed Idle cannot advance the submitted candidate.

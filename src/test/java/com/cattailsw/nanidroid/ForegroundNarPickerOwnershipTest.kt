@@ -381,6 +381,38 @@ class ForegroundNarPickerOwnershipTest {
         assertEquals(0, takeCalls)
     }
 
+    // Mutation caught: the callback rereads a false-then-true guard and strands its retained owner.
+    @Test
+    fun pickerResultCapturesGuardOnceAndAbandonsRejectedOwnerExactlyOnce() {
+        val coordinator = idleCoordinator(processNonce = "callback-process")
+        val token = requireNotNull(coordinator.armPicker(42))
+        var owner: NarImportAttemptToken? = token
+        var guardCalls = 0
+        var abandonCalls = 0
+
+        val accepted = handleNarPickerResult(
+            actionAllowed = {
+                guardCalls += 1
+                guardCalls > 1
+            },
+            takeOwner = { owner.also { owner = null } },
+            abandon = {
+                abandonCalls += 1
+                coordinator.abandonPicker(it)
+            },
+            selection = { throw AssertionError("rejected result must not convert its URI") },
+            importAllowed = { throw AssertionError("rejected result must not inspect storage") },
+            consume = { _, _, _ -> throw AssertionError("rejected result must not consume an import") },
+        )
+
+        assertFalse(accepted)
+        assertEquals(1, guardCalls)
+        assertEquals(1, abandonCalls)
+        assertNull(owner)
+        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+        assertTrue(coordinator.armPicker(42) != null)
+    }
+
     private fun rawOwner(nonce: String?, sequence: Long?, ownerTaskId: Int?): Bundle = mockk<Bundle>().also { bundle ->
         every { bundle.getString("nar_picker_owner_process_nonce") } returns nonce
         every { bundle.containsKey("nar_picker_owner_sequence") } returns (sequence != null)
