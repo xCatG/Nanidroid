@@ -29,6 +29,7 @@ class CatTailApplication : Application() {
     private val nextBundledOperationId = AtomicLong()
     private val bundledInstallStarted = AtomicBoolean()
     private val publishedImports = mutableSetOf<NarImportAttemptToken>()
+    internal val startupCandidateAttempts = StartupCandidateAttempts()
 
     internal val ghostRuntime: GhostRuntime by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         GhostRuntime(this)

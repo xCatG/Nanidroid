@@ -208,6 +208,7 @@ internal class GhostRuntime private constructor(
     private var attachmentOperationId: Long? = null
     private var parentState: SnapshotParentState? = null
     private var deferredPlayback: PlayerEffect.SchedulePlayback? = null
+    private val deferredCues = java.util.ArrayDeque<RuntimeHostInput.Cue>()
     private var nextCueId = 1L
     private var requestRegistry = RuntimeRequestRegistry(
         nextRequestId = 1L,
@@ -344,18 +345,19 @@ internal class GhostRuntime private constructor(
         val beforeExit = hostState.exit
         val transition = RuntimeHostReducer.reduce(hostState, RuntimeHostInput.Command(command))
         hostState = transition.state
-        if (transition.effects.any {
-                it is com.cattailsw.nanidroid.runtime.RuntimeHostEffect.BackpressureChanged && !it.paused
-            }
-        ) {
-            deferredPlayback?.let { schedulePlayback(it, playerState?.generation) }
-            deferredPlayback = null
-        }
         if (command is RuntimeCommand.AcknowledgeExit && beforeExit != null && hostState.exit == null) {
             parentState = null
             modeRevision += 1L
         }
         val afterTop = hostState.topResumed
+        val released = transition.effects.any {
+            it is com.cattailsw.nanidroid.runtime.RuntimeHostEffect.BackpressureChanged && !it.paused
+        }
+        if (beforeTop != afterTop && beforeTop != null) deferredCues.clear()
+        if (released) {
+            if (afterTop == null) deferredCues.clear() else drainDeferredCues()
+            resumeDeferredPlaybackIfReady()
+        }
         if (beforeTop != afterTop) {
             generation?.let { activeGeneration ->
                 safeCancel(
@@ -391,7 +393,7 @@ internal class GhostRuntime private constructor(
     }
 
     private fun startGhost(command: RuntimeCommand.StartGhost) {
-        if (phase != GhostRuntimePhase.Idle || pending != null || generation != null) return
+        if (phase != GhostRuntimePhase.Idle || pending != null || generation != null || parentState != null) return
         val decision = SnapshotStartupDecision(command.ghostId, command.canonicalRoot.path)
         if (catalogOwner.state !is RuntimeCatalogState.Ready) {
             if (joinedStartup == null || joinedStartup == decision) joinedStartup = decision
@@ -650,6 +652,7 @@ internal class GhostRuntime private constructor(
     }
 
     private fun back(command: RuntimeCommand.Back) {
+        if (playerState?.passive == true) return
         val existing = parentState
         if (existing is SnapshotParentState.Exit) return
         if (existing != null || command.expected != currentModeIdentity()) return
@@ -689,6 +692,7 @@ internal class GhostRuntime private constructor(
             phaseRevision = 1L,
         )
         modeRevision += 1L
+        clearCueWindow()
         if (command.generation == null) {
             offerExit(operationId, null)
             return
@@ -707,6 +711,7 @@ internal class GhostRuntime private constructor(
     }
 
     private fun switchGhost(command: RuntimeCommand.SwitchGhost) {
+        if (playerState?.passive == true) return
         if (
             parentState != null ||
             phase != GhostRuntimePhase.Attached ||
@@ -729,6 +734,7 @@ internal class GhostRuntime private constructor(
         )
         phase = GhostRuntimePhase.SwitchPlayback
         modeRevision += 1L
+        clearCueWindow()
         clearGenerationRequests(command.generation)
         playerState?.let {
             consumePlayerTransition(SakuraScriptPlayer.reduce(it, PlayerCommand.Clear(null)))
@@ -782,7 +788,7 @@ internal class GhostRuntime private constructor(
     }
 
     private fun dialogueCommand(command: PlayerCommand, claimKind: RuntimeDialogueClaimKind) {
-        if (phase == GhostRuntimePhase.Poisoned) return
+        if (phase == GhostRuntimePhase.Poisoned || parentState != null) return
         val current = playerState ?: return
         consumePlayerTransition(SakuraScriptPlayer.reduce(current, command), claimKind)
     }
@@ -1011,8 +1017,7 @@ internal class GhostRuntime private constructor(
                 activePrepared = null
                 playerState = null
                 attachmentOperationId = null
-                deferredPlayback = null
-                hostState = hostState.copy(cues = emptyList(), playerBackpressured = false)
+                clearCueWindow()
                 clearGenerationRequests(parent.generation)
                 clockState = clockState.copy(running = false, epoch = clockState.epoch + 1L)
                 val replacing = parent.copy(
@@ -1133,11 +1138,9 @@ internal class GhostRuntime private constructor(
                     }
                 }
                 is PlayerEffect.PresentationCue -> {
-                    val cueId = nextCueId++
-                    hostState = RuntimeHostReducer.reduce(
-                        hostState,
+                    admitCue(
                         RuntimeHostInput.Cue(
-                            cueId,
+                            nextCueId++,
                             com.cattailsw.nanidroid.runtime.RuntimeCuePayload(
                                 transition.state.generation,
                                 effect.speaker,
@@ -1145,7 +1148,7 @@ internal class GhostRuntime private constructor(
                                 effect.animationId,
                             ),
                         ),
-                    ).state
+                    )
                 }
                 is PlayerEffect.RequestShiori -> submitNativeRequest(effect, dialogueClaimKind)
                 is PlayerEffect.ParentCompleted -> when (val parent = effect.parent) {
@@ -1252,6 +1255,32 @@ internal class GhostRuntime private constructor(
             parentOperationId = parentOperationId,
             dialogueClaim = claim,
         )
+    }
+
+    private fun admitCue(cue: RuntimeHostInput.Cue) {
+        if (hostState.topResumed != null && hostState.playerBackpressured) {
+            deferredCues.addLast(cue)
+            return
+        }
+        hostState = RuntimeHostReducer.reduce(hostState, cue).state
+    }
+
+    private fun drainDeferredCues() {
+        while (deferredCues.isNotEmpty() && !hostState.playerBackpressured && hostState.topResumed != null) {
+            hostState = RuntimeHostReducer.reduce(hostState, deferredCues.removeFirst()).state
+        }
+    }
+
+    private fun resumeDeferredPlaybackIfReady() {
+        if (hostState.playerBackpressured || deferredCues.isNotEmpty()) return
+        deferredPlayback?.let { schedulePlayback(it, playerState?.generation) }
+        deferredPlayback = null
+    }
+
+    private fun clearCueWindow() {
+        deferredCues.clear()
+        deferredPlayback = null
+        hostState = hostState.copy(cues = emptyList(), playerBackpressured = false)
     }
 
     private fun schedulePlayback(effect: PlayerEffect.SchedulePlayback, activeGeneration: Long?) {
@@ -1689,7 +1718,7 @@ internal class GhostRuntime private constructor(
             lastSecondBucket = null,
             lastMinuteBucket = null,
         )
-        deferredPlayback = null
+        clearCueWindow()
         pending = null
         canonicalizing = null
         attachmentOperationId = null

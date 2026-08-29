@@ -297,6 +297,31 @@ class SakuraScriptPlayerTest {
         )
     }
 
+    // Mutation caught: ordinary clear is a no-op after the cursor completes and leaves stale actions/passive state.
+    @Test
+    fun ordinaryClearRetiresCompletedDialogueInventoryWithoutACursor() {
+        val opened = drive(
+            "\\q[Choice,choice-id]\\_a[anchor-id]Anchor\\_a" +
+                "\\![open,inputbox,input-id,0,initial]\\![enter,passivemode]\\e",
+            stopOnAction = true,
+        ).state
+        val completed = opened.copy(current = null, queue = emptyList(), authoredRequest = null, passive = true)
+        assertNull(completed.current)
+        assertEquals(1, completed.dialogue.choices.size)
+        assertEquals(1, completed.dialogue.anchors.size)
+        assertTrue(completed.dialogue.input != null)
+        assertTrue(completed.passive)
+
+        val cleared = SakuraScriptPlayer.reduce(completed, PlayerCommand.Clear(null))
+
+        assertNull(cleared.state.current)
+        assertTrue(cleared.state.dialogue.choices.isEmpty())
+        assertTrue(cleared.state.dialogue.anchors.isEmpty())
+        assertNull(cleared.state.dialogue.input)
+        assertFalse(cleared.state.passive)
+        assertEquals(completed.playbackToken + 1L, cleared.state.playbackToken)
+    }
+
     // Mutation caught: terminal playback completes a parent before the final authored delay or more than once.
     @Test
     fun switchAndExitParentsCompleteExactlyAtPlaybackTerminal() {

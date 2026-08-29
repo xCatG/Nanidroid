@@ -337,6 +337,50 @@ class ForegroundNarPickerOwnershipTest {
         assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
     }
 
+    // Mutation caught: passive mode still arms and launches the external picker.
+    @Test
+    fun passiveGuardRejectsPickerLaunchBeforeOwnershipOrExternalSideEffects() {
+        val coordinator = idleCoordinator()
+        var owner: NarImportAttemptToken? = null
+        var launchCalls = 0
+
+        val launched = armAndLaunchNarDocumentPicker(
+            coordinator = coordinator,
+            ownerTaskId = 42,
+            currentOwner = { owner },
+            setOwner = { owner = it },
+            launch = { launchCalls += 1 },
+            failureMessage = "unavailable",
+            actionAllowed = { false },
+        )
+
+        assertFalse(launched)
+        assertNull(owner)
+        assertEquals(0, launchCalls)
+        assertEquals(ForegroundNarImportState.Idle, coordinator.state.value)
+    }
+
+    // Mutation caught: a picker opened before passive mode imports its returned document after passive begins.
+    @Test
+    fun passiveGuardRejectsPickerResultBeforeOwnerSelectionOrImportConsumption() {
+        val token = NarImportAttemptToken("callback-process", 3, 42)
+        var takeCalls = 0
+
+        val accepted = dispatchNarPickerResult(
+            actionAllowed = { false },
+            takeOwner = {
+                takeCalls += 1
+                token
+            },
+            selection = { throw AssertionError("passive result must not convert the document") },
+            importAllowed = { throw AssertionError("passive result must not inspect import storage") },
+            consume = { _, _, _ -> throw AssertionError("passive result must not enter import coordination") },
+        )
+
+        assertFalse(accepted)
+        assertEquals(0, takeCalls)
+    }
+
     private fun rawOwner(nonce: String?, sequence: Long?, ownerTaskId: Int?): Bundle = mockk<Bundle>().also { bundle ->
         every { bundle.getString("nar_picker_owner_process_nonce") } returns nonce
         every { bundle.containsKey("nar_picker_owner_sequence") } returns (sequence != null)

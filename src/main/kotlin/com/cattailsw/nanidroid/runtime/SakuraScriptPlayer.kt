@@ -606,12 +606,19 @@ internal object SakuraScriptPlayer {
     private fun clear(state: PlayerState, owner: PlayerParent?): PlayerTransition {
         if (owner == null && state.current?.payload?.parent != null) return transition(state)
         val clearsCurrent = state.current?.payload?.parent == owner && state.current != null
+        val clearsDormantOrdinaryState = owner == null && state.current == null && (
+            state.dialogue.choices.isNotEmpty() ||
+                state.dialogue.anchors.isNotEmpty() ||
+                state.dialogue.input != null ||
+                state.passive ||
+                state.authoredRequest != null
+            )
         val remainingQueue = if (owner == null) {
             state.queue.dropWhile { it.parent == null }
         } else {
             state.queue.filterNot { it.parent == owner }
         }
-        if (!clearsCurrent) {
+        if (!clearsCurrent && !clearsDormantOrdinaryState) {
             return if (remainingQueue.size == state.queue.size) transition(state)
             else transition(state.copy(queue = remainingQueue))
         }

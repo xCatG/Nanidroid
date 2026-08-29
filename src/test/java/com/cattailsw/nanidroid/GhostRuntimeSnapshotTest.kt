@@ -457,6 +457,70 @@ class GhostRuntimeSnapshotTest {
         }
     }
 
+    // Mutation caught: Back leaves completed dialogue published and accepts its exact stale key during OnClose.
+    @Test
+    fun backRetiresCompletedDialogueAndRejectsItsExactKeyDuringParentOperation() {
+        val root = File("build/runtime-snapshot/back-dialogue-retirement").canonicalFile
+        fixtureFor("back-dialogue-retirement", root).use { fixture ->
+            fixture.startAttached("back-dialogue-retirement", root)
+            val top = fixture.makeTopHost(101L)
+            fixture.runtime.enqueueScriptForTesting("\\q[Choice,choice-id]\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { it.dialogue.choices.size == 1 }
+            while (fixture.scheduler.scheduled().any { it.key.kind == RuntimeScheduleKind.PLAYBACK }) {
+                fixture.scheduler.runNext(RuntimeScheduleKind.PLAYBACK)
+                fixture.drain()
+            }
+            val before = fixture.runtime.snapshots.value
+            val oldKey = before.dialogue.choices.single().key
+
+            fixture.runtime.submit(RuntimeCommand.Back(before.generation, top, before.modeIdentity))
+            fixture.runtime.submit(RuntimeCommand.ActivateChoice(oldKey))
+            fixture.drain()
+            fixture.awaitNativeWork()
+
+            assertTrue(fixture.runtime.snapshots.value.dialogue.choices.isEmpty())
+            assertEquals(1, fixture.nativePort.requests.size)
+            assertTrue(fixture.nativePort.requests.single().intent.protocolText.contains("ID: OnClose\r\n"))
+        }
+    }
+
+    // Mutation caught: switch leaves completed dialogue published and accepts its stale key beside OnGhostChanging.
+    @Test
+    fun switchRetiresCompletedDialogueAndRejectsItsExactKeyDuringParentOperation() {
+        val oldRoot = File("build/runtime-snapshot/switch-dialogue-old").canonicalFile
+        val newRoot = File("build/runtime-snapshot/switch-dialogue-new").canonicalFile
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(
+                    InstalledGhostMetadata("switch-dialogue-old", oldRoot, "Old", null, File(oldRoot, "readme.txt")),
+                    InstalledGhostMetadata("switch-dialogue-new", newRoot, "New", null, File(newRoot, "readme.txt")),
+                )
+            },
+        ).use { fixture ->
+            fixture.startAttached("switch-dialogue-old", oldRoot)
+            val top = fixture.makeTopHost(102L)
+            fixture.runtime.enqueueScriptForTesting("\\_a[anchor-id]Anchor\\_a\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { it.dialogue.anchors.size == 1 }
+            while (fixture.scheduler.scheduled().any { it.key.kind == RuntimeScheduleKind.PLAYBACK }) {
+                fixture.scheduler.runNext(RuntimeScheduleKind.PLAYBACK)
+                fixture.drain()
+            }
+            val before = fixture.runtime.snapshots.value
+            val oldKey = before.dialogue.anchors.single().key
+
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, before.modeIdentity, "switch-dialogue-new"))
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(oldKey))
+            fixture.drain()
+            fixture.awaitNativeWork()
+
+            assertTrue(fixture.runtime.snapshots.value.dialogue.anchors.isEmpty())
+            assertEquals(1, fixture.nativePort.requests.size)
+            assertTrue(fixture.nativePort.requests.single().intent.protocolText.contains("ID: OnGhostChanging\r\n"))
+        }
+    }
+
     @Test
     fun fatalExitOwnedPlaybackPreservesSameOneShotExitOperation() {
         val root = File("build/runtime-snapshot/fatal-exit-playback").canonicalFile
@@ -552,6 +616,46 @@ class GhostRuntimeSnapshotTest {
             fixture.drain()
             fixture.awaitNativeWork()
             assertTrue(fixture.nativePort.requests.remove().intent.protocolText.contains("ID: OnClose\r\n"))
+        }
+    }
+
+    @Test
+    fun failedPostUnloadTargetCanStartAnotherInstalledSelection() {
+        val oldRoot = File("build/runtime-snapshot/recover-switch-old").canonicalFile
+        val badRoot = File("build/runtime-snapshot/recover-switch-bad").canonicalFile
+        val goodRoot = File("build/runtime-snapshot/recover-switch-good").canonicalFile
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(
+                    InstalledGhostMetadata("recover-switch-old", oldRoot, "Old", null, File(oldRoot, "readme.txt")),
+                    InstalledGhostMetadata("recover-switch-bad", badRoot, "Bad", null, File(badRoot, "readme.txt")),
+                    InstalledGhostMetadata("recover-switch-good", goodRoot, "Good", null, File(goodRoot, "readme.txt")),
+                )
+            },
+        ).use { fixture ->
+            fixture.startAttached("recover-switch-old", oldRoot)
+            val top = fixture.makeTopHost(103L)
+            val before = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, before.modeIdentity, "recover-switch-bad"))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            fixture.nativePort.requests.remove().complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            fixture.nativePort.unloads.remove().complete(RuntimeNativeLifecycleOutcome.Success)
+            fixture.awaitNativeWork()
+            fixture.nativePort.loads.remove().complete(
+                RuntimeNativeLoadOutcome.Failed(RuntimeNoticeCode.NATIVE_LOAD_FAILED, ownershipCertain = true),
+            )
+            fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Idle }
+
+            val failed = fixture.runtime.snapshots.value
+            assertEquals(null, failed.generation)
+            fixture.runtime.submit(requireNotNull(ghostSelectionCommand(failed, top, "recover-switch-good")))
+            fixture.drain()
+            fixture.awaitNativeWork()
+
+            assertEquals("recover-switch-good", fixture.nativePort.loads.single().prepared.id)
         }
     }
 
@@ -812,6 +916,32 @@ class GhostRuntimeSnapshotTest {
             fixture.drain()
             assertEquals(null, fixture.runtime.snapshots.value.generation)
             assertTrue(fixture.nativePort.loads.isEmpty())
+        }
+    }
+
+    // Mutation caught: a stale no-generation selection starts a ghost while an Idle exit parent is offered.
+    @Test
+    fun startGhostIsRejectedWhileNoGenerationExitParentIsInFlight() {
+        val root = File("build/runtime-snapshot/start-during-idle-exit").canonicalFile
+        fixtureFor("start-during-idle-exit", root).use { fixture ->
+            val idle = fixture.runtime.snapshots.value
+            fixture.runtime.submit(
+                RuntimeCommand.Back(
+                    null,
+                    RuntimeHostLease(RuntimeHostId(0L), 0L),
+                    idle.modeIdentity,
+                ),
+            )
+            fixture.drain()
+            assertTrue(fixture.runtime.snapshots.value.exit != null)
+
+            fixture.runtime.submit(RuntimeCommand.StartGhost("start-during-idle-exit", root))
+            fixture.drain()
+
+            assertEquals(GhostRuntimePhase.Idle, fixture.runtime.snapshots.value.phase)
+            assertEquals(null, fixture.runtime.snapshots.value.generation)
+            assertTrue(fixture.nativePort.loads.isEmpty())
+            assertTrue(fixture.runtime.snapshots.value.exit != null)
         }
     }
 
@@ -1482,6 +1612,52 @@ class GhostRuntimeSnapshotTest {
         }
     }
 
+    // Mutation caught: the second cue in a two-cue transition is dropped when the lease starts at 63 cues.
+    @Test
+    fun twoCueTransitionAtCapacityBoundaryDeliversBothInOrderWithoutDuplication() {
+        val root = File("build/runtime-snapshot/cue-two-effect-boundary").canonicalFile
+        fixtureFor("cue-two-effect-boundary", root).use { fixture ->
+            fixture.startAttached("cue-two-effect-boundary", root)
+            val top = fixture.makeTopHost(82L)
+            fixture.runtime.enqueueScriptForTesting(
+                buildString {
+                    repeat(63) { append("\\i[one-shot]") }
+                    repeat(7) { append("\\w1") }
+                    append("\\h\\_sA\\e")
+                },
+            )
+            fixture.drain()
+            while (fixture.runtime.snapshots.value.cues.size < 63) {
+                fixture.scheduler.runNext(RuntimeScheduleKind.PLAYBACK)
+                fixture.drain()
+            }
+
+            while (
+                fixture.runtime.snapshots.value.cues.size == 63 &&
+                fixture.scheduler.scheduled().any { it.key.kind == RuntimeScheduleKind.PLAYBACK }
+            ) {
+                fixture.scheduler.runNext(RuntimeScheduleKind.PLAYBACK)
+                fixture.drain()
+            }
+            val firstWindow = fixture.runtime.snapshots.value.cues
+            assertEquals(64, firstWindow.size)
+            assertEquals(GhostSpeaker.SAKURA, firstWindow.last().speaker)
+            assertEquals(com.cattailsw.nanidroid.runtime.RuntimeCueKind.TALKING, firstWindow.last().kind)
+            assertTrue(fixture.scheduler.scheduled().none { it.key.kind == RuntimeScheduleKind.PLAYBACK })
+
+            fixture.runtime.submit(RuntimeCommand.AcknowledgeCues(top, firstWindow.last().cueId))
+            fixture.drain()
+            val overflow = fixture.runtime.snapshots.value.cues.single()
+            assertEquals(GhostSpeaker.KERO, overflow.speaker)
+            assertEquals(com.cattailsw.nanidroid.runtime.RuntimeCueKind.TALKING, overflow.kind)
+            assertEquals(firstWindow.last().cueId + 1L, overflow.cueId)
+
+            fixture.runtime.submit(RuntimeCommand.AcknowledgeCues(top, overflow.cueId))
+            fixture.drain()
+            assertTrue(fixture.runtime.snapshots.value.cues.isEmpty())
+        }
+    }
+
     @Test
     fun successfulSwitchRetiresOutgoingCueWindowAndAllowsAnotherSwitch() {
         val oldRoot = File("build/runtime-snapshot/cue-switch-old").canonicalFile
@@ -1728,6 +1904,45 @@ class GhostRuntimeSnapshotTest {
             fixture.drain()
 
             assertFalse(fixture.runtime.snapshots.value.presentation.sakura.text.contains("UNWANTED"))
+        }
+    }
+
+    // Mutation caught: stale UI commands bypass passive mode and start terminal/switch parent operations.
+    @Test
+    fun passiveRuntimeRejectsUserBackAndSwitchThenAllowsThemAfterLeave() {
+        val oldRoot = File("build/runtime-snapshot/passive-command-old").canonicalFile
+        val newRoot = File("build/runtime-snapshot/passive-command-new").canonicalFile
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(
+                    InstalledGhostMetadata("passive-command-old", oldRoot, "Old", null, File(oldRoot, "readme.txt")),
+                    InstalledGhostMetadata("passive-command-new", newRoot, "New", null, File(newRoot, "readme.txt")),
+                )
+            },
+        ).use { fixture ->
+            fixture.startAttached("passive-command-old", oldRoot)
+            val top = fixture.makeTopHost(99L)
+            fixture.runtime.enqueueScriptForTesting("\\![enter,passivemode]\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { it.mode.passive }
+            val passive = fixture.runtime.snapshots.value
+
+            fixture.runtime.submit(RuntimeCommand.Back(1L, top, passive.modeIdentity))
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, passive.modeIdentity, "passive-command-new"))
+            fixture.drain()
+
+            assertEquals(GhostRuntimePhase.Attached, fixture.runtime.snapshots.value.phase)
+            assertEquals(null, fixture.runtime.snapshots.value.modeIdentity.parentOperationId)
+            assertTrue(fixture.nativePort.requests.isEmpty())
+
+            fixture.runtime.enqueueScriptForTesting("\\![leave,passivemode]\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { !it.mode.passive }
+            val active = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, active.modeIdentity, "passive-command-new"))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            assertTrue(fixture.nativePort.requests.single().intent.protocolText.contains("ID: OnGhostChanging\r\n"))
         }
     }
 

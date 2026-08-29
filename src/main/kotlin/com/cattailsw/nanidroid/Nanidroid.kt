@@ -54,8 +54,36 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-internal fun launchCandidateIds(preferred: String, available: List<String>): List<String> =
-    listOf(preferred) + available.filterNot { it.equals(preferred, ignoreCase = true) }
+internal fun launchCandidateIds(preferred: String?, available: List<String>): List<String> {
+    val installedPreferred = preferred?.let { requested ->
+        available.firstOrNull { it.equals(requested, ignoreCase = true) }
+    }
+    val bundled = available.firstOrNull { it.equals("nanidroid", ignoreCase = true) }
+    return listOfNotNull(installedPreferred, bundled) + available.filterNot { candidate ->
+        candidate.equals(installedPreferred, ignoreCase = true) || candidate.equals(bundled, ignoreCase = true)
+    }
+}
+
+internal fun ghostSelectionCommand(
+    snapshot: RuntimeSnapshot,
+    lease: RuntimeHostLease,
+    targetId: String,
+): RuntimeCommand? {
+    if (snapshot.exit != null || snapshot.modeIdentity.parentOperationId != null) return null
+    val target = snapshot.catalog.lastProvenEntries.firstOrNull {
+        it.id.equals(targetId, ignoreCase = true)
+    } ?: return null
+    val activeGeneration = snapshot.generation
+    return if (activeGeneration == null) {
+        RuntimeCommand.StartGhost(target.id, File(target.canonicalRootPath))
+            .takeIf { snapshot.phase == GhostRuntimePhase.Idle }
+    } else {
+        RuntimeCommand.SwitchGhost(activeGeneration, lease, snapshot.modeIdentity, target.id)
+    }
+}
+
+internal fun userActionAllowed(snapshot: RuntimeSnapshot, action: GuardedAction): Boolean =
+    GhostActionGuard(snapshot.mode).allows(action, ActionOrigin.USER)
 
 internal fun finishAfterRestoredNotice(message: Int): Boolean = message in setOf(
     R.string.err_no_sdcard,
@@ -164,7 +192,9 @@ internal fun armAndLaunchNarDocumentPicker(
     setOwner: (NarImportAttemptToken?) -> Unit,
     launch: () -> Unit,
     failureMessage: String,
+    actionAllowed: () -> Boolean = { true },
 ): Boolean {
+    if (!actionAllowed()) return false
     val token = claimNarPickerAttempt(
         coordinator = coordinator,
         ownerTaskId = ownerTaskId,
@@ -195,11 +225,13 @@ private fun claimNarPickerAttempt(
 }
 
 internal fun dispatchNarPickerResult(
+    actionAllowed: () -> Boolean = { true },
     takeOwner: () -> NarImportAttemptToken?,
     selection: () -> NarDocumentSelection?,
     importAllowed: () -> Boolean,
     consume: (NarImportAttemptToken, NarDocumentSelection?, Boolean) -> Boolean,
 ): Boolean {
+    if (!actionAllowed()) return false
     val expectedToken = takeOwner() ?: return false
     return consume(expectedToken, selection(), importAllowed())
 }
@@ -263,7 +295,6 @@ class Nanidroid : ComponentActivity() {
     private val simpleDialogState = mutableStateOf<NanidroidSimpleDialog?>(null)
     private var toolbarVisible by mutableStateOf(true)
     private var hostEpoch = 0L
-    private var startupCatalogEpoch = Long.MIN_VALUE
     private var restoredPickerOwner: NarImportAttemptToken? = null
     private var inputDraft: InputDraft? = null
     private var pendingRestoredInputDraft: InputDraft? = null
@@ -278,12 +309,17 @@ class Nanidroid : ComponentActivity() {
     private val composeStage = ComposeGhostStageHost()
 
     private val narPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        dispatchNarPickerResult(
+        val accepted = dispatchNarPickerResult(
+            actionAllowed = { userActionAllowed(GuardedAction.IMPORT_INSTALL) },
             takeOwner = { restoredPickerOwner.also { restoredPickerOwner = null } },
             selection = { uri?.toNarSelection() },
             importAllowed = { getExternalFilesDir(null) != null },
             consume = foregroundNarImport::consumePickerResult,
         )
+        if (!accepted && !userActionAllowed(GuardedAction.IMPORT_INSTALL)) {
+            restoredPickerOwner?.also(foregroundNarImport::abandonPicker)
+            restoredPickerOwner = null
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -311,7 +347,8 @@ class Nanidroid : ComponentActivity() {
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
                     lifecycleTrace += "back"
-                    val snapshot = snapshotState.value
+                    if (!userActionAllowed(GuardedAction.EXIT)) return
+                    val snapshot = runtime.snapshots.value
                     val lease = hostLeaseState.value ?: return
                     runtime.submit(RuntimeCommand.Back(snapshot.generation, lease, snapshot.modeIdentity))
                 }
@@ -450,19 +487,32 @@ class Nanidroid : ComponentActivity() {
 
     private fun maybeStartGhost(snapshot: RuntimeSnapshot) {
         val ready = snapshot.catalog as? RuntimeCatalogState.Ready ?: return
-        if (snapshot.phase != GhostRuntimePhase.Idle || snapshot.generation != null || ready.entries.isEmpty()) return
-        if (startupCatalogEpoch == ready.epoch) return
-        startupCatalogEpoch = ready.epoch
-        lifecycleScope.launch {
-            val preferred = withContext(Dispatchers.IO) { runtime.preferredGhostId() }
-            val latest = snapshotState.value
-            val latestReady = latest.catalog as? RuntimeCatalogState.Ready ?: return@launch
-            if (latest.phase != GhostRuntimePhase.Idle || latestReady.epoch != ready.epoch) return@launch
-            val candidate = latestReady.entries.firstOrNull { it.id.equals(preferred, ignoreCase = true) }
-                ?: latestReady.entries.firstOrNull { it.id.equals("nanidroid", ignoreCase = true) }
-                ?: latestReady.entries.first()
-            runtime.submit(RuntimeCommand.StartGhost(candidate.id, File(candidate.canonicalRootPath)))
+        if (ready.entries.isEmpty()) return
+        val attempts = applicationOwner.startupCandidateAttempts
+        if (attempts.reserve(ready.epoch)) {
+            lifecycleScope.launch {
+                val preferred = withContext(Dispatchers.IO) { runtime.preferredGhostId() }
+                val latest = snapshotState.value
+                val latestReady = latest.catalog as? RuntimeCatalogState.Ready ?: return@launch
+                if (latestReady.epoch != ready.epoch) return@launch
+                attempts.configure(
+                    ready.epoch,
+                    launchCandidateIds(preferred, latestReady.entries.map { it.id }),
+                )
+                maybeStartGhost(latest)
+            }
         }
+        val candidateId = attempts.nextCandidate(
+            ready.epoch,
+            snapshot.phase,
+            snapshot.generation,
+            snapshot.modeIdentity.parentOperationId,
+            snapshot.exit != null,
+            snapshot.revision,
+            snapshot.notice,
+        ) ?: return
+        val candidate = ready.entries.firstOrNull { it.id.equals(candidateId, ignoreCase = true) } ?: return
+        runtime.submit(RuntimeCommand.StartGhost(candidate.id, File(candidate.canonicalRootPath)))
     }
 
     private fun reconcileInputDraft(snapshot: RuntimeSnapshot) {
@@ -505,7 +555,8 @@ class Nanidroid : ComponentActivity() {
     }
 
     private fun showGhostList() {
-        val snapshot = snapshotState.value
+        if (!userActionAllowed(GuardedAction.SWITCH_GHOST)) return
+        val snapshot = runtime.snapshots.value
         val failed = snapshot.catalog as? RuntimeCatalogState.Failed
         if (failed != null) {
             simpleDialogState.value = NanidroidSimpleDialog.Notice(
@@ -542,10 +593,10 @@ class Nanidroid : ComponentActivity() {
     }
 
     private fun requestSwitch(targetId: String) {
-        val snapshot = snapshotState.value
+        if (!userActionAllowed(GuardedAction.SWITCH_GHOST)) return
+        val snapshot = runtime.snapshots.value
         val lease = hostLeaseState.value ?: return
-        val generation = snapshot.generation ?: return
-        runtime.submit(RuntimeCommand.SwitchGhost(generation, lease, snapshot.modeIdentity, targetId))
+        ghostSelectionCommand(snapshot, lease, targetId)?.let(runtime::submit)
     }
 
     private fun openCurrentGhostReadme() {
@@ -581,6 +632,7 @@ class Nanidroid : ComponentActivity() {
     }
 
     private fun launchNarPicker() {
+        if (!userActionAllowed(GuardedAction.IMPORT_INSTALL)) return
         armAndLaunchNarDocumentPicker(
             coordinator = foregroundNarImport,
             ownerTaskId = taskId,
@@ -588,8 +640,12 @@ class Nanidroid : ComponentActivity() {
             setOwner = { restoredPickerOwner = it },
             launch = { narPicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
             failureMessage = getString(R.string.err_no_sdcard),
+            actionAllowed = { userActionAllowed(GuardedAction.IMPORT_INSTALL) },
         )
     }
+
+    private fun userActionAllowed(action: GuardedAction): Boolean =
+        userActionAllowed(runtime.snapshots.value, action)
 
     private fun openDocumentLink(value: String) {
         tryLaunchDocumentExternalUrl(value) { url ->
