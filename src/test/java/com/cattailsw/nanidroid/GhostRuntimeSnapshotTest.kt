@@ -525,6 +525,99 @@ class GhostRuntimeSnapshotTest {
         }
     }
 
+    // Mutation caught: fatal settlement launches an already queued native request before poison admission.
+    @Test
+    fun fatalNativeSettlementFencesQueuedSuccessorBeforePortInvocation() {
+        val root = File("build/runtime-snapshot/fatal-fifo-fence").canonicalFile
+        fixtureFor("fatal-fifo-fence", root).use { fixture ->
+            fixture.startAttached("fatal-fifo-fence", root)
+            fixture.runtime.enqueueScriptForTesting("\\_a[first]One\\_a\\_a[second]Two\\_a\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil { it.dialogue.anchors.size == 2 }
+            val anchors = fixture.runtime.snapshots.value.dialogue.anchors
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[0].key))
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[1].key))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val first = fixture.nativePort.requests.remove()
+            assertTrue(fixture.nativePort.requests.isEmpty())
+
+            fixture.runtime.submit(RuntimeCommand.ActivateAnchor(anchors[0].key))
+            first.complete(RuntimeResult.Failure(RuntimeFailure.Fatal(IllegalStateException("fatal"))))
+            fixture.drain()
+
+            assertEquals(GhostRuntimePhase.Poisoned, fixture.runtime.snapshots.value.phase)
+            assertTrue("queued successor entered the native port after fatal settlement", fixture.nativePort.requests.isEmpty())
+        }
+    }
+
+    // Mutation caught: a parent-active timer enters the native lane and prevents switch unload admission.
+    @Test
+    fun switchParentFencesQueuedTimerBeforeSuccessfulUnload() {
+        val oldRoot = File("build/runtime-snapshot/parent-timer-old").canonicalFile
+        val newRoot = File("build/runtime-snapshot/parent-timer-new").canonicalFile
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(
+                    InstalledGhostMetadata("parent-timer-old", oldRoot, "Old", null, File(oldRoot, "readme.txt")),
+                    InstalledGhostMetadata("parent-timer-new", newRoot, "New", null, File(newRoot, "readme.txt")),
+                )
+            },
+        ).use { fixture ->
+            fixture.startAttached("parent-timer-old", oldRoot)
+            val top = fixture.makeTopHost(73L)
+            val before = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, before.modeIdentity, "parent-timer-new"))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val parent = fixture.nativePort.requests.remove()
+            fixture.scheduler.runNext(RuntimeScheduleKind.CLOCK)
+            fixture.drain()
+
+            parent.complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
+            fixture.drain()
+            fixture.awaitNativeWork()
+
+            assertTrue("parent-active timer entered the native port", fixture.nativePort.requests.isEmpty())
+            assertEquals(1, fixture.nativePort.unloads.size)
+            assertEquals(GhostRuntimePhase.Replacing, fixture.runtime.snapshots.value.phase)
+        }
+    }
+
+    // Mutation caught: rejecting a parent-active clock tick permanently stops the retained outgoing ghost's clock.
+    @Test
+    fun failedSwitchReschedulesClockAfterParentTimerWasFenced() {
+        val oldRoot = File("build/runtime-snapshot/parent-timer-failure-old").canonicalFile
+        val newRoot = File("build/runtime-snapshot/parent-timer-failure-new").canonicalFile
+        SnapshotRuntimeFixture(
+            catalogScanner = RuntimeCatalogScanner {
+                listOf(
+                    InstalledGhostMetadata("parent-timer-failure-old", oldRoot, "Old", null, File(oldRoot, "readme.txt")),
+                    InstalledGhostMetadata("parent-timer-failure-new", newRoot, "New", null, File(newRoot, "readme.txt")),
+                )
+            },
+        ).use { fixture ->
+            fixture.startAttached("parent-timer-failure-old", oldRoot)
+            val top = fixture.makeTopHost(74L)
+            val before = fixture.runtime.snapshots.value
+            fixture.runtime.submit(RuntimeCommand.SwitchGhost(1L, top, before.modeIdentity, "parent-timer-failure-new"))
+            fixture.drain()
+            fixture.awaitNativeWork()
+            val parent = fixture.nativePort.requests.remove()
+            fixture.scheduler.runNext(RuntimeScheduleKind.CLOCK)
+            fixture.drain()
+
+            parent.complete(
+                RuntimeResult.Failure(RuntimeFailure.Replayable(IllegalStateException("switch request failed"))),
+            )
+            fixture.drain()
+
+            assertEquals(GhostRuntimePhase.Attached, fixture.runtime.snapshots.value.phase)
+            assertTrue(fixture.nativePort.requests.isEmpty())
+            assertTrue(fixture.scheduler.scheduled().any { it.key.kind == RuntimeScheduleKind.CLOCK })
+        }
+    }
+
     @Test
     fun presentationAndClockHousekeepingDoNotStalePublishedMode() {
         val root = File("build/runtime-snapshot/mode-stability").canonicalFile
@@ -905,6 +998,7 @@ class GhostRuntimeSnapshotTest {
         try {
             fixture.startAttached("cancel-close", root)
             val top = fixture.makeTopHost(66L)
+            val snapshotBeforeAdmission = fixture.runtime.snapshots.value
             scheduler.armed.set(true)
             fixture.runtime.submit(RuntimeCommand.SetTopResumed(top.copy(hostEpoch = 4L), false))
             val coordination = Thread {
@@ -919,20 +1013,29 @@ class GhostRuntimeSnapshotTest {
             Thread.sleep(50L)
             val closeWaitedForCancel = closing.isAlive
             scheduler.cancelRelease.countDown()
+            assertTrue(scheduler.closeEntered.await(5, TimeUnit.SECONDS))
             coordination.join(5_000L)
+            val snapshotAfterCloseLinearized = fixture.runtime.snapshots.value
+            scheduler.closeRelease.countDown()
             closing.join(5_000L)
 
             assertTrue("close did not serialize behind in-flight cancel", closeWaitedForCancel)
             assertEquals(null, coordinationFailure.get())
             assertEquals(null, closeFailure.get())
+            assertEquals(
+                "an in-flight admission published after close linearized",
+                snapshotBeforeAdmission,
+                snapshotAfterCloseLinearized,
+            )
         } finally {
             scheduler.cancelRelease.countDown()
+            scheduler.closeRelease.countDown()
             fixture.close()
         }
     }
 
     @Test
-    fun synchronousNativeThrowCompletesItsSequenceBeforeLaterResponse() {
+    fun synchronousNativeThrowCompletesItsSequenceAndFencesLaterRequest() {
         val root = File("build/runtime-snapshot/native-throw").canonicalFile
         val port = object : RecordingRuntimeNativePort() {
             val throwNextPointer = AtomicBoolean(true)
@@ -970,13 +1073,11 @@ class GhostRuntimeSnapshotTest {
             fixture.runtime.submit(RuntimeCommand.Pointer(1L, top, surface, effect))
             fixture.runtime.submit(RuntimeCommand.Pointer(1L, top, surface, effect))
             fixture.drain()
-            fixture.awaitNativeWork()
-            port.requests.remove().complete(RuntimeResult.Success(TaggedShioriResponse(1L, response(204))))
-            fixture.drain()
+            fixture.drainUntil { fixture.runtime.snapshots.value.phase == GhostRuntimePhase.Poisoned }
 
             assertEquals(GhostRuntimePhase.Poisoned, fixture.runtime.snapshots.value.phase)
             assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
-            assertEquals("NativeResponseRejected", fixture.runtime.snapshotCommandTraceForTesting().last())
+            assertTrue(port.requests.isEmpty())
         }
     }
 

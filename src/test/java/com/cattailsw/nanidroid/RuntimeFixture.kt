@@ -142,6 +142,8 @@ internal open class ManualSnapshotRuntimeScheduler : RuntimeScheduler {
 internal class BlockingThrowingCancelRuntimeScheduler : ManualSnapshotRuntimeScheduler() {
     val cancelEntered = java.util.concurrent.CountDownLatch(1)
     val cancelRelease = java.util.concurrent.CountDownLatch(1)
+    val closeEntered = java.util.concurrent.CountDownLatch(1)
+    val closeRelease = java.util.concurrent.CountDownLatch(1)
     val armed = java.util.concurrent.atomic.AtomicBoolean(false)
 
     override fun cancel(key: RuntimeScheduleKey) {
@@ -149,6 +151,12 @@ internal class BlockingThrowingCancelRuntimeScheduler : ManualSnapshotRuntimeSch
         cancelEntered.countDown()
         check(cancelRelease.await(5, java.util.concurrent.TimeUnit.SECONDS))
         throw IllegalStateException("cancel failed")
+    }
+
+    override fun close() {
+        closeEntered.countDown()
+        check(closeRelease.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        super.close()
     }
 }
 

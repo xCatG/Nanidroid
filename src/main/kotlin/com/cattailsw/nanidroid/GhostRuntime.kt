@@ -1524,6 +1524,7 @@ private class SnapshotRuntimeCore(
     private val queuedNativeRequests = java.util.ArrayDeque<SnapshotNativeRequest>()
     private val closeReady = java.util.concurrent.CountDownLatch(1)
     private val resourceLock = Any()
+    private val snapshotPublicationLock = Any()
     @Volatile
     private var closed = false
 
@@ -1890,7 +1891,7 @@ private class SnapshotRuntimeCore(
     }
 
     private fun timerDue(command: RuntimeCommand.TimerDue) {
-        if (phase == GhostRuntimePhase.Poisoned) return
+        if (phase == GhostRuntimePhase.Poisoned || parentState != null) return
         val activeGeneration = generation ?: return
         if (
             !clockState.running ||
@@ -2221,6 +2222,7 @@ private class SnapshotRuntimeCore(
                     parentState = null
                     phase = GhostRuntimePhase.Attached
                     modeRevision += 1L
+                    scheduleClockIfRunning()
                 } else if (playable.isNullOrEmpty()) {
                     startSwitchUnload(parent)
                 } else {
@@ -2484,6 +2486,7 @@ private class SnapshotRuntimeCore(
                                 parentState = null
                                 phase = GhostRuntimePhase.Attached
                                 modeRevision += 1L
+                                scheduleClockIfRunning()
                             }
                             null -> Unit
                         }
@@ -2700,7 +2703,7 @@ private class SnapshotRuntimeCore(
         synchronized(resourceLock) {
             if (closed) return
             val loaded = nativeLifecycle as? SnapshotNativeLifecycle.Loaded
-            if (loaded == null || loaded.closeRequested) {
+            if (loaded == null || loaded.closeRequested || loaded.fatalPending) {
                 rejected = true
             } else if (loaded.request == null) {
                 loaded.request = request
@@ -2778,6 +2781,10 @@ private class SnapshotRuntimeCore(
             if (closed || loaded.closeRequested) {
                 queuedNativeRequests.clear()
                 startCloseUnloadLocked(loaded)
+            } else if ((result as? RuntimeResult.Failure)?.failure is RuntimeFailure.Fatal) {
+                queuedNativeRequests.clear()
+                loaded.fatalPending = true
+                publish = true
             } else {
                 publish = true
                 val next = queuedNativeRequests.pollFirst()
@@ -3069,7 +3076,10 @@ private class SnapshotRuntimeCore(
             ),
         )
         if (candidate == current) return
-        mutableSnapshots.value = candidate.copy(revision = current.revision + 1L)
+        synchronized(snapshotPublicationLock) {
+            if (closed) return
+            mutableSnapshots.value = candidate.copy(revision = current.revision + 1L)
+        }
     }
 
     private fun record(value: String) {
@@ -3079,7 +3089,10 @@ private class SnapshotRuntimeCore(
     override fun close() {
         synchronized(resourceLock) {
             if (closed) return
-            closed = true
+            synchronized(snapshotPublicationLock) {
+                if (closed) return
+                closed = true
+            }
             dispatcher.close()
             ioScope.cancel()
             scheduler.close()
@@ -3136,6 +3149,7 @@ private class SnapshotRuntimeCore(
             val ownership: SnapshotNativeOwnership,
             var request: SnapshotNativeRequest? = null,
             var closeRequested: Boolean = false,
+            var fatalPending: Boolean = false,
         ) : SnapshotNativeLifecycle
 
         class Unloading(
