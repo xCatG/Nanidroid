@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import android.os.SystemClock
 import com.cattailsw.nanidroid.SurfaceCatalog
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
@@ -150,6 +153,7 @@ internal class ComposeGhostStageHost private constructor(
             scheduleNormalized(GhostSpeaker.SAKURA, catalog, presentation.sakura)
             scheduleNormalized(GhostSpeaker.KERO, catalog, presentation.kero)
         }
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
         LaunchedEffect(snapshot.revision, hostLease) {
             if (snapshot.foregroundHost != hostLease) return@LaunchedEffect
             if (lastAppliedCueLease != hostLease) {
@@ -180,9 +184,11 @@ internal class ComposeGhostStageHost private constructor(
                 submitCommand(RuntimeCommand.AcknowledgeCues(hostLease, through))
             }
         }
-        LaunchedEffect(sakuraScheduler, keroScheduler) {
-            rearmPeriodicTicks()
-            while (true) { delay(16); tickSchedulers() }
+        LaunchedEffect(sakuraScheduler, keroScheduler, lifecycle) {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                rearmPeriodicTicks()
+                while (true) { delay(16); tickSchedulers() }
+            }
         }
         GhostPresentationStage(
             presentation = presentation,
