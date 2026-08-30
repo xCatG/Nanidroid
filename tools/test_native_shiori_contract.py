@@ -42,22 +42,46 @@ class NativeShioriContractTest(unittest.TestCase):
         self.assertIn('target_link_options(ssu PRIVATE "-Wl,-Bsymbolic")', source)
         self.assertIn('target_link_options(yaya PRIVATE "-Wl,-Bsymbolic")', source)
 
-    def test_ghost_switch_unloads_before_starting_replacement(self):
-        source = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(encoding="utf-8")
-        stop_body = source.split("@Synchronized fun stop()", 1)[1].split("private fun reset", 1)[0]
-        self.assertLess(stop_body.index("g!!.unload()"), stop_body.index("it.ghostSwitchScriptComplete()"))
-
-    def test_ghost_switch_pauses_clock_until_replacement_is_bound(self):
-        source = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt").read_text(encoding="utf-8")
-        switch_body = source.split("fun switchGhost(nextId: String)", 1)[1].split("fun ghostSwitchStep2()", 1)[0]
-        self.assertIn("runner!!.stopClock()", switch_body)
-        replacement_body = source.rsplit("runner!!.setGhost(ghost)", 1)[1]
-        self.assertTrue(replacement_body.lstrip().startswith("runner!!.startClock()"))
-
     def test_yaya_maps_engine_pseudo_charsets_to_android_transports(self):
         source = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/shiori/YayaShiori.kt").read_text(encoding="utf-8")
         self.assertIn("Charset.defaultCharset()", source)
         self.assertIn("Charsets.ISO_8859_1", source)
+
+    def test_activity_ghost_switch_fences_the_clock_until_attach_succeeds(self):
+        source = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/Nanidroid.kt").read_text(
+            encoding="utf-8"
+        )
+        switch_body = source.split("fun switchGhost(nextId: String)", 1)[1].split(
+            "fun ghostSwitchStep2()", 1
+        )[0]
+        self.assertLess(
+            switch_body.index("runner!!.stopClock()"),
+            switch_body.index("runner!!.doGhostChanging"),
+        )
+
+        attach_body = source.split("fun ghostSwitchStep2()", 1)[1].split(
+            "fun onListGhost()", 1
+        )[0]
+        failed_attach = "if (runner?.attachReservedGhost(exactReservation) != true)"
+        self.assertIn(failed_attach, attach_body)
+        failed_attach_index = attach_body.index(failed_attach)
+        failed_attach_return = attach_body.index(
+            "return@routeGhostSwitchResult", failed_attach_index
+        )
+        self.assertLess(failed_attach_index, failed_attach_return)
+        self.assertLess(failed_attach_return, attach_body.index("runner!!.startClock()"))
+
+    def test_runner_unloads_outgoing_ghost_before_switch_handoff(self):
+        source = (self.root / "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(
+            encoding="utf-8"
+        )
+        switch_stop = source.split("private fun stop(state: PlaybackState", 1)[1].split(
+            "private data class StopEffects", 1
+        )[0]
+        self.assertLess(
+            switch_stop.index("sessionCoordinator.markActiveUnloadedIf"),
+            switch_stop.index("effects.callback?.ghostSwitchScriptComplete()"),
+        )
 
     def test_yaya_digest_words_are_fixed_width_on_64_bit_abis(self):
         sha1_header = (self.root / "jni/yaya/sha1.h").read_text(encoding="utf-8")

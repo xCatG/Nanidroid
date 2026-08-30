@@ -11,17 +11,17 @@ class ComposeStageLayoutContractTest(unittest.TestCase):
         host = (root / "src/main/kotlin/com/cattailsw/nanidroid/compose/ComposeGhostStageHost.kt").read_text(
             encoding="utf-8"
         )
-        self.assertIn("BoxWithConstraints", stage)
-        self.assertIn("GhostStageLayoutPolicy.calculate", stage)
-        self.assertIn("StageNode(layout.kero)", stage)
-        self.assertIn("StageNode(layout.sakura)", stage)
-        self.assertIn("StageNode(layout.keroBalloon)", stage)
-        self.assertIn("StageNode(layout.sakuraBalloon)", stage)
-        self.assertIn("val density = LocalDensity.current", stage)
-        self.assertIn("placement.size.width.toDp()", stage)
-        self.assertIn("placement.size.height.toDp()", stage)
+        measured = (root / "src/main/kotlin/com/cattailsw/nanidroid/compose/stage/MeasuredGhostStageLayout.kt").read_text(
+            encoding="utf-8"
+        )
+        for boundary in ("StageEnvironmentProvider", "StagePointerInput", "MeasuredGhostStageLayout", "toStageEnvironment"):
+            self.assertIn(boundary, stage)
+        for owner in ("SubcomposeLayout", "GhostStageLayoutPolicy.calculate", "StageLayoutPx.from"):
+            self.assertIn(owner, measured)
+        for slot in ("KERO_SURFACE", "SAKURA_SURFACE", "KERO_BALLOON", "SAKURA_BALLOON"):
+            self.assertIn(slot, measured)
         self.assertIn("SurfaceCompositor", host)
-        self.assertIn("SurfacePointerInteractionDispatcher", host)
+        self.assertIn("onSurfaceEffect = interactionPort::dispatch", host)
         self.assertNotIn("GhostPresentationComposeHost", host)
 
 
