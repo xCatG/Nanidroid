@@ -864,10 +864,10 @@ internal object SakuraScriptPlayer {
                 state,
                 state.current?.payload?.parent,
             )
-            PlayerResponse.ReplayableFailure -> failPlayback(
-                state,
-                state.current?.payload?.parent,
-                RuntimeNoticeCode.REQUEST_FAILED,
+            PlayerResponse.ReplayableFailure -> schedule(
+                state.copy(authoredRequest = null),
+                0L,
+                listOf(PlayerEffect.Failure(null, RuntimeNoticeCode.REQUEST_FAILED)),
             )
             is PlayerResponse.Returned -> {
                 val value = response.response.takeIf { it.getStatusCode() == 200 }

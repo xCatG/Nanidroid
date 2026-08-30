@@ -162,41 +162,79 @@ class SakuraScriptPlayerTest {
         assertEquals(listOf(PlayerPayload("\\hIncoming\\e", null)), resumed.state.queue)
     }
 
-    // Mutation caught: a replayable request failure resumes its parent and later completes it successfully.
+    // Mutation caught: a replayable authored surface failure clears the active talk and dialogue inventory.
     @Test
-    fun replayableParentFailureIsTerminalWithoutLaterCompletion() {
-        val parent = PlayerParent.Switch(31)
-        val suspended = advance(
-            SakuraScriptPlayer.reduce(
-                PlayerState.initial(7),
-                PlayerCommand.Enqueue("\\s[42]A\\e", parent),
-            ).state,
-            0L,
-        )
-        val token = RuntimeRequestToken(7, 12, 31, suspended.state.authoredRequest!!)
-        val other = PlayerParent.Exit(32)
-        val withOtherOwner = SakuraScriptPlayer.reduce(
-            suspended.state,
-            PlayerCommand.Enqueue("\\hOther\\e", other),
+    fun replayableAuthoredSurfaceFailurePreservesExactPlaybackStateAndResumesRemainder() {
+        val suspended = drive(
+            "\\hBefore\\q[Choice,id]\\s[42]After\\e",
+            autoRespond = false,
         ).state
+        val queued = SakuraScriptPlayer.reduce(
+            suspended,
+            PlayerCommand.Enqueue("\\hQueued\\e", null),
+        ).state
+        val token = RuntimeRequestToken(queued.generation, 12, null, requireNotNull(queued.authoredRequest))
+
         val replayable = SakuraScriptPlayer.reduce(
-            withOtherOwner,
+            queued,
             PlayerCommand.NativeResponse(token, PlayerResponse.ReplayableFailure),
         )
-        val fatal = SakuraScriptPlayer.reduce(
-            suspended.state,
-            PlayerCommand.NativeResponse(token, PlayerResponse.FatalFailure),
+
+        assertEquals(queued.current, replayable.state.current)
+        assertEquals(queued.queue, replayable.state.queue)
+        assertEquals(queued.dialogue, replayable.state.dialogue)
+        assertEquals(queued.passive, replayable.state.passive)
+        assertEquals(queued.presentation, replayable.state.presentation)
+        assertNull(replayable.state.authoredRequest)
+        assertEquals(
+            listOf(
+                PlayerEffect.Failure(null, RuntimeNoticeCode.REQUEST_FAILED),
+                PlayerEffect.SchedulePlayback(replayable.state.playbackToken, 0L),
+            ),
+            replayable.effects,
         )
 
-        assertEquals(PlayerEffect.Failure(parent, RuntimeNoticeCode.REQUEST_FAILED), replayable.effects.first())
-        assertTrue(replayable.effects.last() is PlayerEffect.SchedulePlayback)
-        assertNull(replayable.state.current)
-        assertEquals(listOf(PlayerPayload("\\hOther\\e", other)), replayable.state.queue)
-        val afterFailure = advance(replayable.state, 1_000L)
-        assertTrue(afterFailure.effects.none { it == PlayerEffect.ParentCompleted(parent) })
-        assertEquals(PlayerEffect.Failure(parent, RuntimeNoticeCode.RUNTIME_POISONED), fatal.effects.single())
-        assertNull(fatal.state.current)
-        assertTrue(fatal.state.queue.isEmpty())
+        val resumed = drive(replayable.state, replayable.effects)
+        val completedRemainder = resumed.states.first { it.presentation.sakura.text == "BeforeChoiceAfter" }
+        assertEquals("BeforeAfter", completedRemainder.sakuraDialogueText())
+        assertEquals("Choice", replayable.state.dialogue.choices.single().action.label())
+    }
+
+    // Mutation caught: replayable surface failure settles Switch or Exit before authored playback naturally completes.
+    @Test
+    fun replayableParentSurfaceFailureResumesToOneNaturalCompletion() {
+        listOf<PlayerParent>(PlayerParent.Switch(31), PlayerParent.Exit(32)).forEach { parent ->
+            val operationId = when (parent) {
+                is PlayerParent.Switch -> parent.operationId
+                is PlayerParent.Exit -> parent.operationId
+            }
+            val suspended = drive(
+                "\\hBefore\\s[42]After\\e",
+                parent = parent,
+                autoRespond = false,
+            ).state
+            val replayable = SakuraScriptPlayer.reduce(
+                suspended,
+                PlayerCommand.NativeResponse(
+                    RuntimeRequestToken(
+                        suspended.generation,
+                        operationId,
+                        operationId,
+                        requireNotNull(suspended.authoredRequest),
+                    ),
+                    PlayerResponse.ReplayableFailure,
+                ),
+            )
+
+            assertEquals(PlayerEffect.Failure(null, RuntimeNoticeCode.REQUEST_FAILED), replayable.effects.first())
+            val resumed = drive(replayable.state, replayable.effects)
+            assertEquals(
+                listOf(PlayerEffect.ParentCompleted(parent)),
+                resumed.effects.filterIsInstance<PlayerEffect.ParentCompleted>(),
+            )
+            assertTrue(resumed.effects.none { it == PlayerEffect.Failure(parent, RuntimeNoticeCode.REQUEST_FAILED) })
+            assertTrue(resumed.states.any { it.presentation.sakura.text == "BeforeAfter" })
+        }
     }
 
     // Mutation caught: a poisoned runtime preserves another owner's queue and schedules playback.

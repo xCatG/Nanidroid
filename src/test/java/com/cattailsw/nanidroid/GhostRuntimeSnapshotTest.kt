@@ -2078,6 +2078,45 @@ class GhostRuntimeSnapshotTest {
         }
     }
 
+    @Test
+    fun replayableAuthoredSurfaceFailureResumesVisibleRemainderWithGenerationNotice() {
+        val root = File("build/runtime-snapshot/replayable-authored-surface").canonicalFile
+        fixtureFor("replayable-authored-surface", root).use { fixture ->
+            fixture.startAttached("replayable-authored-surface", root)
+            fixture.makeTopHost(184L)
+            fixture.runtime.enqueueScriptForTesting("\\hBefore\\q[Choice,id]\\s[42]After\\e")
+            fixture.drain()
+            fixture.runPlaybackUntil {
+                it.presentation.sakura.text == "BeforeChoice" && it.dialogue.choices.size == 1
+            }
+            fixture.awaitNativeWork()
+            val request = fixture.nativePort.requests.remove()
+            val before = fixture.runtime.snapshots.value
+            val choice = before.dialogue.choices.single()
+            val generation = requireNotNull(before.generation)
+            assertTrue(request.intent.protocolText.contains("ID: OnSurfaceChange\r\n"))
+
+            request.complete(RuntimeResult.Failure(RuntimeFailure.Replayable(IllegalStateException("retry"))))
+            fixture.drain()
+
+            val resumed = fixture.runtime.snapshots.value
+            assertEquals(GhostRuntimePhase.Attached, resumed.phase)
+            assertEquals(generation, resumed.notice?.operationId)
+            assertEquals(RuntimeNoticeCode.REQUEST_FAILED, resumed.notice?.code)
+            assertEquals(before.presentation, resumed.presentation)
+            assertEquals(before.dialogue, resumed.dialogue)
+            assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+
+            fixture.runPlaybackUntil { it.presentation.sakura.text == "BeforeChoiceAfter" }
+            val completedRemainder = fixture.runtime.snapshots.value
+            assertEquals("BeforeChoiceAfter", completedRemainder.presentation.sakura.text)
+            assertEquals(choice, completedRemainder.dialogue.choices.single())
+            assertEquals(generation, completedRemainder.notice?.operationId)
+            assertEquals(RuntimeNoticeCode.REQUEST_FAILED, completedRemainder.notice?.code)
+            assertEquals(0, fixture.runtime.pendingSnapshotRequestCountForTesting())
+        }
+    }
+
     // Mutation caught: host loss resets cue IDs and lets a stale acknowledgement alias a replacement-host cue.
     @Test
     fun hostReplacementKeepsCueIdentityMonotonic() {
