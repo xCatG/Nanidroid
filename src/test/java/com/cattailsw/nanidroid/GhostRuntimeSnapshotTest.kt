@@ -1593,7 +1593,6 @@ class GhostRuntimeSnapshotTest {
         try {
             fixture.startAttached("cancel-close", root)
             val top = fixture.makeTopHost(66L)
-            val snapshotBeforeAdmission = fixture.runtime.snapshots.value
             scheduler.armed.set(true)
             fixture.runtime.submit(RuntimeCommand.SetTopResumed(top.copy(hostEpoch = 4L), false))
             val coordination = Thread {
@@ -1609,18 +1608,27 @@ class GhostRuntimeSnapshotTest {
             val closeWaitedForCancel = closing.isAlive
             scheduler.cancelRelease.countDown()
             assertTrue(scheduler.closeEntered.await(5, TimeUnit.SECONDS))
+            val snapshotAtCloseLinearization = fixture.runtime.snapshots.value
             coordination.join(5_000L)
-            val snapshotAfterCloseLinearized = fixture.runtime.snapshots.value
+            val snapshotAfterCoordination = fixture.runtime.snapshots.value
             scheduler.closeRelease.countDown()
             closing.join(5_000L)
+            val snapshotAfterCloseComplete = fixture.runtime.snapshots.value
 
             assertTrue("close did not serialize behind in-flight cancel", closeWaitedForCancel)
+            assertFalse("coordination thread did not terminate", coordination.isAlive)
+            assertFalse("closing thread did not terminate", closing.isAlive)
             assertEquals(null, coordinationFailure.get())
             assertEquals(null, closeFailure.get())
             assertEquals(
                 "an in-flight admission published after close linearized",
-                snapshotBeforeAdmission,
-                snapshotAfterCloseLinearized,
+                snapshotAtCloseLinearization,
+                snapshotAfterCoordination,
+            )
+            assertEquals(
+                "close completion changed the linearized snapshot",
+                snapshotAtCloseLinearization,
+                snapshotAfterCloseComplete,
             )
         } finally {
             scheduler.cancelRelease.countDown()
