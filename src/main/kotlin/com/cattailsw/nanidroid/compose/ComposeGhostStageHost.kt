@@ -1,22 +1,24 @@
 package com.cattailsw.nanidroid.compose
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import android.os.SystemClock
 import com.cattailsw.nanidroid.SurfaceCatalog
-import com.cattailsw.nanidroid.runtime.GhostPresentationRuntimeState
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
-import com.cattailsw.nanidroid.runtime.KotlinGhostPresentationRuntime
+import com.cattailsw.nanidroid.runtime.RuntimeCommand
+import com.cattailsw.nanidroid.runtime.RuntimeCueKind
+import com.cattailsw.nanidroid.runtime.RuntimeHostLease
+import com.cattailsw.nanidroid.runtime.RuntimeSnapshot
+import com.cattailsw.nanidroid.runtime.RuntimeSpeakerPresentation
+import com.cattailsw.nanidroid.runtime.RuntimeSurfaceIdentity
 import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
 import com.cattailsw.nanidroid.compose.stage.RenderedSurfaceLayer
 import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
@@ -24,56 +26,24 @@ import com.cattailsw.nanidroid.runtime.stage.bubbleScrollSessionIdentity
 import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
-import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSpeakerOwnership
+import com.cattailsw.nanidroid.runtime.dialogue.RuntimeAnchorAction
+import com.cattailsw.nanidroid.runtime.dialogue.RuntimeChoiceAction
+import java.util.IdentityHashMap
 import kotlinx.coroutines.delay
 
 /**
- * Production Compose ghost-stage state.  This is deliberately the only bridge
- * from the script runner to the visual stage: it owns immutable surface plans
- * and never creates a SakuraView, KeroView, Balloon, or FrameLayout.
+ * View-local surface and animation adapter for one immutable runtime snapshot.
  */
-class ComposeGhostStageHost private constructor(
-    private val interactionPort: SurfaceInteractionPort,
+internal class ComposeGhostStageHost private constructor(
     private val pixelAssets: SurfacePixelAssets,
     @Suppress("UNUSED_PARAMETER") constructorMarker: Unit,
 ) {
-    constructor(interactionPort: SurfaceInteractionPort) : this(
-        interactionPort,
-        AndroidSurfacePixelAssets,
-        Unit,
-    )
+    constructor() : this(AndroidSurfacePixelAssets, Unit)
 
-    internal constructor(
-        interactionPort: SurfaceInteractionPort,
-        pixelAssets: SurfacePixelAssets,
-    ) : this(interactionPort, pixelAssets, Unit)
+    internal constructor(pixelAssets: SurfacePixelAssets) : this(pixelAssets, Unit)
 
-    var runtimeState: GhostPresentationRuntimeState by mutableStateOf(GhostPresentationRuntimeState.Initial)
-        private set
-    var dialogueState: DialogueRuntimeState by mutableStateOf(DialogueRuntimeState(), neverEqualPolicy())
-        private set
-    private var hasDialogueStateSnapshot by mutableStateOf(false)
-
-    internal val bubbleScrollSessionKey: String
-        get() = dialogueState
-            .takeIf { hasDialogueStateSnapshot }
-            ?.let { bubbleScrollSessionIdentity(it.incarnation) }
-            .orEmpty()
-
-    fun updateDialogueState(state: DialogueRuntimeState) {
-        val current = dialogueState
-        if (
-            state.incarnation > current.incarnation ||
-            (state.incarnation == current.incarnation && state.revision >= current.revision)
-        ) {
-            dialogueState = state
-            hasDialogueStateSnapshot = true
-        }
-    }
-    private var activeSurfaceCatalog: SurfaceCatalog? by mutableStateOf(null)
-    private var activeGhostKey: String by mutableStateOf("")
     private var sakuraFrame: SurfaceRenderFrame? by mutableStateOf(null)
     private var keroFrame: SurfaceRenderFrame? by mutableStateOf(null)
     private var sakuraActiveAnimationId: String? by mutableStateOf(null)
@@ -91,66 +61,40 @@ class ComposeGhostStageHost private constructor(
     private val activeComposedSurfaces = mutableMapOf<SurfaceSpeaker, ActiveComposedSurface>()
     private var renderedFramePixels = 0L
     private var nextComposedRevision = 1L
-    private var surfaceCatalogInputEpoch = 0L
+    private var lastAppliedCueLease: RuntimeHostLease? = null
+    private var lastAppliedCueId = 0L
     private val stageMeasureState = GhostStageMeasureState()
     internal val latestMeasuredSnapshot get() = stageMeasureState.latest
 
-    val renderer = KotlinGhostPresentationRuntime { transition ->
-        runtimeState = transition.state
-        val catalog = activeSurfaceCatalog ?: return@KotlinGhostPresentationRuntime
-        // The Kotlin runtime owns the legacy shared talk cadence. Passing its
-        // gate through directly also keeps activity recreation from resetting it.
-        val talkUpdate = SurfaceTalkCadence.Update(transition.state.talkingAnimationEnabled)
-        schedule(GhostSpeaker.SAKURA, catalog.speakerSurface(transition.state.presentation.sakura.surfaceId, true).plan,
-            transition.state.presentation.sakura, talkUpdate)
-        schedule(GhostSpeaker.KERO, catalog.speakerSurface(transition.state.presentation.kero.surfaceId, false).plan,
-            transition.state.presentation.kero, talkUpdate)
-    }
-
-    internal fun setSurfaceCatalog(catalog: SurfaceCatalog?, ghostKey: String) {
-        if (activeSurfaceCatalog !== catalog || activeGhostKey != ghostKey) {
-            surfaceCatalogInputEpoch++
-            sakuraScheduler = null
-            keroScheduler = null
-            sakuraFrame = null
-            keroFrame = null
-            sakuraActiveAnimationId = null
-            keroActiveAnimationId = null
-            schedulerSurfaceIds.clear()
-            nextPeriodicTicks.clear()
-            speakerSurfaces.clear()
-            clearRenderedFrames()
-            stageMeasureState.resetFor(catalog)
-        }
-        activeSurfaceCatalog = catalog
-        activeGhostKey = ghostKey
-    }
-
     @Composable
-    fun Stage(
+    internal fun Stage(
+        snapshot: RuntimeSnapshot,
+        hostLease: RuntimeHostLease,
+        submitCommand: (RuntimeCommand) -> Unit,
         modifier: Modifier = Modifier,
         blockingInput: () -> Boolean = { false },
-        blockingInputEpoch: () -> Long = { 0L },
         onSurfaceTap: () -> Unit = {},
-        onDialogueChoice: (DialogueAction) -> Unit = {},
-        onDialogueAnchor: (AnchorAction) -> Unit = {},
         onDialogueExternalUrl: (String) -> Unit = {},
-        onDialogueInput: (DialogueSegment.InputBox) -> Unit = {},
+        onDialogueInputDraft: (com.cattailsw.nanidroid.runtime.dialogue.RuntimeInputAction) -> Unit = {},
         collisionOverlaySpeaker: SurfaceSpeaker? = null,
     ) {
-        val catalog = activeSurfaceCatalog
-        val state = runtimeState
+        val catalog = snapshot.activeSurfaces
+        val ghostKey = snapshot.activeGhostId.orEmpty()
+        val presentation = snapshot.presentation
+        LaunchedEffect(catalog, ghostKey) {
+            resetSurfaceCaches(catalog)
+        }
         val plans = remember(catalog) { catalog?.keys
             ?.mapNotNull { id -> catalog.definition(id)?.toSurfaceRenderPlan() }
             ?.filter { it.isRenderableSurface() }
             .orEmpty() }
         val compositor = remember(catalog, pixelAssets) { SurfaceCompositor(pixelAssets, SurfacePlanRegistry(plans)) }
-        val sakura = catalog.speakerSurface(state.presentation.sakura.surfaceId, true)
-        val kero = catalog.speakerSurface(state.presentation.kero.surfaceId, false)
+        val sakura = catalog.speakerSurface(presentation.sakura.surfaceId, true)
+        val kero = catalog.speakerSurface(presentation.kero.surfaceId, false)
         val sakuraComposed = safeComposedSurface(
             compositor,
             SurfaceSpeaker.SAKURA,
-            state.presentation.sakura.surfaceId,
+            presentation.sakura.surfaceId,
             sakura.plan,
             sakuraFrame,
             explicitlyHidden = !sakura.visible,
@@ -158,69 +102,161 @@ class ComposeGhostStageHost private constructor(
         val keroComposed = safeComposedSurface(
             compositor,
             SurfaceSpeaker.KERO,
-            state.presentation.kero.surfaceId,
+            presentation.kero.surfaceId,
             kero.plan,
             keroFrame,
             explicitlyHidden = !kero.visible,
         )
-        val dialogue = dialogueState
+        val dialogue = snapshot.dialogue.state
         val dialogueOwnership = remember(dialogue) { DialogueSpeakerOwnership.from(dialogue) }
-        val sakuraDialogue = dialogueOwnership.content(GhostSpeaker.SAKURA).withFallback(
-            fallbackText = state.presentation.sakura.text,
+        val choiceBindings = remember(snapshot.dialogue) {
+            identityActionBindings(
+                dialogue.pendingChoices,
+                snapshot.dialogue.choices,
+                RuntimeChoiceAction::action,
+            )
+        }
+        val anchorSources = remember(dialogue) {
+            dialogue.contents.flatMap { content ->
+                content.segments.mapNotNull { (it as? DialogueSegment.Anchor)?.action }
+            }
+        }
+        val anchorBindings = remember(snapshot.dialogue) {
+            identityActionBindings(
+                anchorSources,
+                snapshot.dialogue.anchors,
+                RuntimeAnchorAction::action,
+            )
+        }
+        val sakuraDialogue = dialogueOwnership.content(GhostSpeaker.SAKURA)
+            .bindAnchorActions(anchorBindings)
+            .withFallback(
+            fallbackText = presentation.sakura.text,
             authored = dialogue.contents.any { it.speaker == GhostSpeaker.SAKURA },
         )
-        val keroDialogue = dialogueOwnership.content(GhostSpeaker.KERO).withFallback(
-            fallbackText = state.presentation.kero.text,
+        val keroDialogue = dialogueOwnership.content(GhostSpeaker.KERO)
+            .bindAnchorActions(anchorBindings)
+            .withFallback(
+            fallbackText = presentation.kero.text,
             authored = dialogue.contents.any { it.speaker == GhostSpeaker.KERO },
         )
-        val lifecycle = LocalLifecycleOwner.current.lifecycle
-        var stageStarted by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
-        DisposableEffect(lifecycle) {
-            val observer = LifecycleEventObserver { _, _ ->
-                stageStarted = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
-            }
-            lifecycle.addObserver(observer)
-            onDispose { lifecycle.removeObserver(observer) }
+        val actionBindings = remember(snapshot.dialogue) { snapshot.dialogue.choices.toList() }
+        val sakuraChoices = bindChoiceActions(
+            dialogueOwnership.pendingChoices(GhostSpeaker.SAKURA),
+            choiceBindings,
+        )
+        val keroChoices = bindChoiceActions(
+            dialogueOwnership.pendingChoices(GhostSpeaker.KERO),
+            choiceBindings,
+        )
+        LaunchedEffect(catalog, presentation) {
+            scheduleNormalized(GhostSpeaker.SAKURA, catalog, presentation.sakura)
+            scheduleNormalized(GhostSpeaker.KERO, catalog, presentation.kero)
         }
-        LaunchedEffect(sakuraScheduler, keroScheduler, stageStarted) {
-            if (!stageStarted) return@LaunchedEffect
-            rearmPeriodicTicks()
-            while (true) { delay(16); tickSchedulers() }
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        LaunchedEffect(snapshot.revision, hostLease) {
+            if (snapshot.foregroundHost != hostLease) return@LaunchedEffect
+            if (lastAppliedCueLease != hostLease) {
+                lastAppliedCueLease = hostLease
+                lastAppliedCueId = 0L
+            }
+            var through = lastAppliedCueId
+            val pendingCues = snapshot.cues
+                .asSequence()
+                .filter { it.hostLease == hostLease && it.cueId > lastAppliedCueId }
+                .sortedBy { it.cueId }
+            for (cue in pendingCues) {
+                val speakerPresentation = snapshot.currentPresentation(cue.target)
+                if (speakerPresentation == null) {
+                    through = cue.cueId
+                    continue
+                }
+                val activeCatalog = catalog ?: break
+                val plan = activeCatalog.speakerSurface(
+                    cue.target.surfaceId,
+                    cue.target.speaker == GhostSpeaker.SAKURA,
+                ).plan
+                applyCue(cue.target.speaker, plan, speakerPresentation, cue.kind, cue.animationId)
+                through = cue.cueId
+            }
+            if (through > lastAppliedCueId) {
+                lastAppliedCueId = through
+                submitCommand(RuntimeCommand.AcknowledgeCues(hostLease, through))
+            }
+        }
+        LaunchedEffect(sakuraScheduler, keroScheduler, lifecycle) {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                rearmPeriodicTicks()
+                while (true) { delay(16); tickSchedulers() }
+            }
         }
         GhostPresentationStage(
-            presentation = state.presentation,
+            presentation = presentation,
             sakuraComposedSurface = sakuraComposed,
             keroComposedSurface = keroComposed,
             measureState = stageMeasureState,
-            ghostKey = activeGhostKey,
-            bubbleScrollSessionKey = bubbleScrollSessionKey,
+            ghostKey = ghostKey,
+            bubbleScrollSessionKey = bubbleScrollSessionIdentity(dialogue.incarnation),
             ghostIdentity = catalog ?: NoGhostIdentity,
             blockingInput = blockingInput(),
-            ghostIdentityProvider = { activeSurfaceCatalog ?: NoGhostIdentity },
+            ghostIdentityProvider = { catalog ?: NoGhostIdentity },
             blockingInputProvider = blockingInput,
-            routingEpochProvider = {
-                HostRoutingEpoch(
-                    surfaceCatalog = surfaceCatalogInputEpoch,
-                    blocking = blockingInputEpoch(),
-                )
+            routingEpochProvider = { snapshot.generation ?: 0L },
+            onSurfaceEffect = { effect ->
+                val generation = snapshot.generation
+                if (generation != null && snapshot.foregroundHost == hostLease) {
+                    val speakerPresentation = when (effect.speaker) {
+                        SurfaceSpeaker.SAKURA -> presentation.sakura
+                        SurfaceSpeaker.KERO -> presentation.kero
+                    }
+                    submitCommand(
+                        RuntimeCommand.Pointer(
+                            generation = generation,
+                            host = hostLease,
+                            surface = RuntimeSurfaceIdentity(
+                                generation,
+                                when (effect.speaker) {
+                                    SurfaceSpeaker.SAKURA -> GhostSpeaker.SAKURA
+                                    SurfaceSpeaker.KERO -> GhostSpeaker.KERO
+                                },
+                                speakerPresentation.surfaceId,
+                                speakerPresentation.surfaceEpoch,
+                            ),
+                            effect = effect,
+                        ),
+                    )
+                }
             },
-            onSurfaceEffect = interactionPort::dispatch,
             onToggleChrome = onSurfaceTap,
             modifier = modifier,
             sakuraDialogue = sakuraDialogue,
             keroDialogue = keroDialogue,
-            sakuraPendingChoices = dialogueOwnership.pendingChoices(GhostSpeaker.SAKURA),
-            keroPendingChoices = dialogueOwnership.pendingChoices(GhostSpeaker.KERO),
+            sakuraPendingChoices = sakuraChoices,
+            keroPendingChoices = keroChoices,
             sakuraPendingInput = dialogueOwnership.pendingInput(GhostSpeaker.SAKURA),
             keroPendingInput = dialogueOwnership.pendingInput(GhostSpeaker.KERO),
             dialogueTalkId = dialogue.talkId,
             dialogueRevision = dialogue.revision,
             sakuraActiveAnimationId = sakuraActiveAnimationId,
             keroActiveAnimationId = keroActiveAnimationId,
-            onDialogueChoice = onDialogueChoice,
-            onDialogueAnchor = onDialogueAnchor,
+            onDialogueChoice = { action ->
+                if (snapshot.foregroundHost == hostLease) {
+                    actionBindings.firstOrNull { it.action === action }
+                        ?.let { submitCommand(RuntimeCommand.ActivateChoice(it.key, hostLease)) }
+                }
+            },
+            onDialogueAnchor = { action ->
+                if (snapshot.foregroundHost == hostLease) {
+                    snapshot.dialogue.anchors.firstOrNull { it.action === action }
+                        ?.let { submitCommand(RuntimeCommand.ActivateAnchor(it.key, hostLease)) }
+                }
+            },
             onDialogueExternalUrl = onDialogueExternalUrl,
-            onDialogueInput = onDialogueInput,
+            onDialogueInput = { segment ->
+                snapshot.dialogue.input
+                    ?.takeIf { it.pending.spec === segment.spec }
+                    ?.let(onDialogueInputDraft)
+            },
             sakuraSurface = { snapshot ->
                 RenderedSurfaceLayer(
                     snapshot,
@@ -240,8 +276,6 @@ class ComposeGhostStageHost private constructor(
     private data class SpeakerSurfaceKey(val sakura: Boolean, val surfaceId: String)
     private data class RenderedFrameKey(val speaker: SurfaceSpeaker, val surfaceId: String, val frame: SurfaceRenderFrame?)
     private data class ActiveComposedSurface(val key: RenderedFrameKey, val surface: ComposedSurface)
-    private data class HostRoutingEpoch(val surfaceCatalog: Long, val blocking: Long)
-
     private fun composedSurface(
         compositor: SurfaceCompositor,
         speaker: SurfaceSpeaker,
@@ -303,11 +337,59 @@ class ComposeGhostStageHost private constructor(
         renderedFramePixels = 0L
     }
 
+    private fun resetSurfaceCaches(catalog: SurfaceCatalog?) {
+        sakuraScheduler = null
+        keroScheduler = null
+        sakuraFrame = null
+        keroFrame = null
+        sakuraActiveAnimationId = null
+        keroActiveAnimationId = null
+        schedulerSurfaceIds.clear()
+        nextPeriodicTicks.clear()
+        speakerSurfaces.clear()
+        clearRenderedFrames()
+        stageMeasureState.resetFor(catalog)
+    }
+
+    private fun bindChoiceActions(
+        actions: List<DialogueAction>,
+        bindings: IdentityHashMap<DialogueAction, RuntimeChoiceAction>,
+    ): List<DialogueAction> = actions.mapNotNull { bindings[it]?.action }
+
+    private fun scheduleNormalized(
+        speaker: GhostSpeaker,
+        catalog: SurfaceCatalog?,
+        presentation: RuntimeSpeakerPresentation,
+    ) {
+        val plan = catalog.speakerSurface(
+            presentation.surfaceId,
+            speaker == GhostSpeaker.SAKURA,
+        ).plan
+        schedule(speaker, plan, presentation, null, talking = false)
+    }
+
+    private fun applyCue(
+        speaker: GhostSpeaker,
+        plan: SurfaceRenderPlan,
+        presentation: RuntimeSpeakerPresentation,
+        kind: RuntimeCueKind,
+        animationId: String?,
+    ) {
+        schedule(
+            speaker,
+            plan,
+            presentation,
+            oneShotAnimationId = animationId.takeIf { kind == RuntimeCueKind.ONE_SHOT },
+            talking = kind == RuntimeCueKind.TALKING,
+        )
+    }
+
     private fun schedule(
         speaker: GhostSpeaker,
         plan: SurfaceRenderPlan,
-        presentation: com.cattailsw.nanidroid.runtime.GhostSpeakerPresentation,
-        talkUpdate: SurfaceTalkCadence.Update,
+        presentation: RuntimeSpeakerPresentation,
+        oneShotAnimationId: String?,
+        talking: Boolean,
     ) {
         val scheduler: SurfaceAnimationScheduler = when (speaker) {
             GhostSpeaker.SAKURA -> sakuraScheduler?.takeIf { itPlan(it) == plan.surfaceId }
@@ -315,7 +397,11 @@ class ComposeGhostStageHost private constructor(
             GhostSpeaker.KERO -> keroScheduler?.takeIf { itPlan(it) == plan.surfaceId }
                 ?: newScheduler(plan).also { keroScheduler = it; keroFrame = null }
         }
-        scheduler.presentationUpdated(presentation.balloonVisible, presentation.animationId, talkUpdate)
+        scheduler.presentationUpdated(
+            presentation.balloonVisible,
+            oneShotAnimationId,
+            SurfaceTalkCadence.Update(talking),
+        )
             .filterIsInstance<SurfaceAnimationScheduleEffect.Frame>()
             .lastOrNull()
             ?.frame
@@ -380,6 +466,15 @@ class ComposeGhostStageHost private constructor(
     private fun DialogueContent.withFallback(fallbackText: String, authored: Boolean): DialogueContent =
         if (authored) this else copy(segments = listOf(DialogueSegment.Text(fallbackText)))
 
+    private fun DialogueContent.bindAnchorActions(
+        bindings: IdentityHashMap<AnchorAction, RuntimeAnchorAction>,
+    ): DialogueContent = copy(
+        segments = segments.map { segment ->
+            val anchor = segment as? DialogueSegment.Anchor ?: return@map segment
+            DialogueSegment.Anchor(bindings[anchor.action]?.action ?: anchor.action)
+        },
+    )
+
     private companion object {
         private data object NoGhostIdentity
         /** 32 MiB of ARGB pixels; oversized frames remain usable but uncached. */
@@ -388,5 +483,28 @@ class ComposeGhostStageHost private constructor(
         // unusually huge installed surfaces well below a typical app heap.
         const val MAX_RENDERABLE_SURFACE_PIXELS = 1L * 1024L * 1024L
         const val PERIODIC_ANIMATION_INTERVAL_MILLIS = 1_000L
+    }
+}
+
+internal fun RuntimeSnapshot.currentPresentation(
+    target: RuntimeSurfaceIdentity,
+): RuntimeSpeakerPresentation? {
+    if (generation != target.generation) return null
+    val current = when (target.speaker) {
+        GhostSpeaker.SAKURA -> presentation.sakura
+        GhostSpeaker.KERO -> presentation.kero
+    }
+    return current.takeIf {
+        it.surfaceId == target.surfaceId && it.surfaceEpoch == target.surfaceEpoch
+    }
+}
+
+internal fun <A : Any, B : Any> identityActionBindings(
+    sourceActions: List<A>,
+    bindings: List<B>,
+    bindingAction: (B) -> A,
+): IdentityHashMap<A, B> = IdentityHashMap<A, B>().apply {
+    sourceActions.zip(bindings).forEach { (source, binding) ->
+        if (source === bindingAction(binding)) put(source, binding)
     }
 }

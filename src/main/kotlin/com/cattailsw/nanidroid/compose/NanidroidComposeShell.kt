@@ -5,6 +5,7 @@ package com.cattailsw.nanidroid.compose
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -32,6 +33,8 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import com.cattailsw.nanidroid.BundledInstallState
+import com.cattailsw.nanidroid.ForegroundCatalogRecovery
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
@@ -54,9 +57,15 @@ internal fun NanidroidComposeShell(
     onReadme: () -> Unit = {},
     narImportState: ForegroundNarImportState = ForegroundNarImportState.Idle,
     installedReadyToken: NarImportAttemptToken? = null,
+    foregroundCatalogRecovery: ForegroundCatalogRecovery? = null,
     onAcknowledgeNarImport: (NarImportAttemptToken) -> Unit = {},
     onSelectAnotherNarImport: (NarImportAttemptToken) -> Unit = {},
     onRetryNarImportCleanup: (NarImportAttemptToken) -> Unit = {},
+    onRetryForegroundCatalog: (ForegroundCatalogRecovery) -> Unit = {},
+    bundledInstallState: BundledInstallState = BundledInstallState.Idle,
+    onRetryBundledInstall: (Long) -> Unit = {},
+    startupExhaustedEpoch: Long? = null,
+    onRecoverStartup: (Long) -> Unit = {},
     simpleDialog: NanidroidSimpleDialog?,
     onDismissSimpleDialog: () -> Unit,
     wallpaper: Drawable? = null,
@@ -88,6 +97,11 @@ internal fun NanidroidComposeShell(
                     -> false
                     else -> true
                 }
+                val bundledRecovery = bundledInstallState as? BundledInstallState.RecoveryRequired
+                val bundledRecoveryVisible = !storageUnavailableNoticeVisible &&
+                    !foregroundImportModalVisible && bundledRecovery != null
+                val startupRecoveryVisible = !storageUnavailableNoticeVisible &&
+                    !foregroundImportModalVisible && !bundledRecoveryVisible && startupExhaustedEpoch != null
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     containerColor = Color.Transparent,
@@ -114,7 +128,7 @@ internal fun NanidroidComposeShell(
                 if (loading) {
                     LoadingOverlay(progressMessage)
                 }
-                if (!foregroundImportModalVisible) {
+                if (!foregroundImportModalVisible && !bundledRecoveryVisible && !startupRecoveryVisible) {
                     lowerModalStateHolder.SaveableStateProvider("simple-dialog") {
                         NanidroidSimpleDialogHost(
                             dialog = simpleDialog,
@@ -126,14 +140,59 @@ internal fun NanidroidComposeShell(
                     ForegroundNarImportPresentation(
                         state = narImportState,
                         installedReadyToken = installedReadyToken,
+                        catalogRecovery = foregroundCatalogRecovery,
                         onAcknowledge = onAcknowledgeNarImport,
                         onSelectAnother = onSelectAnotherNarImport,
                         onRetryCleanup = onRetryNarImportCleanup,
+                        onRetryCatalog = onRetryForegroundCatalog,
+                    )
+                }
+                if (bundledRecoveryVisible) {
+                    val recovery = requireNotNull(bundledRecovery)
+                    RecoveryActionDialog(
+                        title = stringResource(R.string.bundled_install_recovery_title),
+                        message = recovery.message,
+                        actionLabel = stringResource(R.string.retry_action),
+                        actionTag = "bundled-install-retry",
+                        onAction = { onRetryBundledInstall(recovery.operationId) },
+                    )
+                }
+                if (startupRecoveryVisible) {
+                    val exhaustedEpoch = requireNotNull(startupExhaustedEpoch)
+                    RecoveryActionDialog(
+                        title = stringResource(R.string.startup_recovery_title),
+                        message = stringResource(R.string.err_no_ghost_available),
+                        actionLabel = stringResource(R.string.nar_import_from_document),
+                        actionTag = "startup-recovery-install",
+                        onAction = { onRecoverStartup(exhaustedEpoch) },
                     )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun RecoveryActionDialog(
+    title: String,
+    message: String,
+    actionLabel: String,
+    actionTag: String,
+    onAction: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(
+                onClick = onAction,
+                modifier = Modifier.testTag(actionTag),
+            ) {
+                Text(actionLabel)
+            }
+        },
+    )
 }
 
 @Composable

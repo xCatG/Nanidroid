@@ -16,18 +16,23 @@ class ComposeStageRetirementContractTest(unittest.TestCase):
         ):
             self.assertFalse((ROOT / "src/main/kotlin/com/cattailsw/nanidroid" / name).exists())
 
-    def test_runner_has_only_the_toolkit_neutral_presentation_seam(self):
-        source = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("fun setPresentationRenderer(renderer: GhostPresentationRenderer?)", source)
-        self.assertIn("fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean", source)
-        self.assertNotIn("fun dispatchComposeDoubleClick", source)
-        self.assertNotIn("fun setViews(", source)
-        self.assertNotIn("fun setLayoutMgr(", source)
-        self.assertNotIn("LegacyGhostPresentationRenderer", source)
-        self.assertNotIn("SakuraView", source)
-        self.assertNotIn("KeroView", source)
+    def test_runner_and_parallel_presentation_authorities_are_absent(self):
+        package = ROOT / "src/main/kotlin/com/cattailsw/nanidroid"
+        for relative in (
+            "SScriptRunner.kt",
+            "GhostMgr.kt",
+            "GhostPresentationRenderer.kt",
+            "GhostPresentationFrame.kt",
+            "BootDispatchState.kt",
+            "runtime/GhostStageLayout.kt",
+            "runtime/SakuraScriptInteractionEffects.kt",
+            "runtime/SakuraScriptPresentationState.kt",
+            "runtime/SakuraScriptPresentationInterpreter.kt",
+            "runtime/GhostPresentationState.kt",
+            "runtime/KotlinGhostPresentationRuntime.kt",
+        ):
+            with self.subTest(relative=relative):
+                self.assertFalse((package / relative).exists())
 
     def test_compose_stage_stack_owns_geometry_images_pointer_routing_and_balloons(self):
         stage = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/compose/GhostPresentationStage.kt").read_text(
@@ -53,9 +58,70 @@ class ComposeStageRetirementContractTest(unittest.TestCase):
         self.assertIn("TextButton(", bubble)
         self.assertIn("BubbleInteractionTarget.ExternalUrl", bubble)
         self.assertIn("SurfaceCompositor(pixelAssets, SurfacePlanRegistry(plans))", host)
-        self.assertIn("onSurfaceEffect = interactionPort::dispatch", host)
+        self.assertIn("snapshot: RuntimeSnapshot", host)
+        self.assertIn("hostLease: RuntimeHostLease", host)
+        self.assertIn("RuntimeCommand.AcknowledgeCues", host)
+        self.assertNotIn("runtimeState", host)
+        self.assertNotIn("dialogueState", host)
+        self.assertNotIn("KotlinGhostPresentationRuntime", host)
         self.assertIn("SurfaceAnimationScheduler", host)
         self.assertIn("talk begins on the first update and then every tenth update", scheduler)
+
+    def test_obsolete_tests_have_exact_migrated_replacements(self):
+        replacements = {
+            "src/test/java/com/cattailsw/nanidroid/GhostRuntimePlaybackTest.kt": (
+                "attachmentSelectsExactlyOneFirstBootGhostChangedOrBootEvent",
+                "authoredPlaybackContinuesWhileClockOwnerIsAbsent",
+                "blockedTimerResponseCannotEnterAfterClockEpochChanges",
+                "switchPlaybackOwnsOutgoingResponseBeforeUnload",
+                "equalAnimationIdsFromSeparateCommandsAreSeparateRenderCalls",
+                "foregroundImportRefreshCannotPublishPreCommitCatalogScan",
+            ),
+            "src/test/java/com/cattailsw/nanidroid/GhostRuntimeDialogueTest.kt": (
+                "pendingInputRestoresOnlyAgainstSameDialogueIncarnationAndGeneration",
+            ),
+            "src/test/java/com/cattailsw/nanidroid/GhostRuntimeHostTest.kt": (
+                "repeatedBackJoinsOneExitOperation",
+            ),
+            "src/test/java/com/cattailsw/nanidroid/runtime/SakuraScriptPlayerTest.kt": (
+                "speakerTextSurfaceAndAnimationHaveOrderedTransition",
+                "newlineModifierAndClearHaveOrderedTextStates",
+                "quickSessionEmitsOneWholeLineTransition",
+                "distinctSurfaceTransitionsAndAnimationCuesAreOrdered",
+                "choicesPublishThenLabelsContinueAsText",
+                "unsupportedTagsAreConsumedNotRendered",
+                "animationCueAppearsOnlyWhenPlayerSchedulesIt",
+                "choicesBecomeLabelsAndOneOrderedAction",
+                "inputBoxIsConsumedAndRetainsStableActionId",
+                "scriptWithoutInteractionsRemainsUntouched",
+                "inputBoxesParseIndividually",
+                "inputAndChoiceActionsKeepSourceOrder",
+                "scriptResetKeepsSurfacesAndClearsTransientPresentation",
+                "synchronizationAndKeroTextPreserveBalloonPolicy",
+                "reselectingCurrentSpeakerRetainsText",
+                "animationBecomesOneLeaseScopedCue",
+                "textSurfaceAnimationAndStopMatchOrderedTransitions",
+                "repeatedSpeakerAndNewlineKeepVisibleText",
+                "explicitAnimationSuppressesTalkingCueAndKeepsBalloonText",
+                "missingSurfaceIdIsRejectedAtPlayerBoundary",
+            ),
+            "src/test/java/com/cattailsw/nanidroid/GhostRuntimeSnapshotTest.kt": (
+                "runtimeInstancesCannotConsumeEachOthersPlayerQueues",
+                "runtimeHasNoStaticMutableQueuePlayerHostOrCatalogState",
+                "snapshotAndCuesPreserveLegacyEffectOrder",
+            ),
+            "src/test/java/com/cattailsw/nanidroid/runtime/RuntimeSnapshotTest.kt": (
+                "dialogueActionCollectionsRejectMutation",
+                "presentationPreservesSpeakerTextSurfaceCueAndBalloonPolicy",
+                "emptyTextAndDisabledBalloonRemainHidden",
+                "snapshotGraphContainsNoViewOrCallback",
+            ),
+        }
+        for relative, method_ids in replacements.items():
+            source = (ROOT / relative).read_text(encoding="utf-8")
+            for method_id in method_ids:
+                with self.subTest(relative=relative, method_id=method_id):
+                    self.assertIn(f"fun {method_id}(", source)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowLayoutInfo
 import androidx.window.testing.layout.WindowLayoutInfoPublisherRule
 import androidx.window.testing.layout.FoldingFeature as TestFoldingFeature
-import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
+import com.cattailsw.nanidroid.runtime.runtimePresentation
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
@@ -386,7 +386,7 @@ class StageEnvironmentProviderTest {
         publisher.overrideWindowLayoutInfo(WindowLayoutInfo(features))
     }
 
-    private fun presentation() = GhostPresentationReducer.snapshot(
+    private fun presentation() = runtimePresentation(
         sakuraText = "Sakura",
         sakuraSurfaceId = "0",
         sakuraAnimationId = null,

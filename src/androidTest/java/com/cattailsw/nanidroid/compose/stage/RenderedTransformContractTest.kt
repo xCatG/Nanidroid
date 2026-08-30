@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.SurfaceCollision
 import com.cattailsw.nanidroid.R
-import com.cattailsw.nanidroid.GhostPresentationFrame
 import com.cattailsw.nanidroid.ShellSurface
 import com.cattailsw.nanidroid.SurfaceHitTarget
 import com.cattailsw.nanidroid.SurfaceCatalog
@@ -57,7 +56,7 @@ import com.cattailsw.nanidroid.compose.SurfaceRenderLayer
 import com.cattailsw.nanidroid.compose.SurfaceRenderPlan
 import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
 import com.cattailsw.nanidroid.toSurfaceDefinition
-import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
+import com.cattailsw.nanidroid.runtime.runtimePresentation
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.runtime.stage.StageDisplayFeature
@@ -241,7 +240,7 @@ class RenderedTransformContractTest {
         assertEquals(1, decodeCount)
 
         composeRule.runOnIdle {
-            dialogue.value = GhostPresentationReducer.snapshot(
+            dialogue.value = runtimePresentation(
                 sakuraText = "A different dialogue line",
                 sakuraSurfaceId = "0",
                 sakuraAnimationId = null,
@@ -606,192 +605,6 @@ class RenderedTransformContractTest {
     }
 
     @Test
-    fun productionHostSourceOnlyBaseFrameChangesCanvasAndCollisionAndReusesDecodedPixels() {
-        val effects = mutableListOf<SurfaceInteractionEffect>()
-        val loads = ConcurrentHashMap<String, AtomicInteger>()
-        val assets = SurfacePixelAssets { path ->
-            loads.computeIfAbsent(path) { AtomicInteger() }.incrementAndGet()
-            when (path) {
-                "selected" -> SurfacePixelImage.of(7, 5, IntArray(35) { Color.Red.toArgb() })
-                "source" -> SurfacePixelImage.of(9, 6, IntArray(54) { Color.Green.toArgb() })
-                "kero" -> SurfacePixelImage.of(1, 1, intArrayOf(Color.Blue.toArgb()))
-                else -> null
-            }
-        }
-        val selected = shellSurface(0, 7, 5, "selected", collisionId = 1)
-        val source = shellSurface(22, 9, 6, "source", collisionId = 22)
-        val kero = shellSurface(10, 1, 1, "kero", collisionId = 10)
-        val frame = selected.AnimationFrame().apply {
-            sid = "22"
-            frameType = ShellSurface.TYPE_BASE
-            time = 10_000
-            W = 9
-            H = 6
-        }
-        selected.animationTable = mutableMapOf(
-            "7" to selected.Animation("7", ShellSurface.A_TYPE_RUNONCE).apply {
-                frames = mutableListOf(frame)
-            },
-        )
-        val manager = SurfaceManager("host-fixture").apply {
-            addSurface("0", selected)
-            addSurface("10", kero)
-            addSurface("22", source)
-        }
-        val host = ComposeGhostStageHost(SurfaceInteractionPort(effects::add), assets).apply {
-            setSurfaceCatalog(
-                SurfaceCatalog.freeze(
-                    manager.getSurfaceKeys().associateWith { id ->
-                        requireNotNull(manager.getSurface(id)).toSurfaceDefinition()
-                    },
-                ),
-                "rendered-transform-fixture",
-            )
-        }
-        composeRule.setContent {
-            CompositionLocalProvider(LocalDensity provides Density(1f)) {
-                Box(Modifier.requiredSize(360.dp, 720.dp)) {
-                    host.Stage(Modifier.fillMaxSize())
-                }
-            }
-        }
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            host.latestMeasuredSnapshot?.sakura?.composedSurface?.canvasSize == IntSize(7, 5)
-        }
-        val selectedSnapshot = requireNotNull(host.latestMeasuredSnapshot?.sakura)
-        val selectedSurface = selectedSnapshot.composedSurface
-        assertEquals(Color.Red.toArgb(), selectedSurface.image.pixelAt(3, 2))
-        composeRule.runOnIdle {
-            assertEquals(1, loads.getValue("selected").get())
-            assertEquals(1, loads.getValue("kero").get())
-        }
-
-        fun render(text: String) {
-            host.renderer.render(
-                GhostPresentationFrame(
-                    GhostPresentationFrame.Speaker(text, "0", "7", "-1"),
-                    GhostPresentationFrame.Speaker("", "10", null, "-1"),
-                    false,
-                ),
-            )
-        }
-        composeRule.runOnIdle { render("first") }
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            host.latestMeasuredSnapshot?.sakura?.composedSurface?.canvasSize == IntSize(9, 6)
-        }
-        val sourceSnapshot = requireNotNull(host.latestMeasuredSnapshot?.sakura)
-        val sourceSurface = sourceSnapshot.composedSurface
-        val sourceImage = sourceSurface.image
-        assertNotSame(selectedSurface, sourceSurface)
-        assertEquals(Color.Green.toArgb(), sourceImage.pixelAt(4, 3))
-        assertEquals(IntSize(9, 6), IntSize(sourceImage.width, sourceImage.height))
-        assertEquals(IntSize(9, 6), sourceSurface.canvasSize)
-        assertEquals(IntSize(9, 6), sourceSnapshot.transform.intrinsicSize)
-        assertEquals(22, sourceSurface.surfaceKey.surfaceId)
-        assertEquals(IntSize(9, 6), sourceSurface.surfaceKey.canvasSize)
-        assertEquals(listOf(22), sourceSurface.effectiveCollisions.map { it.id })
-        assertTrue(sourceSurface.revision > selectedSurface.revision)
-        composeRule.runOnIdle { assertEquals(1, loads.getValue("source").get()) }
-
-        val node = composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true)
-        val nodeBounds = node.fetchSemanticsNode().boundsInRoot
-        val collision = sourceSnapshot.transform.toRootRegion(
-            sourceSnapshot.composedSurface.effectiveCollisions.single().shape,
-        ).rects.single()
-        val collisionRootPoint = Offset(
-            ((collision.left + collision.right) / 2.0).toFloat(),
-            ((collision.top + collision.bottom) / 2.0).toFloat(),
-        )
-        node.performTouchInput {
-            down(Offset(collisionRootPoint.x - nodeBounds.left, collisionRootPoint.y - nodeBounds.top))
-            up()
-        }
-        composeRule.runOnIdle {
-            assertEquals(22, effects.single().diagnosticCollisionId)
-            render("dialogue changed")
-        }
-        composeRule.waitForIdle()
-        composeRule.runOnIdle {
-            val afterDialogue = requireNotNull(host.latestMeasuredSnapshot?.sakura?.composedSurface)
-            assertSame(sourceSurface, afterDialogue)
-            assertSame(sourceImage, afterDialogue.image)
-            assertEquals(1, loads.getValue("source").get())
-        }
-    }
-
-    @Test
-    fun productionHostPublishesAnimationSwitchForEqualResetFramesWithoutRecomposingSurface() {
-        val assets = SurfacePixelAssets { path ->
-            when (path) {
-                "sakura" -> SurfacePixelImage.of(7, 5, IntArray(35) { Color.Red.toArgb() })
-                "kero" -> SurfacePixelImage.of(1, 1, intArrayOf(Color.Blue.toArgb()))
-                else -> null
-            }
-        }
-        val sakura = shellSurface(0, 7, 5, "sakura", collisionId = 1).apply {
-            animationTable = mutableMapOf(
-                "7" to Animation("7", ShellSurface.A_TYPE_RUNONCE).apply {
-                    frames = mutableListOf(AnimationFrame().apply {
-                        frameType = ShellSurface.TYPE_RESET
-                        time = 10_000
-                    })
-                },
-                "8" to Animation("8", ShellSurface.A_TYPE_RUNONCE).apply {
-                    frames = mutableListOf(AnimationFrame().apply {
-                        frameType = ShellSurface.TYPE_RESET
-                        time = 10_000
-                    })
-                },
-            )
-        }
-        val manager = SurfaceManager("animation-switch-fixture").apply {
-            addSurface("0", sakura)
-            addSurface("10", shellSurface(10, 1, 1, "kero", collisionId = 10))
-        }
-        val host = ComposeGhostStageHost(SurfaceInteractionPort { }, assets).apply {
-            setSurfaceCatalog(
-                SurfaceCatalog.freeze(
-                    manager.getSurfaceKeys().associateWith { id ->
-                        requireNotNull(manager.getSurface(id)).toSurfaceDefinition()
-                    },
-                ),
-                "animation-switch-fixture",
-            )
-        }
-        composeRule.setContent {
-            CompositionLocalProvider(LocalDensity provides Density(1f)) {
-                Box(Modifier.requiredSize(360.dp, 720.dp)) {
-                    host.Stage(Modifier.fillMaxSize())
-                }
-            }
-        }
-
-        fun render(animationId: String) {
-            host.renderer.render(
-                GhostPresentationFrame(
-                    GhostPresentationFrame.Speaker("", "0", animationId, "-1"),
-                    GhostPresentationFrame.Speaker("", "10", null, "-1"),
-                    false,
-                ),
-            )
-        }
-
-        composeRule.runOnIdle { render("7") }
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            host.latestMeasuredSnapshot?.sakura?.activeAnimationId == "7"
-        }
-        val firstSurface = requireNotNull(host.latestMeasuredSnapshot?.sakura).composedSurface
-
-        composeRule.runOnIdle { render("8") }
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            host.latestMeasuredSnapshot?.sakura?.activeAnimationId == "8"
-        }
-        composeRule.runOnIdle {
-            assertSame(firstSurface, requireNotNull(host.latestMeasuredSnapshot?.sakura).composedSurface)
-        }
-    }
-
-    @Test
     fun collisionGeometryChangeDuringAnInProgressTapCancelsTheGesture() {
         val current = mutableStateOf(surface(10, 10, 1, collisionId = 31))
         val effects = mutableListOf<SurfaceInteractionEffect>()
@@ -921,7 +734,7 @@ class RenderedTransformContractTest {
         assertEquals(requireNotNull(before.sakura).transform.renderedBounds, requireNotNull(after.sakura).transform.renderedBounds)
     }
 
-    private fun presentation() = GhostPresentationReducer.snapshot(
+    private fun presentation() = runtimePresentation(
         sakuraText = "Sakura",
         sakuraSurfaceId = "0",
         sakuraAnimationId = null,

@@ -13,7 +13,11 @@ object SakuraScriptTokenizer {
     fun tokenize(
         script: String,
         onDiagnostic: (String) -> Unit = {},
-    ): List<DialogueContent> = tokenizeInternal(script, false, onDiagnostic).contents
+    ): List<DialogueContent> = tokenizeInternal(
+        script = script,
+        allowIncompleteAnchorText = false,
+        onDiagnostic = onDiagnostic,
+    ).contents
 
     /**
      * Projects a source prefix consumed by playback. Incomplete anchors remain
@@ -21,7 +25,11 @@ object SakuraScriptTokenizer {
      */
     @JvmStatic
     fun tokenizeRevealed(script: String): List<DialogueContent> =
-        tokenizeInternal(script, true) {}.contents
+        tokenizeInternal(
+            script = script,
+            allowIncompleteAnchorText = true,
+            onDiagnostic = {},
+        ).contents
 
     internal fun remainingVisibleChoices(
         script: String,
@@ -93,45 +101,56 @@ object SakuraScriptTokenizer {
     internal fun tokenizeInternal(
         script: String,
         allowIncompleteAnchorText: Boolean,
+        runtimeAnchorRecovery: Boolean = false,
         onDiagnostic: (String) -> Unit,
     ): SakuraScriptTokenization {
         val segments = linkedMapOf<GhostSpeaker, MutableList<DialogueSegment>>()
+        val textBuilders = linkedMapOf<GhostSpeaker, StringBuilder>()
+        val speakerOrder = linkedSetOf<GhostSpeaker>()
         val interactions = mutableListOf<SakuraScriptInteraction>()
+        val occurrences = mutableListOf<SakuraScriptOccurrence>()
         var speaker = GhostSpeaker.SAKURA
         var sync = false
         var scope = 0
         var scopeDiagnosticEmitted = false
         var index = 0
 
-        fun activeSegments(): MutableList<DialogueSegment> = segments.getOrPut(speaker) { mutableListOf() }
-        fun appendVisible(target: MutableList<DialogueSegment>, value: String) {
-            val previous = target.lastOrNull()
-            if (previous is DialogueSegment.Text) {
-                target[target.lastIndex] = DialogueSegment.Text(previous.value + value)
-            } else {
-                target += DialogueSegment.Text(value)
+        fun flushText(owner: GhostSpeaker) {
+            val builder = textBuilders.remove(owner) ?: return
+            if (builder.isNotEmpty()) {
+                segments.getOrPut(owner) { mutableListOf() } += DialogueSegment.Text(builder.toString())
             }
+        }
+        fun appendVisible(owner: GhostSpeaker, value: String) {
+            if (value.isEmpty()) return
+            speakerOrder += owner
+            textBuilders.getOrPut(owner) { StringBuilder() }.append(value)
+        }
+        fun appendSegment(owner: GhostSpeaker, segment: DialogueSegment) {
+            speakerOrder += owner
+            flushText(owner)
+            segments.getOrPut(owner) { mutableListOf() } += segment
         }
         fun emit(value: String) {
             if (value.isEmpty() || scope >= 2) return
             if (sync) {
-                appendVisible(segments.getOrPut(GhostSpeaker.SAKURA) { mutableListOf() }, value)
-                appendVisible(segments.getOrPut(GhostSpeaker.KERO) { mutableListOf() }, value)
+                appendVisible(GhostSpeaker.SAKURA, value)
+                appendVisible(GhostSpeaker.KERO, value)
             } else {
-                appendVisible(activeSegments(), value)
+                appendVisible(speaker, value)
             }
         }
         fun selectSpeaker(newSpeaker: GhostSpeaker, clearIfCurrent: Boolean = false) {
             if (speaker == newSpeaker) {
-                if (clearIfCurrent) activeSegments() += DialogueSegment.SpeakerChangeClear
+                if (clearIfCurrent) appendSegment(speaker, DialogueSegment.SpeakerChangeClear)
                 return
             }
             speaker = newSpeaker
-            activeSegments() += DialogueSegment.SpeakerChangeClear
+            appendSegment(speaker, DialogueSegment.SpeakerChangeClear)
         }
         fun emit(segment: DialogueSegment) {
             if (scope >= 2) return
-            activeSegments() += segment
+            appendSegment(speaker, segment)
             if (!sync) return
             val mirror = when (segment) {
                 DialogueSegment.NewLine -> DialogueSegment.NewLine
@@ -140,12 +159,13 @@ object SakuraScriptTokenizer {
                 else -> null
             } ?: return
             val otherSpeaker = if (speaker == GhostSpeaker.SAKURA) GhostSpeaker.KERO else GhostSpeaker.SAKURA
-            val target = segments.getOrPut(otherSpeaker) { mutableListOf() }
-            if (mirror is DialogueSegment.Text) appendVisible(target, mirror.value) else target += mirror
+            if (mirror is DialogueSegment.Text) appendVisible(otherSpeaker, mirror.value)
+            else appendSegment(otherSpeaker, mirror)
         }
         fun recordChoice(action: DialogueAction, sourceEnd: Int) {
             if (scope >= 2) return
             interactions += SakuraScriptInteraction(sourceEnd, scope, speaker, action)
+            occurrences += SakuraScriptOccurrence.Choice(sourceEnd, speaker, action)
         }
         fun diagnostic(value: String) = onDiagnostic(value)
 
@@ -219,17 +239,24 @@ object SakuraScriptTokenizer {
                                 val closing = findAnchorClosing(script, index)
                                 if (closing < 0) {
                                     if (allowIncompleteAnchorText) {
-                                        emit(flattenAnchorLabel(script.substring(index)))
+                                        emit(flattenAnchorLabel(script.substring(index), runtimeAnchorRecovery))
                                         index = script.length
                                     } else {
                                         diagnostic("truncated-anchor")
                                         index = resumeAfterMalformedCommand(script, index)
                                     }
                                 } else {
-                                    val label = flattenAnchorLabel(script.substring(index, closing))
+                                    val label = flattenAnchorLabel(
+                                        script.substring(index, closing),
+                                        runtimeAnchorRecovery,
+                                    )
                                     index = closing + 3
                                     val args = splitArguments(bracket.value)
-                                    if (args.isNotEmpty()) emit(DialogueSegment.Anchor(anchor(label, args)))
+                                    if (args.isNotEmpty()) {
+                                        val action = anchor(label, args)
+                                        occurrences += SakuraScriptOccurrence.Anchor(index, speaker, action)
+                                        emit(DialogueSegment.Anchor(action))
+                                    }
                                     else diagnostic("malformed-anchor")
                                 }
                             }
@@ -301,7 +328,16 @@ object SakuraScriptTokenizer {
                         }
                     } else {
                         index = bracket.nextIndex
-                        handleExclaim(splitArguments(bracket.value), ::emit, ::diagnostic)
+                        handleExclaim(
+                            splitArguments(bracket.value),
+                            emit = { segment ->
+                                if (scope < 2 && segment is DialogueSegment.InputBox) {
+                                    occurrences += SakuraScriptOccurrence.Input(index, speaker, segment.spec)
+                                }
+                                emit(segment)
+                            },
+                            diagnostic = ::diagnostic,
+                        )
                     }
                 }
                 'n' -> {
@@ -350,9 +386,12 @@ object SakuraScriptTokenizer {
                 }
             }
         }
+        (segments.keys + textBuilders.keys).forEach(::flushText)
         return SakuraScriptTokenization(
-            contents = segments.map { (owner, values) -> DialogueContent(owner, values.toList()) },
+            contents = speakerOrder.map { owner -> DialogueContent(owner, segments[owner].orEmpty().toList()) },
             interactions = interactions.toList(),
+            occurrences = occurrences.toList(),
+            sourceVisits = index,
         )
     }
 
@@ -487,17 +526,17 @@ object SakuraScriptTokenizer {
     }
 
     /** Labels are visible text only; formatting controls cannot create nested actions. */
-    private fun flattenAnchorLabel(label: String): String {
+    private fun flattenAnchorLabel(label: String, runtimeRecovery: Boolean): String {
         val result = StringBuilder()
         var index = 0
         while (index < label.length) {
             val character = label[index++]
             if (character != '\\' || index >= label.length) {
-                result.append(character)
+                if (!runtimeRecovery || character != '\\') result.append(character)
                 continue
             }
             when (val command = label[index++]) {
-                '\\' -> result.append('\\')
+                '\\' -> if (!runtimeRecovery) result.append('\\')
                 'n' -> {
                     val bracket = readBracket(label, index)
                     if (bracket != null) {

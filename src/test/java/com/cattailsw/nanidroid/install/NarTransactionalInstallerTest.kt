@@ -21,7 +21,7 @@ class NarTransactionalInstallerTest {
     val androidStubs = HostAndroidStubRule()
 
     @Test
-    fun logicalTargetNamesUseGhostMgrCaseFolding() {
+    fun logicalTargetNamesUseCanonicalCaseFolding() {
         val root = temporaryDirectory("logical-target")
         val first = File(root, "Foo").apply { mkdir() }
 

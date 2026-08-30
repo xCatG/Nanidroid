@@ -1,200 +1,95 @@
 package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.compose.NanidroidSimpleDialog
-import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
-import com.cattailsw.nanidroid.runtime.dialogue.DialogueRuntimeState
+import com.cattailsw.nanidroid.runtime.RuntimeCommand
+import com.cattailsw.nanidroid.runtime.RuntimeHostLease
+import com.cattailsw.nanidroid.runtime.RuntimeSnapshot
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueActionKey
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
-import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
-import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
+import com.cattailsw.nanidroid.runtime.dialogue.RuntimeChoiceAction
+import com.cattailsw.nanidroid.runtime.dialogue.RuntimeInputAction
 
-internal data class DialogueDialogRestoration(
-    val owner: String,
-    val generation: Long,
-)
+internal data class DialogueDialogRestoration(val key: DialogueActionKey)
 
-internal data class DialogueDialogRuntimeSnapshot(
-    val owner: String,
-    val choiceGeneration: Long?,
-    val dialogue: DialogueRuntimeState,
-)
-
-/** Binds transient dialog callbacks to the exact runtime identities they presented. */
+/** Creates view-local dialogs whose callbacks carry one exact runtime action identity. */
 internal class DialogueDialogBinding(
-    private val currentRunner: () -> SScriptRunner?,
+    private val currentSnapshot: () -> RuntimeSnapshot,
+    private val currentHost: () -> RuntimeHostLease?,
+    private val submit: (RuntimeCommand) -> Unit,
 ) {
     fun userInput(
-        pending: PendingInputState,
-        value: String = "",
+        action: RuntimeInputAction,
+        value: String = action.pending.spec.initialText,
         onValueChanged: (String) -> Unit = {},
-    ): NanidroidSimpleDialog.UserInput {
-        val runner = currentRunner()
-        val snapshot = runner?.dialogueDialogRuntimeSnapshot()
-        val livePending = snapshot?.dialogue?.pendingInput?.takeIf {
-            it.generation == pending.generation && it.spec === pending.spec
-        }
-        return inputDialog(
-            inputId(pending),
-            value,
-            livePending?.spec?.presentation ?: InputPresentation(),
-            onValueChanged,
-            runner.takeIf { livePending != null },
-            livePending?.generation,
-            livePending?.let { DialogueDialogRestoration(requireNotNull(snapshot).owner, it.generation) },
-        )
-    }
-
-    fun userInput(
-        id: String,
-        generation: Long?,
-        value: String = "",
-        onValueChanged: (String) -> Unit = {},
-    ): NanidroidSimpleDialog.UserInput {
-        val pending = currentRunner()?.dialogueDialogRuntimeSnapshot()?.dialogue?.pendingInput
-            ?.takeIf { it.generation == generation && inputId(it) == id }
-        return pending?.let { userInput(it, value, onValueChanged) } ?: inputDialog(
-            id,
-            value,
-            InputPresentation(),
-            onValueChanged,
-            null,
-            null,
-            null,
-        )
-    }
+    ): NanidroidSimpleDialog.UserInput = inputDialog(action, value, onValueChanged)
 
     fun restoreUserInput(
-        id: String,
-        restoration: DialogueDialogRestoration?,
-        value: String = "",
+        key: DialogueActionKey,
+        value: String,
         onValueChanged: (String) -> Unit = {},
-    ): NanidroidSimpleDialog.UserInput? {
-        val runner = currentRunner()
-        val snapshot = runner?.dialogueDialogRuntimeSnapshot()
-        val pending = snapshot?.dialogue?.pendingInput?.takeIf {
-            restoration != null &&
-                snapshot.owner == restoration.owner &&
-                it.generation == restoration.generation
-        }
-        return pending?.let {
-            inputDialog(
-                id,
-                value,
-                it.spec.presentation,
-                onValueChanged,
-                runner,
-                it.generation,
-                restoration,
-            )
-        }
-    }
+    ): NanidroidSimpleDialog.UserInput? = currentSnapshot().dialogue.input
+        ?.takeIf { it.key == key }
+        ?.let { inputDialog(it, value, onValueChanged) }
 
-    fun userChoice(
-        labels: List<String>,
-        ids: List<String>,
-        actions: List<DialogueAction>,
-    ): NanidroidSimpleDialog.UserChoice {
-        val runner = currentRunner()
-        val snapshot = runner?.dialogueDialogRuntimeSnapshot()
-        val exactActions = actions.takeIf {
-            it.size == labels.size &&
-                it.size == ids.size &&
-                snapshot?.dialogue?.pendingChoices?.hasSameIdentities(it) == true
-        }.orEmpty()
-        val restoration = snapshot?.choiceGeneration
-            ?.takeIf { exactActions.isNotEmpty() }
-            ?.let { DialogueDialogRestoration(snapshot.owner, it) }
-        return choiceDialog(
-            labels,
-            ids,
-            runner.takeIf { restoration != null },
-            exactActions,
-            restoration,
+    fun userChoice(actions: List<RuntimeChoiceAction>): NanidroidSimpleDialog.UserChoice =
+        NanidroidSimpleDialog.UserChoice(
+            labels = actions.map { it.action.label() },
+            ids = actions.map { it.key.actionId.toString() },
+            restoration = actions.firstOrNull()?.let { DialogueDialogRestoration(it.key) },
+            onChoice = { index ->
+                actions.getOrNull(index)?.let { candidate ->
+                    withCurrentHost { snapshot, host ->
+                        snapshot.dialogue.choices.firstOrNull {
+                            it.key == candidate.key && it.action === candidate.action
+                        }?.let { submit(RuntimeCommand.ActivateChoice(it.key, host)) }
+                    }
+                }
+            },
         )
-    }
-
-    fun restoreUserChoice(
-        labels: List<String>,
-        ids: List<String>,
-        restoration: DialogueDialogRestoration?,
-    ): NanidroidSimpleDialog.UserChoice {
-        val runner = currentRunner()
-        val snapshot = runner?.dialogueDialogRuntimeSnapshot()
-        val actions = snapshot?.dialogue?.pendingChoices.orEmpty().takeIf {
-            restoration != null &&
-                snapshot?.owner == restoration.owner &&
-                snapshot.choiceGeneration == restoration.generation &&
-                it.size == labels.size &&
-                it.size == ids.size
-        }.orEmpty()
-        return choiceDialog(
-            labels,
-            ids,
-            runner.takeIf { actions.isNotEmpty() },
-            actions,
-            restoration.takeIf { actions.isNotEmpty() },
-        )
-    }
 
     private fun inputDialog(
-        id: String,
+        action: RuntimeInputAction,
         value: String,
-        presentation: InputPresentation,
         onValueChanged: (String) -> Unit,
-        runner: SScriptRunner?,
-        generation: Long?,
-        restoration: DialogueDialogRestoration?,
-    ): NanidroidSimpleDialog.UserInput = NanidroidSimpleDialog.UserInput(
-        id,
-        value,
-        presentation,
+    ) = NanidroidSimpleDialog.UserInput(
+        id = inputId(action),
+        value = value,
+        presentation = action.pending.spec.presentation,
         onValueChanged = onValueChanged,
         onSubmit = { _, input ->
-            if (runner != null && generation != null && currentRunner() === runner) {
-                submitInput(runner, generation, input)
+            withCurrentHost { snapshot, host ->
+                if (snapshot.dialogue.input?.key == action.key) {
+                    submit(RuntimeCommand.SubmitInput(action.key, input, host))
+                }
             }
         },
         onCancel = {
-            if (runner != null && generation != null && currentRunner() === runner) {
-                cancelInput(runner, generation)
+            withCurrentHost { snapshot, host ->
+                if (snapshot.dialogue.input?.key == action.key) {
+                    submit(RuntimeCommand.DismissInput(action.key, host))
+                }
             }
         },
-        restoration = restoration,
+        restoration = DialogueDialogRestoration(action.key),
     )
 
-    private fun choiceDialog(
-        labels: List<String>,
-        ids: List<String>,
-        runner: SScriptRunner?,
-        actions: List<DialogueAction>,
-        restoration: DialogueDialogRestoration?,
-    ): NanidroidSimpleDialog.UserChoice = NanidroidSimpleDialog.UserChoice(
-        labels,
-        ids,
-        onChoice = { index ->
-            actions.getOrNull(index)?.let { action ->
-                if (runner != null && currentRunner() === runner) runner.activateChoice(action)
-            }
-        },
-        restoration = restoration,
-    )
-
-    private fun submitInput(runner: SScriptRunner, generation: Long, input: String) {
-        if (runner.dialogueStateSnapshot().pendingInput?.generation != generation) return
-        runner.resumeEvt()
-        runner.submitInput(generation, input)
+    private inline fun withCurrentHost(action: (RuntimeSnapshot, RuntimeHostLease) -> Unit) {
+        val snapshot = currentSnapshot()
+        val host = currentHost() ?: return
+        if (snapshot.foregroundHost != host) return
+        action(snapshot, host)
     }
 
-    private fun cancelInput(runner: SScriptRunner, generation: Long) {
-        if (runner.dialogueStateSnapshot().pendingInput?.generation != generation) return
-        runner.resumeEvt()
-        runner.dismissInput(generation)
-    }
-
-    private fun List<DialogueAction>.hasSameIdentities(other: List<DialogueAction>): Boolean =
-        size == other.size && indices.all { this[it] === other[it] }
-
-    private fun inputId(pending: PendingInputState): String = when (val dispatch = pending.spec.dispatch) {
+    private fun inputId(action: RuntimeInputAction): String = when (
+        val dispatch = action.pending.spec.dispatch
+    ) {
         is InputDispatch.Normal -> dispatch.id
         is InputDispatch.DirectEvent -> dispatch.eventId
+    }
+
+    private fun com.cattailsw.nanidroid.runtime.dialogue.DialogueAction.label(): String = when (this) {
+        is com.cattailsw.nanidroid.runtime.dialogue.DialogueAction.Normal -> label
+        is com.cattailsw.nanidroid.runtime.dialogue.DialogueAction.DirectEvent -> label
+        is com.cattailsw.nanidroid.runtime.dialogue.DialogueAction.Script -> label
     }
 }

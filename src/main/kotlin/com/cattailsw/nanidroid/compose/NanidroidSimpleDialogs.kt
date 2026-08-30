@@ -128,6 +128,8 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
                 .padding(vertical = 16.dp),
         ) {
             val horizontalPadding = if (maxWidth >= 208.dp) 24.dp else 0.dp
+            val panelHorizontalPadding = if (maxWidth >= 144.dp) 24.dp else 0.dp
+            val stackActions = maxWidth < 144.dp
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -148,7 +150,7 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 24.dp),
+                            .padding(horizontal = panelHorizontalPadding),
                     ) {
                         Column(
                             modifier = Modifier
@@ -199,29 +201,57 @@ internal fun NanidroidSimpleDialogHost(dialog: NanidroidSimpleDialog?, onDismiss
                                 },
                             )
                         }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 8.dp),
-                            horizontalArrangement = Arrangement.End,
-                        ) {
-                            if (presentation.allowCancel) {
+                        if (stackActions) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp),
+                            ) {
+                                if (presentation.allowCancel) {
+                                    TextButton(
+                                        onClick = ::cancel,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .testTag("script-user-input-cancel"),
+                                    ) { Text(stringResource(android.R.string.cancel)) }
+                                }
                                 TextButton(
-                                    onClick = ::cancel,
+                                    onClick = ::submit,
+                                    enabled = !inputRequired,
                                     modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .testTag("script-user-input-confirm"),
+                                ) { Text(stringResource(android.R.string.ok)) }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                if (presentation.allowCancel) {
+                                    TextButton(
+                                        onClick = ::cancel,
+                                        modifier = Modifier
+                                            .widthIn(min = 48.dp)
+                                            .heightIn(min = 48.dp)
+                                            .weight(1f, fill = false)
+                                            .testTag("script-user-input-cancel"),
+                                    ) { Text(stringResource(android.R.string.cancel)) }
+                                }
+                                TextButton(
+                                    onClick = ::submit,
+                                    enabled = !inputRequired,
+                                    modifier = Modifier
+                                        .widthIn(min = 48.dp)
                                         .heightIn(min = 48.dp)
                                         .weight(1f, fill = false)
-                                        .testTag("script-user-input-cancel"),
-                                ) { Text(stringResource(android.R.string.cancel)) }
+                                        .testTag("script-user-input-confirm"),
+                                ) { Text(stringResource(android.R.string.ok)) }
                             }
-                            TextButton(
-                                onClick = ::submit,
-                                enabled = !inputRequired,
-                                modifier = Modifier
-                                    .heightIn(min = 48.dp)
-                                    .weight(1f, fill = false)
-                                    .testTag("script-user-input-confirm"),
-                            ) { Text(stringResource(android.R.string.ok)) }
                         }
                     }
                 }            }

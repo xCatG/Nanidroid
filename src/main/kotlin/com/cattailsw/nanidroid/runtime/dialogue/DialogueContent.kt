@@ -111,3 +111,15 @@ data class PendingInputState(
     /** Stable speaker ownership survives unrelated authored talks that carry this capability. */
     val owner: GhostSpeaker? = null,
 )
+
+internal data class DialogueActionKey(
+    val generation: Long,
+    val incarnation: Long,
+    val actionId: Long,
+)
+
+internal data class RuntimeChoiceAction(val key: DialogueActionKey, val action: DialogueAction)
+
+internal data class RuntimeAnchorAction(val key: DialogueActionKey, val action: AnchorAction)
+
+internal data class RuntimeInputAction(val key: DialogueActionKey, val pending: PendingInputState)

@@ -84,20 +84,19 @@ PLATFORM_STACK_PATHS = (
 )
 
 LIFECYCLE_INSTRUMENTATION_TEST_METHODS = {
-    "recreatingAttachedSessionPreservesApplicationRuntimeGhostAndGeneration",
-    "recreatingWhileInitialPreparationIsBlockedJoinsOneRuntimeOperation",
-    "recreatingAfterOutgoingUnloadJoinsOneReplacementOperation",
-    "initializedHostResumingBeforeReplacementCompletionAdoptsTheReadyRuntime",
-    "ownedRuntimeStopAllowsSameGenerationRestart",
-    "topResumedOwnershipLossAndRegainRestartsWithoutOnResume",
-    "concurrentApplicationReadsReturnOneRuntimeAndRunner",
-    "startupRecoverySettlesBeforeTestCoordinatorReplacement",
-    "sameProcessRecreationRestoresTheExactPickerOwnerWithoutRelaunching",
-    "concurrentActivityReconciliationCannotCancelTheLiveOwnerResult",
-    "recreatingDuringCopyingAndInstallingKeepsOneImportAttempt",
-    "installedPrimaryWaitsForReplacementGhostMgrAndCleanupRetryRefreshesOnce",
-    "deadProcessPickerTokenCannotOpenItsReturnedUriOrCreateAnActivityDialog",
-    "pausingActivityStopsClockWithoutReplacingRuntimeOrNativeSession",
+    "productionEntryUsesApplicationRuntimeMainThreadAndExactIncreasingLeasesAcrossRecreation",
+    "productionStartedCollectorExpiresOldLeaseAndComposeAcknowledgesOnlyExactCueLease",
+    "blockedProductionBackSurvivesHostLossThenClaimsFinishesAndAcknowledgesExactNewLease",
+}
+
+HOST_ADAPTER_INSTRUMENTATION_TEST_METHODS = {
+    "lifecycleCommandsUseOneHostIdIncreasingEpochsAndMainLoopSubmission",
+    "overlappingActivitiesKeepOldStartedButOnlyNewHostPlaysAndAcknowledgesCues",
+    "stoppedCollectorDoesNotRenderUntilStartedAgain",
+    "staleSameHostEpochSnapshotCannotPlayAcknowledgeOrDeliverExit",
+    "expiredOldHostCueCannotAliasReplacementHostCue",
+    "sixtyFiveHostlessCuesAdvanceWithoutInventoryOrBackpressure",
+    "exitDeliveryClaimsFinishesAcknowledgesBeforeLifecycleRevocationAndDoesNotFinishLaterHost",
 }
 
 STRING_RESOURCE_PATHS = (
@@ -138,20 +137,19 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
         runtime_clock = self.read(
             "src/main/kotlin/com/cattailsw/nanidroid/runtime/MonotonicClock.kt"
         )
-        runner = self.read(
-            "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt"
+        runtime = self.read(
+            "src/main/kotlin/com/cattailsw/nanidroid/GhostRuntime.kt"
         )
 
         self.assertIn("class ForegroundNarImportCoordinator(", coordinator)
         self.assertIn("class NarTransactionalInstaller", installer)
-        self.assertIn("class SScriptRunner", runner)
+        self.assertFalse(
+            (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/SScriptRunner.kt").exists()
+        )
         self.assertIn("fun interface MonotonicClock", runtime_clock)
         self.assertIn("fun nowMillis(): Long", runtime_clock)
-        self.assertIn(
-            "import com.cattailsw.nanidroid.runtime.MonotonicClock",
-            runner,
-        )
-        self.assertNotIn("com.cattailsw.nanidroid.di.MonotonicClock", runner)
+        self.assertIn("RuntimeCommand.TimerDue", runtime)
+        self.assertNotIn("com.cattailsw.nanidroid.di.MonotonicClock", runtime)
 
     def test_legacy_runtime_paths_are_absent(self) -> None:
         present = [path for path in LEGACY_RUNTIME_PATHS if (ROOT / path).exists()]
@@ -266,7 +264,7 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
             {path: fragments for path, fragments in violations.items() if fragments},
         )
 
-    def test_lifecycle_instrumentation_uses_no_hilt_and_keeps_fourteen_proofs(self) -> None:
+    def test_production_lifecycle_instrumentation_uses_no_hilt_and_keeps_exact_proofs(self) -> None:
         lifecycle_test = self.read(
             "src/androidTest/java/com/cattailsw/nanidroid/"
             "NanidroidLifecycleInstrumentationTest.kt"
@@ -284,6 +282,15 @@ class LegacyArchiveRuntimeAbsenceTest(unittest.TestCase):
                 self.assertNotIn(fragment, lifecycle_test)
         test_methods = set(re.findall(r"@Test\s+fun\s+(\w+)\s*\(", lifecycle_test))
         self.assertEqual(LIFECYCLE_INSTRUMENTATION_TEST_METHODS, test_methods)
+
+    def test_host_adapter_instrumentation_keeps_exact_snapshot_boundary_proofs(self) -> None:
+        host_adapter_test = self.read(
+            "src/androidTest/java/com/cattailsw/nanidroid/"
+            "GhostRuntimeHostAdapterInstrumentationTest.kt"
+        )
+
+        test_methods = set(re.findall(r"@Test\s+fun\s+(\w+)\s*\(", host_adapter_test))
+        self.assertEqual(HOST_ADAPTER_INSTRUMENTATION_TEST_METHODS, test_methods)
 
     def test_build_uses_standard_instrumentation_runner(self) -> None:
         build = self.read("build.gradle.kts")

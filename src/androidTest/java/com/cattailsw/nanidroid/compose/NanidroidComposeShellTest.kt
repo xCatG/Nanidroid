@@ -2,6 +2,7 @@ package com.cattailsw.nanidroid.compose
 
 import android.content.res.Configuration
 import android.content.pm.ActivityInfo
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.view.WindowInsets
 import androidx.activity.ComponentActivity
@@ -40,24 +41,37 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
+import com.cattailsw.nanidroid.BundledInstallState
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.install.NarImportPrimaryOutcome
-import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
+import com.cattailsw.nanidroid.runtime.runtimePresentation
 
 
 class NanidroidComposeShellTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
+    @Before
+    fun establishNaturalWindowConfiguration() {
+        uiAutomation().executeShellCommand("wm size reset").close()
+        composeRule.waitUntil(timeoutMillis = 5_000) { "Override size:" !in shellOutput("wm size") }
+        composeRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+        }
+    }
+
     @After
     fun restoreOrientation() {
         composeRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         uiAutomation().executeShellCommand("wm size reset").close()
+        composeRule.waitUntil(timeoutMillis = 5_000) { "Override size:" !in shellOutput("wm size") }
     }
 
     @Test
@@ -256,6 +270,60 @@ class NanidroidComposeShellTest {
     }
 
     @Test
+    fun bundledInstallRecoveryExposesExactRetryAction() {
+        var retriedId: Long? = null
+        composeRule.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = false,
+                progressMessage = "",
+                toolbarVisible = false,
+                onListGhost = {},
+                bundledInstallState = BundledInstallState.RecoveryRequired(73L, "copy failed"),
+                onRetryBundledInstall = { retriedId = it },
+                simpleDialog = null,
+                onDismissSimpleDialog = {},
+            )
+        }
+
+        composeRule.onNodeWithText("copy failed").assertIsDisplayed()
+        composeRule.onNodeWithTag("bundled-install-retry").performClick()
+        composeRule.runOnIdle { assertEquals(73L, retriedId) }
+    }
+
+    @Test
+    fun startupExhaustionActionReachesExistingDocumentInstallPath() {
+        val more = mutableStateOf(false)
+        val exhaustedEpoch = mutableStateOf<Long?>(91L)
+        var pickerLaunches = 0
+        composeRule.setContent {
+            NanidroidComposeShell(
+                ghostStage = {},
+                loading = false,
+                progressMessage = "",
+                toolbarVisible = false,
+                onListGhost = {},
+                startupExhaustedEpoch = exhaustedEpoch.value,
+                onRecoverStartup = {
+                    exhaustedEpoch.value = null
+                    more.value = true
+                },
+                simpleDialog = if (more.value) {
+                    NanidroidSimpleDialog.MoreGhost { pickerLaunches += 1 }
+                } else {
+                    null
+                },
+                onDismissSimpleDialog = {},
+            )
+        }
+
+        composeRule.onNodeWithText("No ghost is currently available. Install a ghost archive to continue.").assertIsDisplayed()
+        composeRule.onNodeWithTag("startup-recovery-install").performClick()
+        composeRule.onNodeWithTag("install-from-document").performClick()
+        composeRule.runOnIdle { assertEquals(1, pickerLaunches) }
+    }
+
+    @Test
     fun shell_top_app_bar_and_overflow_popup_dont_persist_when_loading_becomes_true() {
         val loading = mutableStateOf(false)
         var selected = ""
@@ -336,8 +404,8 @@ class NanidroidComposeShellTest {
             NanidroidComposeShell(
                 ghostStage = {
                     Text(selectedGhost.value)
-                    GhostPresentationStage(
-                        presentation = GhostPresentationReducer.snapshot(
+                    SizedGhostPresentationStage(
+                        presentation = runtimePresentation(
                             sakuraText = "Fixture ghost balloon",
                             sakuraSurfaceId = "0",
                             sakuraAnimationId = null,
@@ -772,6 +840,10 @@ class NanidroidComposeShellTest {
     private fun uiDevice(): UiDevice = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
 
     private fun uiAutomation() = InstrumentationRegistry.getInstrumentation().uiAutomation
+
+    private fun shellOutput(command: String): String = ParcelFileDescriptor.AutoCloseInputStream(
+        uiAutomation().executeShellCommand(command),
+    ).bufferedReader().use { it.readText() }
 
     private class UserInputFixture {
         val open = mutableStateOf(true)

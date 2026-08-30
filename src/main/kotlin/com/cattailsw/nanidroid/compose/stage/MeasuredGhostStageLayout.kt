@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import com.cattailsw.nanidroid.compose.ComposedSurface
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
-import com.cattailsw.nanidroid.runtime.GhostPresentationState
+import com.cattailsw.nanidroid.runtime.RuntimePresentation
 import com.cattailsw.nanidroid.runtime.stage.GhostStageLayoutPolicy
 import com.cattailsw.nanidroid.runtime.stage.BubbleRegionFence
 import com.cattailsw.nanidroid.runtime.stage.BubbleRegionPublication
@@ -174,8 +174,8 @@ private fun StageMeasuredSnapshot.inputGeometry() = StageMeasuredInputGeometry(
  * measurement, and placement all happen from the same constraints snapshot.
  */
 @Composable
-fun MeasuredGhostStageLayout(
-    presentation: GhostPresentationState,
+internal fun MeasuredGhostStageLayout(
+    presentation: RuntimePresentation,
     environmentForSize: (IntSize) -> StageEnvironment,
     measureState: GhostStageMeasureState,
     kero: ComposedSurface?,

@@ -145,9 +145,8 @@ tasks.register<JacocoCoverageVerifierTask>("verifyJacocoCoverage") {
     collectedClassDirectory.set(layout.buildDirectory.dir("intermediates/jacoco/debugClasses"))
     targetClassNames.addAll(
         listOf(
-            "com/cattailsw/nanidroid/BootDispatchState",
-            "com/cattailsw/nanidroid/SScriptRunner",
-            "com/cattailsw/nanidroid/runtime/KotlinGhostPresentationRuntime",
+            "com/cattailsw/nanidroid/GhostRuntime",
+            "com/cattailsw/nanidroid/runtime/SakuraScriptPlayer",
         ),
     )
     dependsOn(collectDebugClasses)

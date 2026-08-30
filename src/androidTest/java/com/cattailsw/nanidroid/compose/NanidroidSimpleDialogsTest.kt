@@ -25,6 +25,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -74,6 +75,8 @@ class NanidroidSimpleDialogsTest {
         composeRule.onNodeWithTag("script-user-input")
             .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Password))
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.ImeAction, ImeAction.Done))
+            .performClick()
+            .assertIsFocused()
         composeRule.waitUntil(5_000) { focusedComposeViewOrNull() != null }
         composeRule.runOnIdle {
             val editorInfo = EditorInfo()

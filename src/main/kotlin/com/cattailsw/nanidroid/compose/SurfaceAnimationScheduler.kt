@@ -65,7 +65,7 @@ class SurfaceTalkCadence(initialUpdateCount: Int = 0) {
 sealed interface SurfaceAnimationScheduleEvent {
     /**
      * One timer observation. The reducer deliberately evaluates one
-     * probability roll for any elapsed time, matching SScriptRunner rather
+     * probability roll for any elapsed time, matching the authored player rather
      * than manufacturing missed per-second events after a pause.
      */
     data class Tick(
@@ -77,7 +77,7 @@ sealed interface SurfaceAnimationScheduleEvent {
     ) : SurfaceAnimationScheduleEvent
 
     /**
-     * A presentation update for one speaker. The legacy runner increments its
+     * A presentation update for one speaker. Playback increments its
      * shared talk gate after every update, including explicit animation output.
      */
     data class PresentationUpdated(
@@ -363,7 +363,7 @@ class SurfaceAnimationScheduler(
         val nowMillis = clock.nowMillis()
         val observedSecond = nowMillis.coerceAtLeast(0) / 1_000L
         val shouldRoll = allowPeriodicSelection && (state.lastObservedSecond?.let { observedSecond > it } ?: true)
-        // SScriptRunner only calls Math.random when a new second is observed;
+        // The authored player only calls Math.random when a new second is observed;
         // consuming entropy for every UI tick would make its next visible
         // choice depend on render-loop frequency.
         val probabilityRoll = if (shouldRoll) entropy.nextUnitDouble().normalizedUnitDouble() else 1.0

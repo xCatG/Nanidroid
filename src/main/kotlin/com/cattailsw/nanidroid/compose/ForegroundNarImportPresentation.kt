@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.R
+import com.cattailsw.nanidroid.ForegroundCatalogRecovery
 import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.install.NarImportPrimaryOutcome
@@ -27,9 +28,11 @@ import com.cattailsw.nanidroid.install.NarImportPrimaryOutcome
 internal fun ForegroundNarImportPresentation(
     state: ForegroundNarImportState,
     installedReadyToken: NarImportAttemptToken?,
+    catalogRecovery: ForegroundCatalogRecovery? = null,
     onAcknowledge: (NarImportAttemptToken) -> Unit,
     onSelectAnother: (NarImportAttemptToken) -> Unit,
     onRetryCleanup: (NarImportAttemptToken) -> Unit,
+    onRetryCatalog: (ForegroundCatalogRecovery) -> Unit = {},
 ) {
     when (state) {
         ForegroundNarImportState.Recovering,
@@ -50,7 +53,21 @@ internal fun ForegroundNarImportPresentation(
         )
 
         is ForegroundNarImportState.Installed -> {
-            if (installedReadyToken != state.token) {
+            if (catalogRecovery?.importToken == state.token) {
+                ImportTerminalDialog(
+                    title = stringResource(R.string.err_title),
+                    message = stringResource(R.string.err_no_ghost_available),
+                    onDismiss = {},
+                    confirm = {
+                        TextButton(
+                            onClick = { onRetryCatalog(catalogRecovery) },
+                            modifier = Modifier.testTag("nar-import-retry-catalog"),
+                        ) {
+                            Text(stringResource(R.string.retry_action))
+                        }
+                    },
+                )
+            } else if (installedReadyToken != state.token) {
                 BlockingImportProgress(message = stringResource(R.string.nar_import_refreshing))
             } else {
                 ImportTerminalDialog(
@@ -131,6 +148,20 @@ internal fun ForegroundNarImportPresentation(
                     Text(stringResource(R.string.nar_import_retry_cleanup))
                 }
             },
+            dismiss = catalogRecovery
+                ?.takeIf {
+                    state.primary is NarImportPrimaryOutcome.Installed && it.importToken == state.token
+                }
+                ?.let { exactRecovery ->
+                    {
+                        TextButton(
+                            onClick = { onRetryCatalog(exactRecovery) },
+                            modifier = Modifier.testTag("nar-import-retry-catalog"),
+                        ) {
+                            Text(stringResource(R.string.retry_action))
+                        }
+                    }
+                },
         )
     }
 }
