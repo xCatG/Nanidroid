@@ -1604,8 +1604,26 @@ class GhostRuntimeSnapshotTest {
                 runCatching { fixture.close() }.exceptionOrNull()?.let(closeFailure::set)
             }
             closing.start()
-            Thread.sleep(50L)
-            val closeWaitedForCancel = closing.isAlive
+            val closeBlockedDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (closing.state != Thread.State.BLOCKED) {
+                if (scheduler.closeEntered.count == 0L) {
+                    throw AssertionError("close entered scheduler before in-flight cancel completed")
+                }
+                if (!closing.isAlive || System.nanoTime() >= closeBlockedDeadline) break
+                Thread.yield()
+            }
+            val closeStateBeforeCancelRelease = closing.state
+            val closeEnteredBeforeCancelRelease = scheduler.closeEntered.count
+            assertEquals(
+                "close did not block behind in-flight cancel",
+                Thread.State.BLOCKED,
+                closeStateBeforeCancelRelease,
+            )
+            assertEquals(
+                "scheduler close entered before cancel was released",
+                1L,
+                closeEnteredBeforeCancelRelease,
+            )
             scheduler.cancelRelease.countDown()
             assertTrue(scheduler.closeEntered.await(5, TimeUnit.SECONDS))
             val snapshotAtCloseLinearization = fixture.runtime.snapshots.value
@@ -1615,7 +1633,6 @@ class GhostRuntimeSnapshotTest {
             closing.join(5_000L)
             val snapshotAfterCloseComplete = fixture.runtime.snapshots.value
 
-            assertTrue("close did not serialize behind in-flight cancel", closeWaitedForCancel)
             assertFalse("coordination thread did not terminate", coordination.isAlive)
             assertFalse("closing thread did not terminate", closing.isAlive)
             assertEquals(null, coordinationFailure.get())
