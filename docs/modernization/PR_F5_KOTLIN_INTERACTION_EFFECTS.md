@@ -1,27 +1,22 @@
-# PR F5: Kotlin interaction effects
+# PR F5: Kotlin interaction effects (retired)
 
-## Purpose
+## Status
 
-`SakuraScriptInteractionInterpreter` extracts the non-presentation interaction
-facts that the legacy runner currently sends straight to `UICallback`:
+This document records an abandoned migration prototype.
+`SakuraScriptInteractionInterpreter` and its focused tests were removed in
+Phase 3. `SScriptRunner` remains authoritative for ordered Sakura Script
+interaction and lifecycle behavior. Do not recreate this extractor or treat it
+as a pending production boundary.
 
-* `\q[...]` options become a single ordered `ShowSelection` effect and their
-  labels remain in the presentation script;
-* `\![open,inputbox,...]` becomes an `OpenInputBox` effect and is consumed
-  from the presentation script.
+## Historical scope
 
-The result is immutable and does not contain Android views or callbacks.
+The prototype extracted `\q[...]` choices and
+`\![open,inputbox,...]` commands into immutable interaction effects. It was
+never wired into the running app.
 
-## Migration boundary
+## Retirement rationale
 
-The Java runner remains authoritative while choice/input effects, waits,
-Shiori callbacks, and lifecycle scheduling are being brought together in a
-single Kotlin runtime output. This PR is intentionally not wired into the
-running app: using only the interaction extractor would not preserve the full
-script control flow.
-
-## Validation
-
-Focused JVM tests cover choice ordering, rewritten label text, exact input ids,
-and scripts without interaction commands. Repository contracts pass; hosted CI
-will validate native compatibility and API-37 APK/AAB artifacts.
+An interaction-only pass would duplicate parsing while omitting waits, SHIORI
+callbacks, queue ordering, and lifecycle scheduling. The Phase 3
+prototype-retirement slice deletes that unused path; retained runner dialogue,
+interaction, lifecycle, and Compose tests validate the authoritative behavior.
