@@ -194,11 +194,9 @@ class StageEnvironmentTest {
     ) = StageEnvironment(
         safeBounds = bounds,
         density = 2f,
-        fontScale = 1f,
         canonicalAppBarHeight = appBarHeight.dp,
         posture = StagePosture.FLAT,
         displayFeatures = features,
-        inputCapabilities = StageInputCapabilities(touch = true, mouse = false, stylus = false, hardwareKeyboard = false),
     )
 
     private fun feature(

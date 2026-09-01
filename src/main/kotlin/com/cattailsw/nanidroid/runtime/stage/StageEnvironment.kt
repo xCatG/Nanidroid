@@ -1,7 +1,6 @@
 package com.cattailsw.nanidroid.runtime.stage
 
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -10,8 +9,6 @@ import com.cattailsw.nanidroid.SurfaceCollision
 enum class StageMode { TINY, COMPACT_LANDSCAPE, STANDARD }
 
 enum class StagePosture { FLAT, BOOK, TABLETOP }
-
-enum class StageLayoutDirection { LTR, RTL }
 
 data class StageDpRect(
     val left: Dp,
@@ -32,9 +29,6 @@ data class StageDpRect(
         )
         return intersection.takeIf { it.width.value > 0f && it.height.value > 0f }
     }
-
-    fun contains(other: StageDpRect): Boolean =
-        other.left >= left && other.top >= top && other.right <= right && other.bottom <= bottom
 }
 
 data class StageDisplayFeature(
@@ -58,16 +52,11 @@ data class StagePointingDeviceCapabilities(
 data class StageEnvironment(
     val safeBounds: StageDpRect,
     val density: Float,
-    val fontScale: Float,
     val canonicalAppBarHeight: Dp,
     val posture: StagePosture,
     val displayFeatures: List<StageDisplayFeature>,
-    val inputCapabilities: StageInputCapabilities,
-    val layoutDirection: StageLayoutDirection = StageLayoutDirection.LTR,
     val ghostKey: String = "",
-) {
-    val safeSize: DpSize get() = DpSize(safeBounds.width, safeBounds.height)
-}
+)
 
 data class SurfaceKey(
     val surfaceId: Int?,
@@ -80,7 +69,6 @@ data class ComposedSurfaceMetrics(
     val collisions: List<SurfaceCollision>,
     val explicitlyHidden: Boolean,
     val surfaceKey: SurfaceKey,
-    val revision: Long,
 )
 
 data class StageGeometryKey(

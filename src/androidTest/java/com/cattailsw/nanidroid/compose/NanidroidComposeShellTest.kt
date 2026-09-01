@@ -47,7 +47,11 @@ import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.install.NarImportPrimaryOutcome
+import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
+import com.cattailsw.nanidroid.runtime.GhostSpeaker
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 
 
 class NanidroidComposeShellTest {
@@ -332,23 +336,33 @@ class NanidroidComposeShellTest {
     @Test
     fun shell_routes_ghost_selection_and_keeps_the_selected_ghost_balloon_visible() {
         val selectedGhost = mutableStateOf("No ghost selected")
+        val presentation = GhostPresentationReducer.snapshot(
+            sakuraText = "Fixture ghost balloon",
+            sakuraSurfaceId = "0",
+            sakuraAnimationId = null,
+            sakuraBalloonId = "0",
+            keroText = "",
+            keroSurfaceId = "0",
+            keroAnimationId = null,
+            keroBalloonId = "-1",
+        )
+        val measureState = GhostStageMeasureState().also { it.resetFor(this) }
+        val sakuraSurface = opaqueStageTestSurface(0, IntSize(120, 160))
+        val keroSurface = opaqueStageTestSurface(10, IntSize(80, 120))
         composeRule.setContent {
             NanidroidComposeShell(
                 ghostStage = {
                     Text(selectedGhost.value)
                     GhostPresentationStage(
-                        presentation = GhostPresentationReducer.snapshot(
-                            sakuraText = "Fixture ghost balloon",
-                            sakuraSurfaceId = "0",
-                            sakuraAnimationId = null,
-                            sakuraBalloonId = "0",
-                            keroText = "",
-                            keroSurfaceId = "0",
-                            keroAnimationId = null,
-                            keroBalloonId = "-1",
+                        presentation = presentation,
+                        sakuraComposedSurface = sakuraSurface,
+                        keroComposedSurface = keroSurface,
+                        measureState = measureState,
+                        ghostKey = "shell-selection-balloon",
+                        sakuraDialogue = DialogueContent(
+                            GhostSpeaker.SAKURA,
+                            listOf(DialogueSegment.Text(presentation.sakura.text)),
                         ),
-                        sakuraSurfaceSize = IntSize(120, 160),
-                        keroSurfaceSize = IntSize(80, 120),
                     )
                 },
                 loading = false,

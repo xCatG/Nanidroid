@@ -15,7 +15,12 @@ import com.cattailsw.nanidroid.compose.SurfaceRenderFrame
 import com.cattailsw.nanidroid.compose.SurfaceRenderPlan
 import com.cattailsw.nanidroid.compose.SurfaceRenderBase
 import com.cattailsw.nanidroid.compose.GhostPresentationStage
+import com.cattailsw.nanidroid.compose.opaqueStageTestSurface
+import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
+import com.cattailsw.nanidroid.runtime.GhostSpeaker
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueContent
+import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -25,21 +30,31 @@ class SurfaceAnimationExecutionCharacterizationTest {
     @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test fun composeStagePlacesVisibleSpeakerAndBalloonWithoutRetainedViews() {
+        val presentation = GhostPresentationReducer.snapshot(
+            sakuraText = "Compose animation",
+            sakuraSurfaceId = "0",
+            sakuraAnimationId = "3",
+            sakuraBalloonId = "0",
+            keroText = "",
+            keroSurfaceId = "10",
+            keroAnimationId = null,
+            keroBalloonId = "-1",
+        )
+        val measureState = GhostStageMeasureState().also { it.resetFor(this) }
+        val sakuraSurface = opaqueStageTestSurface(0, IntSize(120, 160))
+        val keroSurface = opaqueStageTestSurface(10, IntSize(80, 120))
         composeRule.setContent {
             GhostPresentationStage(
-                presentation = GhostPresentationReducer.snapshot(
-                    sakuraText = "Compose animation",
-                    sakuraSurfaceId = "0",
-                    sakuraAnimationId = "3",
-                    sakuraBalloonId = "0",
-                    keroText = "",
-                    keroSurfaceId = "10",
-                    keroAnimationId = null,
-                    keroBalloonId = "-1",
+                presentation = presentation,
+                sakuraComposedSurface = sakuraSurface,
+                keroComposedSurface = keroSurface,
+                measureState = measureState,
+                ghostKey = "surface-animation-characterization",
+                sakuraDialogue = DialogueContent(
+                    GhostSpeaker.SAKURA,
+                    listOf(DialogueSegment.Text(presentation.sakura.text)),
                 ),
-                sakuraSurfaceSize = IntSize(120, 160),
-                keroSurfaceSize = IntSize(80, 120),
-                sakuraSurface = { Text("Sakura surface 0") },
+                sakuraSurface = { _ -> Text("Sakura surface 0") },
             )
         }
 

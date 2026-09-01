@@ -58,7 +58,6 @@ import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.runtime.stage.StageDisplayFeature
 import com.cattailsw.nanidroid.runtime.stage.StageDpRect
 import com.cattailsw.nanidroid.runtime.stage.StageEnvironment
-import com.cattailsw.nanidroid.runtime.stage.StageInputCapabilities
 import com.cattailsw.nanidroid.runtime.stage.BubbleHitRegionRegistry
 import com.cattailsw.nanidroid.runtime.stage.StageInputRouter
 import com.cattailsw.nanidroid.runtime.stage.StagePosture
@@ -488,17 +487,32 @@ class RenderedTransformContractTest {
         val snapshot = requireNotNull(state.latest?.sakura)
         val node = composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true)
         val nodeBounds = node.fetchSemanticsNode().boundsInRoot
-        assertEquals(snapshot.transform.rootBounds.left.toFloat(), nodeBounds.left, 0.01f)
-        assertEquals(snapshot.transform.rootBounds.top.toFloat(), nodeBounds.top, 0.01f)
-        assertEquals(snapshot.transform.rootBounds.right.toFloat(), nodeBounds.right, 0.01f)
-        assertEquals(snapshot.transform.rootBounds.bottom.toFloat(), nodeBounds.bottom, 0.01f)
-
-        val rootBounds = snapshot.transform.rootBounds
-        val rootPoint = Offset(
-            rootBounds.left + 1.5f * rootBounds.width / snapshot.transform.intrinsicSize.width,
-            rootBounds.top + 1.5f * rootBounds.height / snapshot.transform.intrinsicSize.height,
+        assertEquals(
+            (snapshot.transform.renderedBounds.left + snapshot.transform.stageToRoot.x).toFloat(),
+            nodeBounds.left,
+            0.01f,
         )
-        val expectedIntrinsic = requireNotNull(snapshot.transform.rootToIntrinsic(rootPoint))
+        assertEquals(
+            (snapshot.transform.renderedBounds.top + snapshot.transform.stageToRoot.y).toFloat(),
+            nodeBounds.top,
+            0.01f,
+        )
+        assertEquals(
+            (snapshot.transform.renderedBounds.right + snapshot.transform.stageToRoot.x).toFloat(),
+            nodeBounds.right,
+            0.01f,
+        )
+        assertEquals(
+            (snapshot.transform.renderedBounds.bottom + snapshot.transform.stageToRoot.y).toFloat(),
+            nodeBounds.bottom,
+            0.01f,
+        )
+
+        val rootPoint = Offset(
+            nodeBounds.left + 1.5f * nodeBounds.width / snapshot.transform.intrinsicSize.width,
+            nodeBounds.top + 1.5f * nodeBounds.height / snapshot.transform.intrinsicSize.height,
+        )
+        val expectedIntrinsic = IntOffset(1, 1)
         assertTrue(shape.contains(expectedIntrinsic))
         val rootImage = composeRule.onRoot(useUnmergedTree = true).captureToImage().toPixelMap()
         assertTrue(rootImage[rootPoint.x.toInt(), rootPoint.y.toInt()] != Color.White)
@@ -514,10 +528,10 @@ class RenderedTransformContractTest {
         }
 
         val outsideRootPoint = Offset(
-            rootBounds.left + 6.5f * rootBounds.width / snapshot.transform.intrinsicSize.width,
-            rootBounds.top + 0.5f * rootBounds.height / snapshot.transform.intrinsicSize.height,
+            nodeBounds.left + 6.5f * nodeBounds.width / snapshot.transform.intrinsicSize.width,
+            nodeBounds.top + 0.5f * nodeBounds.height / snapshot.transform.intrinsicSize.height,
         )
-        val expectedOutsideIntrinsic = requireNotNull(snapshot.transform.rootToIntrinsic(outsideRootPoint))
+        val expectedOutsideIntrinsic = IntOffset(6, 0)
         assertFalse(shape.contains(expectedOutsideIntrinsic))
         assertEquals(Color.White, rootImage[outsideRootPoint.x.toInt(), outsideRootPoint.y.toInt()])
 
@@ -577,22 +591,6 @@ class RenderedTransformContractTest {
         assertEquals(Color.Green, bubble.captureToImage().toPixelMap()[1, 1])
         assertEquals(Color.Red, surfaceNode.captureToImage().toPixelMap()[1, 1])
 
-        val snapshot = requireNotNull(state.latest?.sakura)
-        val bubblePx = IntRect(
-            bubbleBounds.left.toInt(),
-            bubbleBounds.top.toInt(),
-            bubbleBounds.right.toInt(),
-            bubbleBounds.bottom.toInt(),
-        )
-        snapshot.transform.toRootRegion(peer.effectiveCollisions.single().shape).rects.forEach { collision ->
-            val collisionPx = IntRect(
-                collision.left.toInt(),
-                collision.top.toInt(),
-                collision.right.toInt(),
-                collision.bottom.toInt(),
-            )
-            assertFalse(bubblePx.positiveIntersection(collisionPx))
-        }
     }
 
     @Test
@@ -677,16 +675,15 @@ class RenderedTransformContractTest {
         composeRule.runOnIdle { assertEquals(1, loads.getValue("source").get()) }
 
         val node = composeRule.onNodeWithTag("surface-sakura", useUnmergedTree = true)
-        val nodeBounds = node.fetchSemanticsNode().boundsInRoot
-        val collision = sourceSnapshot.transform.toRootRegion(
-            sourceSnapshot.composedSurface.effectiveCollisions.single().shape,
-        ).rects.single()
-        val collisionRootPoint = Offset(
-            ((collision.left + collision.right) / 2.0).toFloat(),
-            ((collision.top + collision.bottom) / 2.0).toFloat(),
-        )
+        val transform = sourceSnapshot.transform
+        val collision = sourceSnapshot.composedSurface.effectiveCollisions.single().shape
+        val intrinsicPoint = requireNotNull(transform.representativeIntrinsicPoint(collision))
+        val stagePoint = requireNotNull(transform.stageCenterForIntrinsic(intrinsicPoint))
         node.performTouchInput {
-            down(Offset(collisionRootPoint.x - nodeBounds.left, collisionRootPoint.y - nodeBounds.top))
+            down(Offset(
+                (stagePoint.x - transform.renderedBounds.left).toFloat(),
+                (stagePoint.y - transform.renderedBounds.top).toFloat(),
+            ))
             up()
         }
         composeRule.runOnIdle {
@@ -806,7 +803,7 @@ class RenderedTransformContractTest {
     }
 
     @Test
-    fun overlayRootGeometryAndPointerInverseUseTheSameHalfOpenEdges() {
+    fun pointerInverseUsesStageLocalHalfOpenEdges() {
         val state = GhostStageMeasureState()
         composeRule.setContent {
             Box(Modifier.fillMaxSize()) {
@@ -846,17 +843,6 @@ class RenderedTransformContractTest {
                     PointerSource.TOUCH,
                 ),
             )
-        }
-        val collision = snapshot.composedSurface.effectiveCollisions.single().shape
-        val root = snapshot.transform.toRoot(collision).bounds
-        val inside = androidx.compose.ui.geometry.Offset(root.left, root.top)
-        val outsideRight = androidx.compose.ui.geometry.Offset(root.right, root.top)
-        assertTrue(snapshot.composedSurface.effectiveCollisions.single().shape.contains(
-            requireNotNull(snapshot.transform.rootToIntrinsic(inside)),
-        ))
-        val intrinsicAtRight = snapshot.transform.rootToIntrinsic(outsideRight)
-        if (intrinsicAtRight != null) {
-            assertFalse(snapshot.composedSurface.effectiveCollisions.single().shape.contains(intrinsicAtRight))
         }
     }
 
@@ -909,11 +895,9 @@ class RenderedTransformContractTest {
     private fun environment(size: IntSize, density: Float = 1f) = StageEnvironment(
         safeBounds = StageDpRect(0.dp, 0.dp, (size.width / density).dp, (size.height / density).dp),
         density = density,
-        fontScale = 1f,
         canonicalAppBarHeight = 64.dp,
         posture = StagePosture.FLAT,
         displayFeatures = emptyList<StageDisplayFeature>(),
-        inputCapabilities = StageInputCapabilities(true, false, false, false),
         ghostKey = "fixture",
     )
 

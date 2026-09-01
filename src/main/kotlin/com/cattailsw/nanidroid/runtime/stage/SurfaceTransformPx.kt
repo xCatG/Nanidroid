@@ -216,24 +216,8 @@ data class SurfaceTransformPx(
     private val usable: Boolean get() = intrinsicSize.width > 0 && intrinsicSize.height > 0 &&
         renderedWidth > 0L && renderedHeight > 0L && scale.isFinite() && scale > 0f
 
-    val rootBounds: IntRect
-        get() = IntRect(
-            saturatingAdd(renderedBounds.left, stageToRoot.x),
-            saturatingAdd(renderedBounds.top, stageToRoot.y),
-            saturatingAdd(renderedBounds.right, stageToRoot.x),
-            saturatingAdd(renderedBounds.bottom, stageToRoot.y),
-        )
-
-    fun toIntrinsic(stagePoint: IntOffset): IntOffset? =
-        map(stagePoint.x.toDouble(), stagePoint.y.toDouble())
-
     fun toIntrinsic(stagePoint: Offset): IntOffset? =
         map(stagePoint.x.toDouble(), stagePoint.y.toDouble())
-
-    fun rootToIntrinsic(rootPoint: Offset): IntOffset? = map(
-        rootPoint.x.toDouble() - stageToRoot.x.toDouble(),
-        rootPoint.y.toDouble() - stageToRoot.y.toDouble(),
-    )
 
     /** Center of one intrinsic pixel in stage-local coordinates. */
     fun stageCenterForIntrinsic(intrinsic: IntOffset): IntOffset? {
@@ -305,8 +289,6 @@ data class SurfaceTransformPx(
             is CollisionShape.Polygon -> CollisionShapePx.Polygon(shape.points.map(::point))
         }
     }
-
-    fun toRoot(shape: CollisionShape): CollisionShapePx = toStage(shape).translated(stageToRoot)
 
     /**
      * Builds one visible overlay under a shared hard cap. Cheaper definitions
@@ -440,11 +422,6 @@ data class SurfaceTransformPx(
             }
             is CollisionShape.Rectangle -> 1L
         }
-
-    fun toRootRegion(
-        shape: CollisionShape,
-        budget: CollisionGeometryBudget = CollisionGeometryBudget.perCollisionDefault(),
-    ): CollisionRegionPx = toStageRegion(shape, budget).translated(stageToRoot)
 
     private fun map(stageX: Double, stageY: Double): IntOffset? {
         if (!usable || !stageX.isFinite() || !stageY.isFinite()) return null
@@ -848,9 +825,4 @@ private fun roundDp(value: Float, density: Float): Int {
         pixels <= Int.MIN_VALUE.toDouble() -> Int.MIN_VALUE
         else -> pixels.roundToInt()
     }
-}
-
-private fun saturatingAdd(first: Int, second: Int): Int {
-    val sum = first.toLong() + second.toLong()
-    return sum.coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
 }

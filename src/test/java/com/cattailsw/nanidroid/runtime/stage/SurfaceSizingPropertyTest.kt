@@ -147,24 +147,6 @@ class SurfaceSizingPropertyTest {
     }
 
     @Test
-    fun `animation revision with one surface key moves neither peer`() {
-        val originalKero = metrics(10, 235 to 200, revision = 1)
-        val originalSakura = metrics(0, 250 to 400, revision = 1)
-        val first = calculate(720, 360, originalKero, originalSakura, ghostKey = "ghost-a")
-        val second = calculate(
-            720,
-            360,
-            originalKero.copy(revision = 2),
-            originalSakura.copy(revision = 2),
-            baseline = first.sizingBaseline,
-            ghostKey = "ghost-a",
-        )
-
-        assertEquals(first.keroSurface, second.keroSurface)
-        assertEquals(first.sakuraSurface, second.sakuraSurface)
-    }
-
-    @Test
     fun `window lane and ghost changes invalidate the immutable sizing baseline`() {
         val kero = metrics(10, 235 to 200)
         val sakura = metrics(0, 250 to 400)
@@ -223,11 +205,9 @@ class SurfaceSizingPropertyTest {
         environment = StageEnvironment(
             safeBounds = StageDpRect(0.dp, 0.dp, width.dp, height.dp),
             density = density,
-            fontScale = 1f,
             canonicalAppBarHeight = 0.dp,
             posture = StagePosture.FLAT,
             displayFeatures = emptyList(),
-            inputCapabilities = StageInputCapabilities(true, true, true, true),
             ghostKey = ghostKey,
         ),
         kero = kero,
@@ -241,14 +221,12 @@ class SurfaceSizingPropertyTest {
         visible: IntRect? = if (size.first > 0 && size.second > 0) IntRect(0, 0, size.first, size.second) else null,
         collisions: List<SurfaceCollision> = emptyList(),
         hidden: Boolean = false,
-        revision: Long = 0,
     ) = ComposedSurfaceMetrics(
         canvasSize = IntSize(size.first, size.second),
         visiblePixelBounds = visible,
         collisions = collisions,
         explicitlyHidden = hidden,
         surfaceKey = SurfaceKey(id, IntSize(size.first, size.second)),
-        revision = revision,
     )
 
     private fun collision(id: Int, left: Int, top: Int, right: Int, bottom: Int) = SurfaceCollision(

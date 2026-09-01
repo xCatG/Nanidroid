@@ -29,10 +29,8 @@ import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
@@ -45,9 +43,7 @@ import com.cattailsw.nanidroid.compose.stage.StageEnvironmentProvider
 import com.cattailsw.nanidroid.compose.stage.StageSurfaceSnapshot
 import com.cattailsw.nanidroid.compose.stage.StageMeasuredSnapshot
 import com.cattailsw.nanidroid.compose.stage.StagePointerInput
-import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
 import com.cattailsw.nanidroid.runtime.GhostPresentationState
-import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
 import com.cattailsw.nanidroid.runtime.stage.BubbleHitRegionRegistry
 import com.cattailsw.nanidroid.runtime.stage.StageInputRouter
 import com.cattailsw.nanidroid.runtime.stage.StageMode
@@ -373,71 +369,6 @@ internal fun currentStageInputSnapshot(
     routingEpoch = routingEpoch,
 )
 
-/**
- * Compatibility facade for characterization tests that inject their own
- * surface content. Production uses the atomic [ComposedSurface] overload.
- */
-@Composable
-fun GhostPresentationStage(
-    presentation: GhostPresentationState,
-    sakuraSurfaceSize: IntSize,
-    keroSurfaceSize: IntSize,
-    showSakuraBalloon: Boolean = true,
-    showKeroBalloon: Boolean = true,
-    modifier: Modifier = Modifier,
-    sakuraSurface: @Composable BoxScope.() -> Unit = {},
-    keroSurface: @Composable BoxScope.() -> Unit = {},
-) {
-    val measureState = remember { GhostStageMeasureState().also { it.resetFor(LegacyPreviewOwner) } }
-    val sakura = remember(sakuraSurfaceSize) { layoutOnlySurface(0, sakuraSurfaceSize) }
-    val kero = remember(keroSurfaceSize) { layoutOnlySurface(10, keroSurfaceSize) }
-    val sakuraDialogue = remember(presentation.sakura.text) {
-        DialogueContent(
-            GhostSpeaker.SAKURA,
-            if (presentation.sakura.text.isEmpty()) emptyList() else listOf(
-                DialogueSegment.Text(presentation.sakura.text),
-            ),
-        )
-    }
-    val keroDialogue = remember(presentation.kero.text) {
-        DialogueContent(
-            GhostSpeaker.KERO,
-            if (presentation.kero.text.isEmpty()) emptyList() else listOf(
-                DialogueSegment.Text(presentation.kero.text),
-            ),
-        )
-    }
-    GhostPresentationStage(
-        presentation = presentation,
-        sakuraComposedSurface = sakura,
-        keroComposedSurface = kero,
-        measureState = measureState,
-        ghostKey = "legacy-preview",
-        sakuraDialogue = sakuraDialogue,
-        keroDialogue = keroDialogue,
-        showSakuraBalloon = showSakuraBalloon,
-        showKeroBalloon = showKeroBalloon,
-        modifier = modifier,
-        sakuraSurface = { sakuraSurface() },
-        keroSurface = { keroSurface() },
-    )
-}
-
-
-private fun layoutOnlySurface(id: Int, size: IntSize): ComposedSurface? {
-    if (size.width <= 0 || size.height <= 0) return null
-    val pixels = IntArray(size.width * size.height) { 0xff404040.toInt() }
-    return ComposedSurface(
-        image = SurfacePixelImage.of(size.width, size.height, pixels),
-        canvasSize = size,
-        visiblePixelBounds = IntRect(0, 0, size.width, size.height),
-        effectiveCollisions = emptyList(),
-        surfaceKey = SurfaceKey(id, size),
-        revision = 0,
-        explicitlyHidden = false,
-    )
-}
-
 private data class StagePlacement(val window: IntOffset, val root: IntOffset)
 private data class StagePresentationRoutingEpoch(
     val external: Any,
@@ -450,25 +381,4 @@ private fun Offset.roundedOffset() = IntOffset(x.roundToInt(), y.roundToInt())
 private fun saturatingAdd(first: Int, second: Int): Int =
     (first.toLong() + second.toLong()).coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).toInt()
 
-private data object LegacyPreviewOwner
-
 private val CANONICAL_APP_BAR_HEIGHT = 64.dp
-
-@Preview(showBackground = true, widthDp = 360, heightDp = 640)
-@Composable
-private fun GhostPresentationStagePreview() {
-    GhostPresentationStage(
-        presentation = GhostPresentationReducer.snapshot(
-            sakuraText = "Hello from Sakura",
-            sakuraSurfaceId = "0",
-            sakuraAnimationId = null,
-            sakuraBalloonId = "0",
-            keroText = "Hello from Kero",
-            keroSurfaceId = "10",
-            keroAnimationId = null,
-            keroBalloonId = "0",
-        ),
-        sakuraSurfaceSize = IntSize(180, 360),
-        keroSurfaceSize = IntSize(120, 180),
-    )
-}

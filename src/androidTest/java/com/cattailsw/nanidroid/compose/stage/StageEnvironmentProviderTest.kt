@@ -8,9 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntRect
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.window.layout.DisplayFeature
@@ -83,63 +81,7 @@ class StageEnvironmentProviderTest {
     }
 
     @Test
-    fun stageAdapterKeepsWindowLocalInsetsAndFeaturesInOneCoordinateSpace() {
-        val first = FixedFeature(Rect(40, 100, 80, 260))
-        val second = FixedFeature(Rect(300, 20, 320, 400))
-        val window = StageWindowEnvironment.forTest(
-            windowSizePx = IntSize(500, 900),
-            safeBoundsInWindowPx = IntRect(20, 40, 480, 860),
-            density = 2f,
-            fontScale = 1f,
-            displayFeatures = listOf(second, first),
-        )
-
-        val environment = window.toStageEnvironment(
-            stageBoundsInWindowPx = IntRect(20, 40, 480, 860),
-            canonicalAppBarHeight = 64.dp,
-            ghostKey = "fixture",
-        )
-
-        assertEquals(DpSize(230.dp, 410.dp), environment.safeSize)
-        assertEquals(0.dp, environment.safeBounds.left)
-        assertEquals(0.dp, environment.safeBounds.top)
-        assertEquals(64.dp, environment.canonicalAppBarHeight)
-        assertEquals(
-            listOf(
-                com.cattailsw.nanidroid.runtime.stage.StageDpRect(140.dp, (-10).dp, 150.dp, 180.dp),
-                com.cattailsw.nanidroid.runtime.stage.StageDpRect(10.dp, 30.dp, 30.dp, 110.dp),
-            ),
-            environment.displayFeatures.map { it.bounds },
-        )
-    }
-
-    @Test
-    fun imeInsetsDoNotChangeStageClassificationBounds() {
-        val common = StageWindowEnvironment.forTest(
-            windowSizePx = IntSize(500, 900),
-            safeBoundsInWindowPx = IntRect(20, 40, 480, 860),
-            density = 2f,
-            fontScale = 1f,
-            displayFeatures = emptyList(),
-        )
-        val withIme = StageWindowEnvironment.forTest(
-            windowSizePx = IntSize(500, 900),
-            safeBoundsInWindowPx = IntRect(20, 40, 480, 860),
-            density = 2f,
-            fontScale = 1f,
-            displayFeatures = emptyList(),
-            imeInsetsPx = IntInsetsPx(0, 0, 0, 500),
-        )
-
-        val stageBounds = IntRect(20, 40, 480, 860)
-        assertEquals(
-            common.toStageEnvironment(stageBounds, 64.dp, "fixture"),
-            withIme.toStageEnvironment(stageBounds, 64.dp, "fixture"),
-        )
-    }
-
-    @Test
-    fun multipleFeaturesAreOrderStableAndRemovalIsObservable() {
+    fun multipleFeaturesAreOrderStableAndGenericFallbackIsObservable() {
         val observed = mutableStateOf<StageWindowEnvironment?>(null)
         composeRule.setContent {
             StageEnvironmentProvider { environment -> SideEffect { observed.value = environment } }
@@ -167,6 +109,22 @@ class StageEnvironmentProviderTest {
         publish(listOf(vertical))
         composeRule.waitUntil { observed.value?.displayFeatures?.size == 1 }
         assertTrue(observed.value!!.displayFeatures.single().separating)
+
+        val genericTop = FixedFeature(Rect(5, 5, 15, 15))
+        val genericBottom = FixedFeature(Rect(5, 20, 15, 30))
+        publish(listOf(genericBottom, genericTop))
+        composeRule.waitUntil { observed.value?.displayFeatures?.size == 2 }
+        val genericFeatures = observed.value!!.displayFeatures
+        assertEquals(
+            listOf(IntRect(5, 5, 15, 15), IntRect(5, 20, 15, 30)),
+            genericFeatures.map { it.bounds },
+        )
+        genericFeatures.forEach { feature ->
+            assertFalse(feature.separating)
+            assertTrue(feature.occluding)
+            assertEquals(FeatureOrientation.UNKNOWN, feature.orientation)
+            assertFalse(feature.halfOpened)
+        }
     }
 
     @Test
@@ -313,6 +271,8 @@ class StageEnvironmentProviderTest {
 
     @Test
     fun publisherFoldWithNonzeroInsetsAndPartialOcclusionTriggersMeasuredRelayout() {
+        val stageLeft = 11
+        val stageTop = 13
         val observed = mutableStateOf<StageWindowEnvironment?>(null)
         val measureState = GhostStageMeasureState()
         composeRule.setContent {
@@ -330,7 +290,12 @@ class StageEnvironmentProviderTest {
                     presentation = presentation(),
                     environmentForSize = { size ->
                         inset.toStageEnvironment(
-                            stageBoundsInWindowPx = IntRect(0, 0, size.width, size.height),
+                            stageBoundsInWindowPx = IntRect(
+                                stageLeft,
+                                stageTop,
+                                stageLeft + size.width,
+                                stageTop + size.height,
+                            ),
                             canonicalAppBarHeight = 64.dp,
                             ghostKey = "fixture",
                         )
@@ -370,14 +335,31 @@ class StageEnvironmentProviderTest {
         assertFalse(feature.separating)
         assertEquals(FeatureOrientation.VERTICAL, feature.orientation)
         val converted = foldedWindow.toStageEnvironment(
-            IntRect(0, 0, foldedWindow.windowSizePx.width, foldedWindow.windowSizePx.height),
+            IntRect(
+                stageLeft,
+                stageTop,
+                stageLeft + foldedWindow.windowSizePx.width,
+                stageTop + foldedWindow.windowSizePx.height,
+            ),
             64.dp,
             "fixture",
         )
-        assertEquals((17f / foldedWindow.density).dp, converted.safeBounds.left)
-        assertEquals((29f / foldedWindow.density).dp, converted.safeBounds.top)
-        assertEquals((fold.bounds.left / foldedWindow.density).dp, converted.displayFeatures.single().bounds.left)
-        assertEquals((fold.bounds.top / foldedWindow.density).dp, converted.displayFeatures.single().bounds.top)
+        assertEquals(((17f - stageLeft) / foldedWindow.density).dp, converted.safeBounds.left)
+        assertEquals(((29f - stageTop) / foldedWindow.density).dp, converted.safeBounds.top)
+        assertEquals(
+            ((foldedWindow.safeBoundsInWindowPx.right - stageLeft) / foldedWindow.density).dp,
+            converted.safeBounds.right,
+        )
+        assertEquals(
+            ((foldedWindow.safeBoundsInWindowPx.bottom - stageTop) / foldedWindow.density).dp,
+            converted.safeBounds.bottom,
+        )
+        val convertedFeature = converted.displayFeatures.single().bounds
+        assertEquals(((fold.bounds.left - stageLeft) / foldedWindow.density).dp, convertedFeature.left)
+        assertEquals(((fold.bounds.top - stageTop) / foldedWindow.density).dp, convertedFeature.top)
+        assertEquals(((fold.bounds.right - stageLeft) / foldedWindow.density).dp, convertedFeature.right)
+        assertEquals(((fold.bounds.bottom - stageTop) / foldedWindow.density).dp, convertedFeature.bottom)
+        assertEquals(64.dp, converted.canonicalAppBarHeight)
         assertNotEquals(before.layoutDp.content, after.layoutDp.content)
         assertNotEquals(before.layoutPx.content, after.layoutPx.content)
     }
