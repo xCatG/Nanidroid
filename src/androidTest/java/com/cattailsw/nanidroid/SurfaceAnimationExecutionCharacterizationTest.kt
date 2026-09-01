@@ -14,7 +14,6 @@ import com.cattailsw.nanidroid.compose.SurfaceRenderEntropy
 import com.cattailsw.nanidroid.compose.SurfaceRenderFrame
 import com.cattailsw.nanidroid.compose.SurfaceRenderPlan
 import com.cattailsw.nanidroid.compose.SurfaceRenderBase
-import com.cattailsw.nanidroid.compose.SurfaceTalkCadence
 import com.cattailsw.nanidroid.compose.GhostPresentationStage
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
 import org.junit.Assert.assertEquals
@@ -71,7 +70,7 @@ class SurfaceAnimationExecutionCharacterizationTest {
 
         assertEquals(
             listOf(SurfaceAnimationScheduleEffect.Frame("3", 0, SurfaceRenderFrame.Reset(37))),
-            scheduler.presentationUpdated(true, talkUpdate = SurfaceTalkCadence().nextPresentationUpdate()),
+            scheduler.presentationUpdated(true, talkingAnimationEnabled = true),
         )
     }
 }

@@ -711,7 +711,7 @@ class RenderedTransformContractTest {
     }
 
     @Test
-    fun productionHostPublishesAnimationSwitchForEqualResetFramesWithoutRecomposingSurface() {
+    fun productionHostReusesComposedSurfaceForEqualResetFramesAcrossAnimationRequests() {
         val assets = SurfacePixelAssets { path ->
             when (path) {
                 "sakura" -> SurfacePixelImage.of(7, 5, IntArray(35) { Color.Red.toArgb() })
@@ -761,16 +761,14 @@ class RenderedTransformContractTest {
         }
 
         composeRule.runOnIdle { render("7") }
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            host.latestMeasuredSnapshot?.sakura?.activeAnimationId == "7"
-        }
+        composeRule.waitForIdle()
         val firstSurface = requireNotNull(host.latestMeasuredSnapshot?.sakura).composedSurface
+        assertEquals("7", host.renderer.state.presentation.sakura.animationId)
 
         composeRule.runOnIdle { render("8") }
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            host.latestMeasuredSnapshot?.sakura?.activeAnimationId == "8"
-        }
+        composeRule.waitForIdle()
         composeRule.runOnIdle {
+            assertEquals("8", host.renderer.state.presentation.sakura.animationId)
             assertSame(firstSurface, requireNotNull(host.latestMeasuredSnapshot?.sakura).composedSurface)
         }
     }

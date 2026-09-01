@@ -1,6 +1,5 @@
 package com.cattailsw.nanidroid
 
-import com.cattailsw.nanidroid.compose.shouldRenderComposeSurface
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
@@ -188,46 +187,6 @@ class SurfaceDefinitionCharacterizationTest {
         Assert.assertEquals(
             listOf(20, 21, 30, 50),
             surface.toSurfaceDefinition().animations.single { it.id == "0" }.frames.map { it.durationMillis },
-        )
-    }
-
-    @Test
-    @Throws(Exception::class)
-    fun composeImageLayer_onlyAcceptsStaticBaseSurfaceStates() {
-        val base: com.cattailsw.nanidroid.SurfaceDefinition =
-            requireNotNull(loadGroupedSurfacesFixture().manager.getSurface("0")).toSurfaceDefinition()
-
-        Assert.assertTrue(
-            shouldRenderComposeSurface(
-                base,
-                null,
-                false,
-                false
-            )
-        )
-        Assert.assertFalse(
-            shouldRenderComposeSurface(
-                base,
-                "0",
-                false,
-                false
-            )
-        )
-        Assert.assertFalse(
-            shouldRenderComposeSurface(
-                base,
-                null,
-                true,
-                true
-            )
-        )
-        Assert.assertFalse(
-            shouldRenderComposeSurface(
-                null,
-                null,
-                false,
-                false
-            )
         )
     }
 

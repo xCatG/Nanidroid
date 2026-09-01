@@ -23,7 +23,6 @@ fun interface SurfaceRenderEntropy {
 data class SurfaceAnimationScheduleState(
     val active: ActiveAnimation? = null,
     val lastObservedSecond: Long? = null,
-    val lastProbabilityRollMillis: Long? = null,
     /** Final child retained by each legacy AltAnimation branch. */
     val alternateBranchResults: Map<String, String> = emptyMap(),
 ) {
@@ -37,28 +36,6 @@ data class SurfaceAnimationScheduleState(
 
     companion object {
         val Idle = SurfaceAnimationScheduleState()
-    }
-}
-
-/**
- * Shared legacy talk cadence. Its owner advances it once per presentation
- * update and passes the resulting token to every speaker/surface scheduler.
- */
-class SurfaceTalkCadence(initialUpdateCount: Int = 0) {
-    private var updateCount = Math.floorMod(initialUpdateCount, TALK_UPDATE_PERIOD)
-
-    fun nextPresentationUpdate(): Update {
-        val update = Update(talkingAnimationEnabled = updateCount == 0)
-        updateCount = (updateCount + 1) % TALK_UPDATE_PERIOD
-        return update
-    }
-
-    fun snapshotUpdateCount(): Int = updateCount
-
-    data class Update(val talkingAnimationEnabled: Boolean)
-
-    private companion object {
-        const val TALK_UPDATE_PERIOD = 10
     }
 }
 
@@ -85,13 +62,6 @@ sealed interface SurfaceAnimationScheduleEvent {
         val hasVisibleSpeech: Boolean,
         val oneShotAnimationId: String?,
         val talkingAnimationEnabled: Boolean,
-        val selectionRolls: List<Double>,
-    ) : SurfaceAnimationScheduleEvent
-
-    /** Explicit SakuraScript `\![animate,...]` dispatch. */
-    data class OneShotRequested(
-        val nowMillis: Long,
-        val animationId: String,
         val selectionRolls: List<Double>,
     ) : SurfaceAnimationScheduleEvent
 }
@@ -132,13 +102,6 @@ object SurfaceAnimationScheduleReducer {
     ): SurfaceAnimationScheduleTransition = when (event) {
         is SurfaceAnimationScheduleEvent.Tick -> onTick(plan, state, event)
         is SurfaceAnimationScheduleEvent.PresentationUpdated -> onPresentationUpdated(plan, state, event)
-        is SurfaceAnimationScheduleEvent.OneShotRequested -> start(
-            plan,
-            state,
-            event.nowMillis,
-            event.animationId,
-            SelectionRolls(event.selectionRolls),
-        )
     }
 
     private fun onTick(
@@ -348,11 +311,7 @@ class SurfaceAnimationScheduler(
     private val clock: SurfaceRenderClock,
     private val entropy: SurfaceRenderEntropy,
 ) {
-    var state: SurfaceAnimationScheduleState = SurfaceAnimationScheduleState.Idle
-        private set
-
-    /** Resolved animation that remains active after a presentation request is consumed. */
-    val activeAnimationId: String? get() = state.active?.animationId
+    private var state: SurfaceAnimationScheduleState = SurfaceAnimationScheduleState.Idle
 
     /**
      * Advances an active frame on every render tick. Hosts can defer periodic
@@ -389,9 +348,9 @@ class SurfaceAnimationScheduler(
     fun presentationUpdated(
         hasVisibleSpeech: Boolean,
         oneShotAnimationId: String? = null,
-        talkUpdate: SurfaceTalkCadence.Update,
+        talkingAnimationEnabled: Boolean,
     ): List<SurfaceAnimationScheduleEffect> {
-        val requested = oneShotAnimationId ?: if (hasVisibleSpeech && talkUpdate.talkingAnimationEnabled) {
+        val requested = oneShotAnimationId ?: if (hasVisibleSpeech && talkingAnimationEnabled) {
             plan.animations.filter { it.interval == ShellSurface.A_TYPE_TALK }.singleOrNull()?.id
                 ?: plan.animations.firstOrNull { it.interval == ShellSurface.A_TYPE_TALK }?.id
         } else {
@@ -411,19 +370,11 @@ class SurfaceAnimationScheduler(
                 nowMillis = clock.nowMillis(),
                 hasVisibleSpeech = hasVisibleSpeech,
                 oneShotAnimationId = oneShotAnimationId,
-                talkingAnimationEnabled = talkUpdate.talkingAnimationEnabled,
+                talkingAnimationEnabled = talkingAnimationEnabled,
                 selectionRolls = selectionRolls,
-        ),
+            ),
         )
     }
-
-    fun requestOneShot(animationId: String): List<SurfaceAnimationScheduleEffect> = dispatch(
-        SurfaceAnimationScheduleEvent.OneShotRequested(
-            nowMillis = clock.nowMillis(),
-            animationId = animationId,
-            selectionRolls = selectionRollsFor(animationId, state),
-        ),
-    )
 
     private fun dispatch(event: SurfaceAnimationScheduleEvent): List<SurfaceAnimationScheduleEffect> =
         SurfaceAnimationScheduleReducer.reduce(plan, state, event).also { state = it.state }.effects
