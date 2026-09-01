@@ -39,12 +39,7 @@ data class StageSurfaceSnapshot(
     val speaker: SurfaceSpeaker,
     val composedSurface: ComposedSurface,
     val transform: SurfaceTransformPx,
-) {
-    val rendererTransform: SurfaceTransformPx get() = transform
-    val pointerTransform: SurfaceTransformPx get() = transform
-    val overlayTransform: SurfaceTransformPx get() = transform
-    val semanticsTransform: SurfaceTransformPx get() = transform
-}
+)
 
 data class StageMeasuredSnapshot(
     val layoutDp: StageLayoutDp,
@@ -160,7 +155,6 @@ private fun StageMeasuredSnapshot.inputGeometry() = StageMeasuredInputGeometry(
             speaker = surface.speaker,
             surfaceKey = surface.composedSurface.surfaceKey,
             inputAuthority = surface.composedSurface.inputAuthority,
-            visible = !surface.composedSurface.explicitlyHidden,
             transform = surface.transform,
             collisions = surface.composedSurface.effectiveCollisions.toList(),
         )

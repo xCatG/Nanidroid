@@ -143,7 +143,7 @@ class GhostStageAccessibilityTest {
     ) {
         val input = StageInputRouter.snapshot(
             blocking = false,
-            bubbleRegistry = BubbleHitRegionRegistry.Empty,
+            bubbleRegistry = BubbleHitRegionRegistry.from(emptyList()),
             bubbleGeneration = 0,
             ghostKey = "accessibility",
             surfaces = listOf(surface),

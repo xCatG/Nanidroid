@@ -42,11 +42,6 @@ internal data class SScriptPlaybackHooks(
     val afterPresentationEffectCaptured: () -> Unit = {},
 )
 
-internal data class SurfaceInteractionDispatchResult(
-    val candidateEvent: String?,
-    val accepted: Boolean,
-)
-
 private class HandlerSScriptPlaybackScheduler : SScriptPlaybackScheduler {
     private val handler = Handler(Looper.getMainLooper())
 
@@ -140,28 +135,23 @@ open class SScriptRunner internal constructor(
         presentationRenderer = renderer
         if (renderer != null) currentPresentationFrame?.let(renderer::render)
     }
-    fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean =
-        dispatchSurfaceInteractionWithDiagnostics(effect).accepted
-
-    internal fun dispatchSurfaceInteractionWithDiagnostics(
-        effect: SurfaceInteractionEffect,
-    ): SurfaceInteractionDispatchResult = withCurrentGhostGate { target, live ->
+    fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean = withCurrentGhostGate { target, live ->
         if (!live) {
-            return@withCurrentGhostGate SurfaceInteractionDispatchResult(null, false)
+            return@withCurrentGhostGate false
         }
         val candidateEvent = SurfaceInteractionProtocol.eventFor(effect, target.pointerEventCapabilities())
         if (candidateEvent == null) {
-            return@withCurrentGhostGate SurfaceInteractionDispatchResult(candidateEvent, false)
+            return@withCurrentGhostGate false
         }
         val passiveSequence = runtimeModeSnapshot().passive
         if (!passiveSequence && effect.speaker.legacyReference == "1") clearMsgQueue()
-        if (!isPinnedDialogueGhost(target)) return@withCurrentGhostGate SurfaceInteractionDispatchResult(candidateEvent, false)
+        if (!isPinnedDialogueGhost(target)) return@withCurrentGhostGate false
         val response = target.requestRaw(ShioriMethod.GET, candidateEvent, SurfaceInteractionProtocol.references(effect))
         if (!passiveSequence && !runtimeModeSnapshot().passive && isPinnedDialogueGhost(target)) {
             parseShioriResponseAndInsert(response)
         }
-        SurfaceInteractionDispatchResult(candidateEvent, true)
-    } ?: SurfaceInteractionDispatchResult(null, false)
+        true
+    } ?: false
     fun setGhost(newGhost: Ghost?) {
         if (!setGhostInternal(newGhost, null)) throw IllegalStateException("ghost assignment was rejected")
     }

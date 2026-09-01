@@ -62,7 +62,13 @@ open class ShellSurface {
         constructor(); constructor(id:String, ids:Array<String>) { this.id=id; refidz=ids }
     }
     inner class AnimationFrame { @JvmField var sid: String?=null; @JvmField var filePath:String?=null; @JvmField var time=0; @JvmField var frameType=TYPE_BASE; @JvmField var startX=0; @JvmField var startY=0; @JvmField var W=0; @JvmField var H=0 }
-    inner class CollisionArea(id:Int, sx:Int, sy:Int, ex:Int, ey:Int, name:String?) { @JvmField var id=id; @JvmField var name=name; @JvmField var startX=sx; @JvmField var startY=sy; @JvmField var W=Math.toIntExact(Math.addExact(ex.toLong(), -sx.toLong() + 1L)); @JvmField var H=Math.toIntExact(Math.addExact(ey.toLong(), -sy.toLong() + 1L)); @JvmField var rect=LegacyPlatform.rectangle(sx,sy,Math.addExact(ex, 1),Math.addExact(ey, 1)) }
+    inner class CollisionArea(id:Int, sx:Int, sy:Int, ex:Int, ey:Int, name:String?) {
+        @JvmField var id=id; @JvmField var name=name; @JvmField var startX=sx; @JvmField var startY=sy; @JvmField var W=Math.toIntExact(Math.addExact(ex.toLong(), -sx.toLong() + 1L)); @JvmField var H=Math.toIntExact(Math.addExact(ey.toLong(), -sy.toLong() + 1L))
+        init {
+            Math.addExact(ex, 1)
+            Math.addExact(ey, 1)
+        }
+    }
 
     private fun prepareAnimationTable() { if(animationTable==null) animationTable=TreeMap() }
     private fun prepareElementList() { if(elementList==null) elementList=ArrayList() }

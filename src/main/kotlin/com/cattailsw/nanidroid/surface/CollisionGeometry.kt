@@ -5,48 +5,13 @@ import androidx.compose.ui.unit.IntRect
 import com.cattailsw.nanidroid.SurfaceCollision
 import java.math.BigInteger
 
-/** A platform-neutral path description which can be rendered by a debug overlay. */
-sealed interface CollisionPath {
-    val bounds: IntRect
-    fun contains(point: IntOffset): Boolean
-
-    data class Rectangle(override val bounds: IntRect) : CollisionPath {
-        override fun contains(point: IntOffset): Boolean = containsRectangle(bounds, point)
-    }
-
-    data class Ellipse(override val bounds: IntRect) : CollisionPath {
-        override fun contains(point: IntOffset): Boolean = containsEllipse(bounds, point)
-    }
-
-    data class Circle(val center: IntOffset, val radius: Int) : CollisionPath {
-        override val bounds: IntRect = circleBounds(center, radius)
-        override fun contains(point: IntOffset): Boolean = containsCircle(center, radius, point)
-    }
-
-    data class Polygon(
-        val points: List<IntOffset>,
-        val fillRule: CollisionFillRule,
-    ) : CollisionPath {
-        override val bounds: IntRect = polygonBounds(points)
-        override fun contains(point: IntOffset): Boolean =
-            containsRectangle(bounds, point) && containsPolygon(points, point)
-    }
-}
-
-enum class CollisionFillRule { EVEN_ODD }
-
 /** One canonical model used by both hit testing and collision overlays. */
 sealed interface CollisionShape {
     val bounds: IntRect
-    val path: CollisionPath
     fun contains(point: IntOffset): Boolean
-    fun representativePoint(): IntOffset?
 
     data class Rectangle(override val bounds: IntRect) : CollisionShape {
-        override val path: CollisionPath = CollisionPath.Rectangle(bounds)
-        override fun contains(point: IntOffset): Boolean = path.contains(point)
-        override fun representativePoint(): IntOffset? =
-            IntOffset(bounds.left, bounds.top).takeIf(::contains)
+        override fun contains(point: IntOffset): Boolean = containsRectangle(bounds, point)
 
         companion object {
             fun fromAuthored(x1: Int, y1: Int, x2: Int, y2: Int): Rectangle =
@@ -58,12 +23,7 @@ sealed interface CollisionShape {
     }
 
     data class Ellipse(override val bounds: IntRect) : CollisionShape {
-        override val path: CollisionPath = CollisionPath.Ellipse(bounds)
-        override fun contains(point: IntOffset): Boolean = path.contains(point)
-        override fun representativePoint(): IntOffset? = IntOffset(
-            midpoint(bounds.left, bounds.right - 1),
-            midpoint(bounds.top, bounds.bottom - 1),
-        ).takeIf(::contains)
+        override fun contains(point: IntOffset): Boolean = containsEllipse(bounds, point)
 
         companion object {
             fun fromAuthored(x1: Int, y1: Int, x2: Int, y2: Int): Ellipse =
@@ -81,9 +41,7 @@ sealed interface CollisionShape {
         }
 
         override val bounds: IntRect = circleBounds(center, radius)
-        override val path: CollisionPath = CollisionPath.Circle(center, radius)
-        override fun contains(point: IntOffset): Boolean = path.contains(point)
-        override fun representativePoint(): IntOffset = center
+        override fun contains(point: IntOffset): Boolean = containsCircle(center, radius, point)
 
         companion object {
             fun fromAuthored(centerX: Int, centerY: Int, radius: Int): Circle =
@@ -103,9 +61,8 @@ sealed interface CollisionShape {
         }
 
         override val bounds: IntRect = polygonBounds(points)
-        override val path: CollisionPath = CollisionPath.Polygon(points, CollisionFillRule.EVEN_ODD)
-        override fun contains(point: IntOffset): Boolean = path.contains(point)
-        override fun representativePoint(): IntOffset? = points.firstOrNull()?.takeIf(::contains)
+        override fun contains(point: IntOffset): Boolean =
+            containsRectangle(bounds, point) && containsPolygon(points, point)
     }
 
     companion object {
@@ -121,9 +78,6 @@ internal sealed interface ParsedCollision {
 
 /** Parses exactly one collision declaration. It is intentionally independent of surface fan-out. */
 internal object CollisionGeometryParser {
-    @Volatile
-    internal var parseCount: Int = 0
-
     fun parse(text: String, authoredOrder: Int): ParsedCollision {
         val trimmed = text.trim()
         if (ANIMATION_COLLISION_PREFIX.matches(trimmed)) return ParsedCollision.Invalid(SurfaceDiagnosticReason.UNSUPPORTED)
@@ -138,7 +92,6 @@ internal object CollisionGeometryParser {
                 ParsedCollision.NotCollision
             }
         }
-        parseCount++
         val id = (collisionEx ?: collision)!!.groupValues[1].toIntOrNull()
             ?.takeIf { it >= 0 }
             ?: return ParsedCollision.Invalid(SurfaceDiagnosticReason.ENTRY)
@@ -238,8 +191,6 @@ private fun polygonBounds(points: List<IntOffset>): IntRect = IntRect(
     Math.addExact(points.maxOf { it.x }, 1),
     Math.addExact(points.maxOf { it.y }, 1),
 )
-
-private fun midpoint(low: Int, high: Int): Int = (low.toLong() + high.toLong()).floorDiv(2L).toInt()
 
 private fun containsRectangle(bounds: IntRect, point: IntOffset): Boolean =
     point.x >= bounds.left && point.x < bounds.right && point.y >= bounds.top && point.y < bounds.bottom

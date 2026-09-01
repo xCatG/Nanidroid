@@ -1966,7 +1966,7 @@ class NarCorpusRuntimeTest {
                         collisionProvenance(surfaceProvenanceByOrder[collision.authoredOrder]),
                     )
 
-                val intrinsicPoint = surface.overlayTransform.representativeIntrinsicPoint(collision.shape)
+                val intrinsicPoint = surface.transform.representativeIntrinsicPoint(collision.shape)
                     ?: run {
                         probes.put(
                             probe
@@ -1975,7 +1975,7 @@ class NarCorpusRuntimeTest {
                         )
                         return@forEach
                     }
-                val overlayRegion = surface.overlayTransform.toStageRegion(collision.shape)
+                val overlayRegion = surface.transform.toStageRegion(collision.shape)
                 val routingCandidate = overlayRegion.preferredIntegerStageRoutingCandidate(
                     resolve = { candidate ->
                         StageInputRouter.resolve(
@@ -2114,7 +2114,7 @@ class NarCorpusRuntimeTest {
                 assertEquals(collisionTarget.id, effect.diagnosticCollisionId)
                 assertEquals("TOUCH", effect.source.name)
                 assertEquals(0, effect.button)
-                val mappedIntrinsic = requireNotNull(surface.overlayTransform.toIntrinsic(stageOffset)) {
+                val mappedIntrinsic = requireNotNull(surface.transform.toIntrinsic(stageOffset)) {
                     "Representative stage point unexpectedly fell outside the surface transform"
                 }
                 val intrinsicDelta = assertCollisionIntrinsicPointMatchesTransform(

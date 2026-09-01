@@ -189,19 +189,6 @@ class SurfaceDefinitionCharacterizationTest {
         )
     }
 
-    @Test
-    @Throws(Exception::class)
-    fun platformHitTest_preservesAndroidRectBoundarySemantics() {
-        val definition: com.cattailsw.nanidroid.SurfaceDefinition =
-            requireNotNull(loadGroupedSurfacesFixture().manager.getSurface("0")).toSurfaceDefinition()
-
-        Assert.assertEquals(0, findCollisionId(definition, 1, 2).toLong())
-        Assert.assertEquals(0, findCollisionId(definition, 10, 21).toLong())
-        Assert.assertEquals(0, findCollisionId(definition, 11, 22).toLong())
-        Assert.assertEquals(-1, findCollisionId(definition, 12, 23).toLong())
-        Assert.assertEquals(-1, findCollisionId(null, 1, 2).toLong())
-    }
-
     @Throws(Exception::class)
     private fun loadGroupedSurfacesFixture(): LoadedFixture {
         val fixture = GROUPED_SURFACES_FIXTURE.toByteArray(Charset.forName("Shift_JIS"))

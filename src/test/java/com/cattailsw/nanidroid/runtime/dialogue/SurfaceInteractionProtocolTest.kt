@@ -363,10 +363,9 @@ class SurfaceInteractionProtocolTest {
         runner.doGhostChanging("next", "ghost", "next-path")
 
         val interaction = effect(PointerSource.TOUCH, speaker = SurfaceSpeaker.KERO)
-        val diagnosticDispatch = runner.dispatchSurfaceInteractionWithDiagnostics(interaction)
+        val dispatched = runner.dispatchSurfaceInteraction(interaction)
 
-        assertEquals("OnMouseClick", diagnosticDispatch.candidateEvent)
-        assertTrue(!diagnosticDispatch.accepted)
+        assertTrue(!dispatched)
         assertEquals(1, capabilityQueries)
         assertEquals(1, unloads)
         assertEquals(1, stops)
@@ -406,18 +405,16 @@ class SurfaceInteractionProtocolTest {
         val runner = SScriptRunner(null, GhostSessionCoordinator())
         runner.setNoWaitMode(true)
         runner.setGhost(ghost)
-        val liveDiagnosticDispatch = runner.dispatchSurfaceInteractionWithDiagnostics(effect(PointerSource.TOUCH))
+        val liveDispatched = runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH))
 
-        assertEquals(null, liveDiagnosticDispatch.candidateEvent)
-        assertTrue(!liveDiagnosticDispatch.accepted)
+        assertTrue(!liveDispatched)
         assertEquals(1, capabilityQueries)
         assertTrue(runner.unloadGhostForSwitchForTesting(ghost))
 
         assertTrue(unloaded)
-        val diagnosticDispatch = runner.dispatchSurfaceInteractionWithDiagnostics(effect(PointerSource.TOUCH))
+        val dispatched = runner.dispatchSurfaceInteraction(effect(PointerSource.TOUCH))
 
-        assertEquals(null, diagnosticDispatch.candidateEvent)
-        assertTrue(!diagnosticDispatch.accepted)
+        assertTrue(!dispatched)
         assertEquals(1, capabilityQueries)
     }
 }

@@ -41,10 +41,7 @@ import com.cattailsw.nanidroid.compose.ComposeGhostStageHost
 import com.cattailsw.nanidroid.compose.SurfaceInteractionPort
 import com.cattailsw.nanidroid.compose.SurfacePixelImage
 import com.cattailsw.nanidroid.compose.SurfacePointerInteractionMapper
-import com.cattailsw.nanidroid.compose.SurfacePointerPosition
-import com.cattailsw.nanidroid.compose.SurfacePointerResolution
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
-import com.cattailsw.nanidroid.compose.stagePositionFromLocal
 import com.cattailsw.nanidroid.compose.NanidroidComposeShell
 import com.cattailsw.nanidroid.compose.GhostPresentationStage
 import com.cattailsw.nanidroid.compose.SurfaceCompositor
@@ -72,6 +69,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -117,10 +115,6 @@ class RenderedTransformContractTest {
         val portraitPeer = requireNotNull(portrait.kero)
         val firstSakura = requireNotNull(portrait.sakura)
         assertSame(sakura.value, firstSakura.composedSurface)
-        assertSame(firstSakura.transform, firstSakura.rendererTransform)
-        assertSame(firstSakura.transform, firstSakura.pointerTransform)
-        assertSame(firstSakura.transform, firstSakura.overlayTransform)
-        assertSame(firstSakura.transform, firstSakura.semanticsTransform)
         assertExactSurfaceEdges(firstSakura)
 
         composeRule.runOnIdle { sakura.value = sourceOnlyBase }
@@ -270,7 +264,7 @@ class RenderedTransformContractTest {
             val measured = measureState.latest
             val input = StageInputRouter.snapshot(
                 blocking = false,
-                bubbleRegistry = BubbleHitRegionRegistry.Empty,
+                bubbleRegistry = BubbleHitRegionRegistry.from(emptyList()),
                 bubbleGeneration = 0,
                 ghostKey = "overlay-input",
                 surfaces = listOfNotNull(measured?.sakura),
@@ -373,14 +367,13 @@ class RenderedTransformContractTest {
                         SurfaceSpeaker.SAKURA,
                         surface,
                         transform,
-                        SurfacePointerPosition(stage.x, stage.y),
+                        stage,
                         PointerSource.TOUCH,
                     )
                     assertEquals(
                         "pointer shape=$shape stage=$stage",
                         expected,
-                        resolution is SurfacePointerResolution.Hit &&
-                            resolution.target is SurfaceHitTarget.Collision,
+                        resolution?.target is SurfaceHitTarget.Collision,
                     )
                 }
             }
@@ -417,14 +410,13 @@ class RenderedTransformContractTest {
                     SurfaceSpeaker.SAKURA,
                     surfaceWithCollision(shape),
                     transform,
-                    SurfacePointerPosition(stage.x, stage.y),
+                    stage,
                     PointerSource.TOUCH,
                 )
                 assertEquals(
                     "edge shape=$shape stage=$stage",
                     expected,
-                    resolution is SurfacePointerResolution.Hit &&
-                        resolution.target is SurfaceHitTarget.Collision,
+                    resolution?.target is SurfaceHitTarget.Collision,
                 )
             }
             observedCyanGuide = observedCyanGuide || (0 until image.width).any { x ->
@@ -834,23 +826,23 @@ class RenderedTransformContractTest {
         composeRule.waitForIdle()
 
         val snapshot = requireNotNull(state.latest?.sakura)
-        val stageOrigin = snapshot.transform.stagePositionFromLocal(Offset.Zero)
-        val localOriginHit = SurfacePointerInteractionMapper.map(
+        val renderedBounds = snapshot.transform.renderedBounds
+        val stageOrigin = Offset(renderedBounds.left.toFloat(), renderedBounds.top.toFloat())
+        val localOriginHit = requireNotNull(SurfacePointerInteractionMapper.map(
             snapshot.speaker,
             snapshot.composedSurface,
             snapshot.transform,
             stageOrigin,
             PointerSource.TOUCH,
-        ) as SurfacePointerResolution.Hit
+        ))
         assertEquals(IntOffset.Zero, localOriginHit.effect.intrinsic)
-        if (snapshot.transform.renderedBounds.left != 0 || snapshot.transform.renderedBounds.top != 0) {
-            assertSame(
-                SurfacePointerResolution.OutsideSurface,
+        if (renderedBounds.left != 0 || renderedBounds.top != 0) {
+            assertNull(
                 SurfacePointerInteractionMapper.map(
                     snapshot.speaker,
                     snapshot.composedSurface,
                     snapshot.transform,
-                    SurfacePointerPosition(0f, 0f),
+                    Offset.Zero,
                     PointerSource.TOUCH,
                 ),
             )
