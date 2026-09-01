@@ -15,13 +15,19 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.cattailsw.nanidroid.Setup
+import com.cattailsw.nanidroid.GhostEngine
+import com.cattailsw.nanidroid.GhostHandle
+import com.cattailsw.nanidroid.GhostPreparer
+import com.cattailsw.nanidroid.GhostRuntime
+import com.cattailsw.nanidroid.GhostRuntimePersistence
+import com.cattailsw.nanidroid.RuntimeFailure
+import com.cattailsw.nanidroid.RuntimeResult
+import com.cattailsw.nanidroid.ShioriRequestIntent
 import com.cattailsw.nanidroid.SurfaceHitTarget
 import com.cattailsw.nanidroid.SurfaceManager
 import com.cattailsw.nanidroid.ShellSurface
 import com.cattailsw.nanidroid.DescReader
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
-import com.cattailsw.nanidroid.ShioriFactory
 import com.cattailsw.nanidroid.ShioriResponse
 import com.cattailsw.nanidroid.SurfaceReader
 import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
@@ -52,8 +58,6 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.runtime.dialogue.SakuraScriptTokenizer
-import com.cattailsw.nanidroid.shiori.NotSupportedShiori
-import com.cattailsw.nanidroid.shiori.Shiori
 import com.cattailsw.nanidroid.surface.CollisionShape
 import com.cattailsw.nanidroid.surface.ParsedSurfaceEntry
 import org.json.JSONArray
@@ -87,6 +91,7 @@ import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.abs
 import kotlin.math.floor
+import kotlinx.coroutines.runBlocking
 import java.util.zip.ZipFile
 
 @RunWith(AndroidJUnit4::class)
@@ -545,7 +550,7 @@ class NarCorpusRuntimeTest {
         val installRoot = createOwnedRoot(sourceParent, "probe-install")
         val copiedArchive = File(inputRoot, ARCHIVE_FILE_NAME)
         val result = baseResult(label, path, expectedSha256, sourceBytes)
-        var shioriGhost: TestShioriGhost? = null
+        var shioriGhost: RuntimeShioriSession? = null
         var host: ComposeGhostStageHost? = null
         var failure: Throwable? = null
 
@@ -772,7 +777,6 @@ class NarCorpusRuntimeTest {
                     shioriGhost = loadShiori(
                         installed.installedPath,
                         installed.targetId ?: "corpus-${expectedSha256.take(16)}",
-                        loadGhostDesc(installed.installedPath),
                         context,
                     )
                     val finalDialogue = probeShioriOnBoot(shioriGhost, shellName, label)
@@ -797,7 +801,7 @@ class NarCorpusRuntimeTest {
                 composeRule.runOnIdle { probeContent.showStage(null) }
                 composeRule.waitForIdle()
             }
-            runCatching { shioriGhost?.unload() }
+            runCatching { shioriGhost?.close() }
                 .exceptionOrNull()
                 ?.let { result.put("unloadError", it.stackTraceToString()) }
             deleteOwnedRoot(inputRoot, sourceParent)
@@ -842,41 +846,83 @@ class NarCorpusRuntimeTest {
         result.put("error", error.stackTraceToString())
     }
 
-    private class TestShioriGhost(
-        private val path: String,
-        private val ghostIdentity: String,
-        masterDesc: Map<String, String>,
-        context: Context?,
-    ) {
-        private val shiori: Shiori = ShioriFactory.getInstance().getShiori(path, masterDesc, context)
+    private class RuntimeShioriSession private constructor(
+        private val runtime: GhostRuntime,
+        private val handle: GhostHandle,
+    ) : AutoCloseable {
+        fun getShioriModuleName(): String? = when (handle.prepared.engine) {
+            GhostEngine.Satori -> "Satori"
+            GhostEngine.Yaya -> "YAYA"
+            GhostEngine.Kawari -> "Kawari 8"
+            GhostEngine.Nanidroid -> "NanidroidShiori"
+            GhostEngine.Unsupported -> "NotSupportedShiori"
+        }
 
-        fun getShioriModuleName(): String? = shiori.getModuleName()
-        fun getGhostIdentity(): String = ghostIdentity
-        fun isShioriNotSupported(): Boolean = shiori is NotSupportedShiori
+        fun getGhostIdentity(): String = handle.prepared.id
+
+        fun isShioriNotSupported(): Boolean = handle.prepared.engine == GhostEngine.Unsupported
 
         fun requestRaw(
             method: ShioriMethod,
             eventId: String,
             references: List<String> = emptyList(),
         ): ShioriResponse {
-            val request = StringBuilder()
-                .append(method.name)
-                .append(" SHIORI/3.0\r\nSender: ")
-                .append(Setup.NANIDROID)
-                .append("\r\n")
-                .append("SecurityLevel: local\r\n")
-                .append("ID: ").append(eventId).append("\r\n")
-                .also { builder ->
-                    references.forEachIndexed { index, value ->
-                        builder.append("Reference").append(index).append(": ").append(value).append("\r\n")
-                    }
-                }
-                .append("\r\n")
-            val responseText = shiori.request(request.toString())
-            return ShioriResponse(java.io.BufferedReader(StringReader(responseText)))
+            val tagged = runtime.request(
+                handle.generation,
+                ShioriRequestIntent.raw(method, eventId, references),
+            ).valueOrThrow()
+            check(tagged.generation == handle.generation) {
+                "Corpus response generation ${tagged.generation} did not match ${handle.generation}"
+            }
+            return tagged.response
         }
 
-        fun unload() = shiori.unloadShiori()
+        override fun close() {
+            try {
+                runtime.unload(handle.generation).valueOrThrow()
+            } finally {
+                runtime.close()
+            }
+        }
+
+        companion object {
+            fun open(context: Context, ghostIdentity: String, installedRoot: File): RuntimeShioriSession {
+                val runtime = GhostRuntime.testRuntime(
+                    context = context,
+                    preparer = GhostPreparer(context),
+                    persistence = CorpusGhostRuntimePersistence(),
+                )
+                return try {
+                    val handle = runBlocking {
+                        runtime.startOrJoin(ghostIdentity, installedRoot)
+                    }.valueOrThrow()
+                    RuntimeShioriSession(runtime, handle)
+                } catch (failure: Throwable) {
+                    runtime.close()
+                    throw failure
+                }
+            }
+
+            private fun <T> RuntimeResult<T>.valueOrThrow(): T = when (this) {
+                is RuntimeResult.Success -> value
+                is RuntimeResult.Failure -> throw when (val typed = failure) {
+                    is RuntimeFailure.Replayable -> typed.cause.nativeLinkageCauseOrSelf()
+                    is RuntimeFailure.Fatal -> typed.cause.nativeLinkageCauseOrSelf()
+                    RuntimeFailure.Busy -> IllegalStateException("Corpus runtime is busy")
+                    RuntimeFailure.StaleGeneration -> IllegalStateException("Corpus generation is stale")
+                }
+            }
+
+            private fun Throwable.nativeLinkageCauseOrSelf(): Throwable =
+                cause?.takeIf { it is LinkageError } ?: this
+        }
+    }
+
+    private class CorpusGhostRuntimePersistence : GhostRuntimePersistence {
+        override fun readLastRunGhostId(): String? = null
+        override fun commitLastRunGhostId(ghostId: String) = Unit
+        override fun readActivationCount(ghostId: String): Long = 0L
+        override fun commitActivationCount(ghostId: String, count: Long) = Unit
     }
 
     private fun buildStageManager(installedPath: String, ghostKey: String): ProductionSurfaceRuntime {
@@ -1037,9 +1083,6 @@ class NarCorpusRuntimeTest {
         val surfaceReader: SurfaceReader,
     )
 
-    private fun loadGhostDesc(installedPath: String): Map<String, String> =
-        DescReader("$installedPath/ghost/master/descript.txt").parse()
-
     private fun loadShellName(installedPath: String): String {
         val shellDesc = runCatching {
             DescReader("$installedPath/shell/master/descript.txt").parse()
@@ -1050,16 +1093,15 @@ class NarCorpusRuntimeTest {
     private fun loadShiori(
         installedPath: String,
         ghostIdentity: String,
-        ghostDesc: Map<String, String>,
-        context: Context?,
-    ): TestShioriGhost = TestShioriGhost("$installedPath/ghost/master/", ghostIdentity, ghostDesc, context)
+        context: Context,
+    ): RuntimeShioriSession = RuntimeShioriSession.open(context, ghostIdentity, File(installedPath))
 
     private fun setCheckpoint(result: JSONObject, phase: String) {
         result.put("checkpointPhase", phase)
     }
 
     private fun probeShioriOnBoot(
-        shiori: TestShioriGhost,
+        shiori: RuntimeShioriSession,
         shellName: String,
         label: String,
     ): JSONObject {
@@ -1196,7 +1238,7 @@ class NarCorpusRuntimeTest {
     }
 
     private fun probeShioriOnBootLegacy(
-        shiori: TestShioriGhost,
+        shiori: RuntimeShioriSession,
         method: ShioriMethod,
         eventId: String,
         references: List<String>,
@@ -1270,7 +1312,7 @@ class NarCorpusRuntimeTest {
     private fun exactProbeValue(response: ShioriResponse): String = response.getKey("Value").orEmpty()
 
     private fun probeShioriEvent(
-        shiori: TestShioriGhost,
+        shiori: RuntimeShioriSession,
         method: ShioriMethod,
         eventId: String,
         references: List<String>,
@@ -1358,7 +1400,7 @@ class NarCorpusRuntimeTest {
     }
 
     private fun structuredPostInteractionEvidence(
-        shiori: TestShioriGhost,
+        shiori: RuntimeShioriSession,
         method: ShioriMethod,
         eventId: String,
         references: List<String>,

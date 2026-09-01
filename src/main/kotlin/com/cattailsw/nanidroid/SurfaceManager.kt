@@ -12,13 +12,13 @@ class SurfaceManager(@Suppress("UNUSED_PARAMETER") ghostid: String) {
     private val surfaces = linkedMapOf<String, ShellSurface>()
     private val parsedEntries = linkedMapOf<String, List<ParsedSurfaceEntry>>()
 
-    fun addSurface(id: String, surface: ShellSurface): Int {
+    internal fun addSurface(id: String, surface: ShellSurface): Int {
         surfaces[id] = surface
         parsedEntries.remove(id)
         return surfaces.size
     }
 
-    fun addParsedSurface(
+    internal fun addParsedSurface(
         id: String,
         surface: ShellSurface,
         entries: List<ParsedSurfaceEntry>,

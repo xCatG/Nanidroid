@@ -7,6 +7,27 @@ import java.io.File
 
 class NanidroidGhostStartupTest {
     @Test
+    fun `installed metadata keeps the canonical root for transitional activation`() {
+        val root = File.createTempFile("nanidroid-installed", "").apply {
+            check(delete() && mkdir())
+        }.canonicalFile
+        try {
+            val metadata = InstalledGhostMetadata(
+                id = root.name,
+                canonicalRoot = root,
+                name = "Fixture",
+                sakuraName = "Sakura",
+                readme = File(root, "readme.txt"),
+            )
+
+            assertEquals(root, metadata.canonicalRoot)
+            assertEquals(File(root, "readme.txt"), metadata.readme)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `blocked preferred ghost falls back to first healthy candidate`() {
         val attempted = mutableListOf<String>()
         val selected = launchCandidateIds("blocked-a", listOf("healthy-b", "healthy-c"))

@@ -231,11 +231,12 @@ override fun unloadShiori(): ShioriUnloadResult {
 }
 ```
 
-Native adapters deliberately delegate duplicate unloads to the idempotent JNI
-unload entry point even when their Kotlin flag is already empty. The runtime
-generation fence prevents redundant production unload commands; the direct
-delegation exists so the queue-confined lifecycle probe in Task 5 can execute
-and verify the JNI duplicate-unload contract. A thrown native load is never
+Native adapters return idempotent success without entering JNI when neither
+`loaded` nor `loadCleanupRequired` is set. This prevents an adapter that failed
+with `OwnerAlreadyPresent`, or was never loaded, from unloading another
+adapter's process-global native owner. Queue-confined lifecycle probes still
+verify JNI duplicate-unload behavior only after that adapter acquired the
+owner. A thrown native load is never
 classified proven-empty: the runtime makes exactly one cleanup attempt and
 poisons if ownership cannot be cleared.
 

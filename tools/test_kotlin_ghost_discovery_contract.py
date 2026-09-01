@@ -3,28 +3,25 @@ from pathlib import Path
 
 
 class KotlinGhostDiscoveryContractTest(unittest.TestCase):
-    def test_gradle_metadata_ghost_is_kotlin(self):
+    def test_metadata_inheritance_helpers_are_absent(self):
         root = Path(__file__).resolve().parents[1]
         self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/InfoOnlyGhost.java").exists())
-        source = (root / "src/main/kotlin/com/cattailsw/nanidroid/InfoOnlyGhost.kt").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("class InfoOnlyGhost(path: String) : Ghost(path)", source)
-        self.assertIn("override fun loadGhostInfo()", source)
-        self.assertIn("override fun unload()", source)
-        self.assertIn("override fun incrementCreateCount()", source)
+        self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/InfoOnlyGhost.kt").exists())
 
-    def test_gradle_directory_discovery_is_kotlin_and_java_callable(self):
+    def test_discovery_uses_the_immutable_installed_catalog(self):
         root = Path(__file__).resolve().parents[1]
         self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/DirList.java").exists())
-        source = (root / "src/main/kotlin/com/cattailsw/nanidroid/DirList.kt").read_text(
+        self.assertFalse((root / "src/main/kotlin/com/cattailsw/nanidroid/DirList.kt").exists())
+        manager_source = (root / "src/main/kotlin/com/cattailsw/nanidroid/GhostMgr.kt").read_text(
             encoding="utf-8"
         )
-        self.assertIn("object DirList", source)
-        self.assertIn("@JvmStatic", source)
-        self.assertIn("fun parseDataDir(ctx: Context): List<InfoOnlyGhost>?", source)
-        self.assertIn('File(ctx.getExternalFilesDir(null), "ghost")', source)
-        self.assertIn("InfoOnlyGhost", source)
+        preparation_source = (root / "src/main/kotlin/com/cattailsw/nanidroid/GhostPreparation.kt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("InstalledGhostCatalog.scan(context)", manager_source)
+        self.assertIn("internal object InstalledGhostCatalog", preparation_source)
+        self.assertNotIn("Shiori", preparation_source)
+        self.assertNotRegex(preparation_source, r"\bnative\b")
 
     def test_discovery_has_no_archived_java_overlay(self):
         root = Path(__file__).resolve().parents[1]
