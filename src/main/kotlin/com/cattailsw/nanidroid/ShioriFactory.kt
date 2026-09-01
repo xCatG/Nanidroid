@@ -31,7 +31,7 @@ class ShioriFactory private constructor() {
     fun getShiori(path: String, masterDesc: Map<String, String>?, ctx: Context?): Shiori =
         when (masterDesc!!["shiori"]) {
             null -> checkShioriByPath(path, ctx)
-            "Nanidroid" -> NanidroidShiori(ctx, path)
+            "Nanidroid" -> NanidroidShiori(path, ctx != null)
             "satori.dll" -> SatoriShiori(path, ctx)
             "shiori.dll" -> checkShioriByPath(path, ctx)
             "yaya.dll" -> YayaShiori(path, ctx)

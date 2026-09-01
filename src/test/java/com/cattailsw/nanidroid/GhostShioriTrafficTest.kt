@@ -50,7 +50,6 @@ class GhostShioriTrafficTest {
             requests += request
             return RESPONSE
         }
-        override fun terminate() = Unit
         override fun unloadShiori() = Unit
 
         companion object {

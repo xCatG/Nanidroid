@@ -19,8 +19,6 @@ class SatoriShiori(path: String, context: Context?) : Shiori {
         return nativeRequest(normalized.toByteArray(SHIFT_JIS)).toString(SHIFT_JIS)
     }
 
-    override fun terminate() = nativeUnload()
-
     override fun unloadShiori() = nativeUnload()
 
     private external fun nativeLoad(path: String, cacheDirectory: String)
