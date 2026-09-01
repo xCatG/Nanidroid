@@ -43,7 +43,6 @@ class SurfaceDefinitionCharacterizationTest {
 
         val expectedModel = mutableListOf<String>(
             "collision:0:Head:start=1,2:size=11x21",
-            "animation-type:2=0",
             "animation:0:interval=2:exclusive=false",
             "frame:0:sid=null:type=-1:wait=50",
             "frame:1:sid=null:type=-1:wait=75"
@@ -114,7 +113,7 @@ class SurfaceDefinitionCharacterizationTest {
         )
         Assert.assertEquals(1, definition.collisions.size.toLong())
         Assert.assertEquals(0, definition.collisions.get(0).id)
-        Assert.assertEquals("Head", definition.collisions.get(0).name)
+        Assert.assertEquals("Head", definition.collisions.get(0).identifier)
         Assert.assertEquals(1, definition.animations.size.toLong())
         Assert.assertEquals("0", definition.animations.get(0).id)
         Assert.assertEquals(
@@ -278,10 +277,6 @@ class SurfaceDefinitionCharacterizationTest {
                             + ":start=" + collision.startX + "," + collision.startY
                             + ":size=" + collision.W + "x" + collision.H)
                 )
-            }
-
-            for (type in TreeSet<Int>(surface.animationTypeTable!!.keys)) {
-                snapshot.add("animation-type:" + type + "=" + surface.animationTypeTable!![type])
             }
 
             for (animationId in TreeSet<String>(surface.animationTable!!.keys)) {

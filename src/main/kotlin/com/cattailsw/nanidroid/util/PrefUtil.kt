@@ -31,16 +31,6 @@ object PrefUtil {
     }
 
     @JvmStatic
-    fun setKey(ctx: Context?, key: String, value: Boolean) {
-        getSharedPreferences(ctx).edit().putBoolean(key, value).commit()
-    }
-
-    @JvmStatic
-    fun setKey(ctx: Context?, key: String) {
-        setKey(ctx, key, "used")
-    }
-
-    @JvmStatic
     fun getKeyValue(ctx: Context?, key: String): String? =
         getSharedPreferences(ctx).getString(key, null)
 

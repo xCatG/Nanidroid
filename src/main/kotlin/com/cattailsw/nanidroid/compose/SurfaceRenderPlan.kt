@@ -95,16 +95,11 @@ sealed interface SurfaceRenderFrame {
         override val durationMillis: Int,
     ) : SurfaceRenderFrame
 
-    /**
-     * TYPE_MOVE is explicitly represented, while [legacyBaseFallback] captures
-     * the current renderer's behavior: it redraws the normal surface and
-     * ignores the requested displacement.
-     */
+    /** TYPE_MOVE currently retains the normal surface and ignores displacement. */
     data class Move(
         val x: Int,
         val y: Int,
         override val durationMillis: Int,
-        val legacyBaseFallback: Boolean = true,
     ) : SurfaceRenderFrame
 
     /** Unknown frame kinds retain their timing and parser data without loss. */
