@@ -7,4 +7,7 @@ data class GhostRuntimeMode(
 ) {
     val canTalk: Boolean
         get() = !playingTalk && !pendingUserAction && !passive
+
+    val allowsUserAction: Boolean
+        get() = !passive
 }

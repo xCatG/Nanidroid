@@ -15,6 +15,7 @@ import com.cattailsw.nanidroid.runtime.dialogue.AnchorAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.InputBoxSpec
 import com.cattailsw.nanidroid.runtime.dialogue.InputDispatch
+import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.surface.CollisionShape
 import org.junit.Assert.assertEquals
@@ -42,7 +43,18 @@ class StageInputRouterTest {
         val anchor = BubbleInteractionTarget.Anchor(anchorAction)
         val url = BubbleInteractionTarget.ExternalUrl("https://example.test/")
         val input = BubbleInteractionTarget.Input(
-            DialogueSegment.InputBox(InputBoxSpec(InputDispatch.Normal("name"), null, "", emptySet(), "", emptyList(), emptyList())),
+            DialogueSegment.InputBox(
+                InputBoxSpec(
+                    dispatch = InputDispatch.Normal("name"),
+                    timeoutMillis = null,
+                    initialText = "",
+                    behaviorOptions = emptySet(),
+                    presentation = InputPresentation(),
+                    supplement = "",
+                    extraReferences = emptyList(),
+                    unknownOptions = emptyList(),
+                ),
+            ),
         )
         val scroll = BubbleInteractionTarget.Scroll(SurfaceSpeaker.KERO)
         val frame = BubbleInteractionTarget.Frame(SurfaceSpeaker.SAKURA)

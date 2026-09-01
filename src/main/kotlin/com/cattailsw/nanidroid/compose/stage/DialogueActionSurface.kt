@@ -44,7 +44,6 @@ import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -186,7 +185,7 @@ internal fun DialogueActionSurfaceContent(
                                     onClick = { onAction(action) },
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .heightIn(min = dialogueActionMinimumHeight())
+                                        .heightIn(min = 48.dp)
                                         .focusRequester(focusRequesters[index])
                                         .focusProperties {
                                             previous = focusRequesters[(index - 1).mod(actions.size)]
@@ -215,8 +214,6 @@ internal fun DialogueActionSurfaceContent(
         }
     }
 }
-
-fun dialogueActionMinimumHeight(): Dp = 48.dp
 
 private class ActionIdentity(private val action: DialogueAction) {
     override fun equals(other: Any?): Boolean = other is ActionIdentity && other.action === action

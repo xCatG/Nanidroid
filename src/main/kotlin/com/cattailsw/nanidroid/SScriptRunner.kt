@@ -104,7 +104,7 @@ open class SScriptRunner internal constructor(
     private var sakuraSurfaceId = "0"; private var keroSurfaceId = "10"
     private var lastElapsedSecond: Long? = null
     private var lastElapsedMinute: Long? = null
-    private var restore = false; private var exitPending = false; private var changingPending = false; private val bootDispatchState = BootDispatchState()
+    private var exitPending = false; private var changingPending = false; private val bootDispatchState = BootDispatchState()
     private var dialogueState = DialogueRuntimeState()
     private var dialogueIncarnation = 0L
     private var nextDialogueTalkId = 0L
@@ -125,7 +125,6 @@ open class SScriptRunner internal constructor(
         val lifecycleCompletion: (() -> Unit)?,
     )
 
-    internal fun setPresentationRendererForTesting(renderer: GhostPresentationRenderer?) { presentationRenderer = renderer }
     internal fun setDialogueClaimHookForTesting(hook: (() -> Unit)?) { dialogueClaimHookForTesting = hook }
     fun setDialogueStateObserver(observer: ((DialogueRuntimeState) -> Unit)?) = synchronized(this) {
         dialogueStateObserver = observer
@@ -278,13 +277,10 @@ open class SScriptRunner internal constructor(
         LegacyPlatform.scheduleDelayed(CLOCK_STEP) {
             clockHandler.sendEmptyMessageDelayed(INC_CLOCK, CLOCK_STEP)
         }
-        if (restore) {
-            doShioriEvent("OnWindowStateRestore", null)
-        } else if (start.dispatchBoot) {
+        if (start.dispatchBoot) {
             doBoot()
             bootDispatchState.markBootDispatched()
         }
-        restore = false
     }
     fun stopClock() { LegacyPlatform.cancelDelayed { clockHandler.removeMessages(INC_CLOCK) }; bootDispatchState.stopClock() }
     override fun run() {
@@ -874,10 +870,7 @@ open class SScriptRunner internal constructor(
         }
         if (shouldRun) run()
     }
-    private fun doMouseWheel(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseWheel",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
-    private fun doMouseMove(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseMove",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
-    fun doMinimize(){doShioriEvent("OnWindowStateMinimize",null)};fun doRestore(){restore=true};fun doExit(){synchronized(this){exitPending=true};doShioriEvent("OnClose",null)};fun doGhostChanging(nextName:String,type:String,nextPath:String){synchronized(this){changingPending=true};doShioriEvent("OnGhostChanging",arrayOf(nextName,type,null,nextPath))}
-    fun doInstallBegin(id:String){doShioriEvent("OnInstallBegin",arrayOf("ghost",id,id))};fun doInstallComplete(id:String){doShioriEvent("OnInstallComplete",arrayOf("ghost",id,id))}
+    fun doExit(){synchronized(this){exitPending=true};doShioriEvent("OnClose",null)};fun doGhostChanging(nextName:String,type:String,nextPath:String){synchronized(this){changingPending=true};doShioriEvent("OnGhostChanging",arrayOf(nextName,type,null,nextPath))}
     @Suppress("UNCHECKED_CAST")
     fun doShioriEvent(evt: String, ref: Array<out String?>?): Boolean {
         return withCurrentGhost { target ->
@@ -1331,5 +1324,4 @@ open class SScriptRunner internal constructor(
             }
         }
     }
-    fun doUserInput(id:String,input:String){doShioriEvent("OnUserInput",arrayOf(id,input))};fun doOnChoiceSelect(id:String){clearMsgQueue();doShioriEvent("OnChoiceSelect",arrayOf(id))}
 }

@@ -520,7 +520,7 @@ class SScriptRunnerPresentationTest {
         val binding = DialogueDialogBinding { fixture.runner }
         val first = fixture.openPendingInput("same-id", timeoutMillis = 1_000L)
         var editedValue: String? = null
-        val firstDialog = binding.userInput("same-id", first.generation) { editedValue = it }
+        val firstDialog = binding.userInput(first, onValueChanged = { editedValue = it })
 
         firstDialog.onValueChanged("edited")
         Assert.assertEquals("edited", editedValue)
@@ -540,9 +540,9 @@ class SScriptRunnerPresentationTest {
     fun dialogBindingChoiceCallbacksKeepExactRowIdentityForDuplicatesDirectAndScript() {
         val duplicate = fixture(responses = listOf(noContent()))
         val duplicateBinding = DialogueDialogBinding { duplicate.runner }
-        val duplicateActions = duplicate.openChoices("\\q[First,same]\\q[Second,same]\\e")
-        val duplicateDialog = duplicateBinding.userChoice(
-            listOf("First", "Second"), listOf("same", "same"), duplicateActions,
+        duplicate.openChoices("\\q[First,same]\\q[Second,same]\\e")
+        val duplicateDialog = duplicateBinding.restoreUserChoice(
+            listOf("First", "Second"), listOf("same", "same"), choiceRestoration(duplicate.runner),
         )
 
         duplicateDialog.onChoice(1)
@@ -556,16 +556,16 @@ class SScriptRunnerPresentationTest {
         )
 
         val direct = fixture(responses = listOf(noContent()))
-        val directActions = direct.openChoices("\\q[Direct,OnDirect,\"\",tail]\\e")
-        DialogueDialogBinding { direct.runner }.userChoice(
-            listOf("Direct"), listOf("OnDirect"), directActions,
+        direct.openChoices("\\q[Direct,OnDirect,\"\",tail]\\e")
+        DialogueDialogBinding { direct.runner }.restoreUserChoice(
+            listOf("Direct"), listOf("OnDirect"), choiceRestoration(direct.runner),
         ).onChoice(0)
         Assert.assertEquals(listOf(request("OnDirect", "", "tail")), direct.shiori.requests)
 
         val script = fixture(responses = emptyList())
-        val scriptActions = script.openChoices("\\q[Script,\"script:\\hlocal\\e\"]\\e")
-        DialogueDialogBinding { script.runner }.userChoice(
-            listOf("Script"), listOf("script"), scriptActions,
+        script.openChoices("\\q[Script,\"script:\\hlocal\\e\"]\\e")
+        DialogueDialogBinding { script.runner }.restoreUserChoice(
+            listOf("Script"), listOf("script"), choiceRestoration(script.runner),
         ).onChoice(0)
         Assert.assertEquals(
             listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("local")))),
@@ -578,7 +578,7 @@ class SScriptRunnerPresentationTest {
         val fixture = fixture(responses = listOf(noContent()))
         val pending = fixture.openPendingInput("answer", timeoutMillis = 1_000L)
         val binding = DialogueDialogBinding { fixture.runner }
-        val presented = binding.userInput("answer", pending.generation)
+        val presented = binding.userInput(pending)
         val restored = requireNotNull(DialogueDialogBinding { fixture.runner }.restoreUserInput(
             "answer",
             requireNotNull(presented.restoration),
@@ -596,7 +596,7 @@ class SScriptRunnerPresentationTest {
         val cancel = fixture(responses = listOf(noContent()))
         val cancelPending = cancel.openPendingInput("answer", timeoutMillis = 1_000L)
         val cancelPresented = DialogueDialogBinding { cancel.runner }
-            .userInput("answer", cancelPending.generation)
+            .userInput(cancelPending)
         requireNotNull(DialogueDialogBinding { cancel.runner }.restoreUserInput(
             "answer",
             requireNotNull(cancelPresented.restoration),
@@ -612,17 +612,11 @@ class SScriptRunnerPresentationTest {
     @Test
     fun restoredChoiceDialogRebindsToTheSameRunnersExactPendingActions() {
         val fixture = fixture(responses = listOf(noContent()))
-        val actions = fixture.openChoices("\\q[First,same]\\q[Second,same]\\e")
-        val binding = DialogueDialogBinding { fixture.runner }
-        val presented = binding.userChoice(
-            listOf("First", "Second"),
-            listOf("same", "same"),
-            actions,
-        )
+        fixture.openChoices("\\q[First,same]\\q[Second,same]\\e")
         val restored = DialogueDialogBinding { fixture.runner }.restoreUserChoice(
             listOf("First", "Second"),
             listOf("same", "same"),
-            requireNotNull(presented.restoration),
+            choiceRestoration(fixture.runner),
         )
 
         restored.onChoice(1)
@@ -634,30 +628,20 @@ class SScriptRunnerPresentationTest {
         Assert.assertTrue(fixture.runner.dialogueStateSnapshot().pendingChoices.isEmpty())
 
         val direct = fixture(responses = listOf(noContent()))
-        val directActions = direct.openChoices("\\q[Direct,OnDirect,\"\",tail]\\e")
-        val directPresented = DialogueDialogBinding { direct.runner }.userChoice(
-            listOf("Direct"),
-            listOf("OnDirect"),
-            directActions,
-        )
+        direct.openChoices("\\q[Direct,OnDirect,\"\",tail]\\e")
         DialogueDialogBinding { direct.runner }.restoreUserChoice(
             listOf("Direct"),
             listOf("OnDirect"),
-            requireNotNull(directPresented.restoration),
+            choiceRestoration(direct.runner),
         ).onChoice(0)
         Assert.assertEquals(listOf(request("OnDirect", "", "tail")), direct.shiori.requests)
 
         val script = fixture(responses = emptyList())
-        val scriptActions = script.openChoices("\\q[Script,\"script:\\hlocal\\e\"]\\e")
-        val scriptPresented = DialogueDialogBinding { script.runner }.userChoice(
-            listOf("Script"),
-            listOf("script"),
-            scriptActions,
-        )
+        script.openChoices("\\q[Script,\"script:\\hlocal\\e\"]\\e")
         DialogueDialogBinding { script.runner }.restoreUserChoice(
             listOf("Script"),
             listOf("script"),
-            requireNotNull(scriptPresented.restoration),
+            choiceRestoration(script.runner),
         ).onChoice(0)
         Assert.assertEquals(
             listOf(DialogueContent(GhostSpeaker.SAKURA, listOf(DialogueSegment.Text("local")))),
@@ -670,7 +654,7 @@ class SScriptRunnerPresentationTest {
         val original = fixture(responses = emptyList())
         val originalPending = original.openPendingInput("same-id", timeoutMillis = 1_000L)
         val presented = DialogueDialogBinding { original.runner }
-            .userInput("same-id", originalPending.generation)
+            .userInput(originalPending)
         val restoration = requireNotNull(presented.restoration)
 
         val replacement = fixture(responses = emptyList())
@@ -695,12 +679,7 @@ class SScriptRunnerPresentationTest {
     fun restoredChoiceNeverBindsToAReplacementOrLaterRepeatedPrompt() {
         val original = fixture(responses = listOf(noContent()))
         val originalActions = original.openChoices("\\q[First,same]\\q[Second,same]\\e")
-        val presented = DialogueDialogBinding { original.runner }.userChoice(
-            listOf("First", "Second"),
-            listOf("same", "same"),
-            originalActions,
-        )
-        val restoration = requireNotNull(presented.restoration)
+        val restoration = choiceRestoration(original.runner)
 
         val replacement = fixture(responses = emptyList())
         val replacementActions = replacement.openChoices("\\q[First,same]\\q[Second,same]\\e")
@@ -960,6 +939,14 @@ class SScriptRunnerPresentationTest {
         runner.addMsgToQueue(arrayOf(script))
         runner.run()
         return runner.dialogueStateSnapshot().pendingChoices
+    }
+
+    private fun choiceRestoration(runner: SScriptRunner): DialogueDialogRestoration {
+        val snapshot = runner.dialogueDialogRuntimeSnapshot()
+        return DialogueDialogRestoration(
+            snapshot.owner,
+            requireNotNull(snapshot.choiceGeneration),
+        )
     }
 
     private fun Fixture.openAnchor(label: String, target: String, vararg references: String): AnchorAction {

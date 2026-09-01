@@ -96,12 +96,6 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
     open fun getKeroName(): String? = ghostDesc!!["kero.name"]
     open fun getUsername(): String = "User"
 
-    fun sendOnSecondChange(hour: Int): ShioriResponse =
-        doShioriEvent("OnSecondChange", arrayOf("$hour", "0", "0", "1"))
-
-    fun sendOnMinuteChange(hour: Int): ShioriResponse =
-        doShioriEvent("OnMinuteChange", arrayOf("$hour", "0", "0", "1"))
-
     open fun doShioriEvent(event: String, ref: Array<String>?): ShioriResponse {
         if (shiori == null) return ShioriResponse("SHIORI/2.0 500 Internal Server Error")
         val request = StringBuilder()
@@ -143,10 +137,6 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
             // The parsed response remains authoritative.
         }
         return response
-    }
-
-    internal fun setShioriForTesting(value: Shiori) {
-        shiori = value
     }
 
     open fun pointerEventCapabilities(): PointerEventCapabilities = eventCapabilities

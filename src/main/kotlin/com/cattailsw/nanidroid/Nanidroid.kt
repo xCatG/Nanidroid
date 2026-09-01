@@ -32,11 +32,7 @@ import com.cattailsw.nanidroid.install.ForegroundNarImportState
 import com.cattailsw.nanidroid.install.NarDocumentSelection
 import com.cattailsw.nanidroid.install.NarImportAttemptToken
 import com.cattailsw.nanidroid.install.NarImportPrimaryOutcome
-import com.cattailsw.nanidroid.runtime.dialogue.ActionOrigin
-import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
-import com.cattailsw.nanidroid.runtime.dialogue.GhostActionGuard
-import com.cattailsw.nanidroid.runtime.dialogue.GuardedAction
 import com.cattailsw.nanidroid.runtime.dialogue.PendingInputState
 import java.io.BufferedReader
 import java.io.File
@@ -317,7 +313,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private var gm: GhostMgr? = null
     private val ghostMgrReady = CompletableDeferred<GhostMgr>()
     private var currentGhost: Ghost? = null
-    private var restoreFromMinimize = false
     private var currentRunCount = -1L
     private var initComplete = false
     private var nextGhostId: String? = null
@@ -337,7 +332,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             narPickerOwnerToken.also { narPickerOwnerToken = null }
         },
         selection = { uri?.let { NarDocumentSelection(it.toString(), it.scheme) } },
-        importAllowed = { allows(GuardedAction.IMPORT_INSTALL, ActionOrigin.USER) },
+        importAllowed = ::allowsUserAction,
         consume = foregroundNarImport::consumePickerResult,
     )
 
@@ -359,7 +354,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             )
             return
         }
-        checkIsRestore(savedInstanceState)
         pendingRestoredTransientUi = savedInstanceState?.readTransientUiSnapshot()
         restoreSimpleDialog(savedInstanceState)
         initOnSeparateThread()
@@ -515,9 +509,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         transientUiInitialized = true
         loading = false
     }
-    private fun checkIsRestore(state: Bundle?): Boolean {
-        if (state != null) { Log.d(TAG, "was minimized"); restoreFromMinimize = state.getBoolean(MIN_TAG, false); return restoreFromMinimize }; return false
-    }
     private fun getStartCount() = PrefUtil.getKeyValueLong(applicationContext, PREF_KEY_LAUNCH_TIME)
     private fun setStartCount(count: Long) = PrefUtil.setKey(applicationContext, PREF_KEY_LAUNCH_TIME, count)
     private fun loadFirstRunScript() = try {
@@ -555,7 +546,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
-            if (!allows(GuardedAction.EXIT)) return
+            if (!allowsUserAction()) return
             val activeRunner = runner
             if (activeRunner != null) {
                 activeRunner.stopClock()
@@ -574,9 +565,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         override fun canExit() { runner!!.setCallback(null); finish() }
         override fun ghostSwitchScriptComplete() { runner!!.setCallback(null); runOnUiThread(ghostSwitchStep2Caller) }
     }
-    private val mGH = object : Handler(Looper.getMainLooper()) { override fun handleMessage(m: Message) { when (m.what) { MSG_START -> progressMessage = getString(R.string.prog_startup); MSG_LOAD_F -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> (m.obj as? String)?.let { ghostId -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(ghostId)) } } } }
+    private val mGH = object : Handler(Looper.getMainLooper()) { override fun handleMessage(m: Message) { when (m.what) { MSG_LOAD_F -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(gm!!.getLastRunGhostId() ?: "nanidroid")); MSG_LOAD_N -> (m.obj as? String)?.let { ghostId -> progressMessage = String.format(getString(R.string.load_g), gm!!.getGhostDispName(ghostId)) } } } }
     private val ghostSwitchStep2Caller = Runnable { showProgress(); ghostSwitchStep2() }
-    override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus) }
     private fun installFirstGhost() {
         var target: File? = null
         try {
@@ -585,15 +575,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             assets.open("nanidroid.zip").use { input ->
                 archive.outputStream().use(input::copyTo)
             }
-            gm!!.installFirstGhost("nanidroid", archive.path)
+            gm!!.installFirstGhost("nanidroid", archive.path) { false }
         } catch (exception: IOException) {
             exception.printStackTrace()
         } finally {
             target?.delete()
         }
-    }
-    private fun showReadme(readme: File, ghostId: String) {
-        simpleDialog = createReadmeDialog(readme, ghostId)
     }
     private fun openCurrentGhostReadme() {
         val ghost = currentGhost ?: return
@@ -613,10 +600,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             )
         }
     }
-    private fun showGhostInstalledDlg(ghostId: String) {
-        simpleDialog = createNoReadmeDialog(ghostId, gm!!.getGhostDispName(ghostId) ?: ghostId)
-    }
-    fun switchGhost(nextId: String) { if (!allows(GuardedAction.SWITCH_GHOST)) return; val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.stopClock(); runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)) }
+    fun switchGhost(nextId: String) { if (!allowsUserAction()) return; val name = gm!!.getGhostSakuraName(nextId) ?: run { Log.d(TAG, "invalid next ghost id"); return }; nextGhostId = nextId; runner!!.stopClock(); runner!!.clearMsgQueue(); runner!!.setCallback(mscb); runner!!.doGhostChanging(name, "manual", gm!!.getGhostPath(nextId)) }
     fun ghostSwitchStep2() {
         val targetGhostId = nextGhostId ?: run {
             Log.w(TAG, "ghost switch completed without a target ghost")
@@ -672,12 +656,16 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             }
         }
     }
-    fun onListGhost() { if (!allows(GuardedAction.SWITCH_GHOST)) return; showGhostListDlg() }
-    fun getMoreGhost() {
-        simpleDialog = createMoreGhostDialog()
+    fun onListGhost() {
+        if (!allowsUserAction()) return
+        val manager = gm ?: return
+        simpleDialog = createGhostListDialog(
+            manager.getGDispNames()?.map { it ?: "" }.orEmpty(),
+            manager.getGnames()?.toList().orEmpty(),
+        )
     }
-    private fun startInstallFromSDCard(origin: ActionOrigin = ActionOrigin.USER) {
-        if (!allows(GuardedAction.IMPORT_INSTALL, origin)) return
+    private fun startInstallFromSDCard() {
+        if (!allowsUserAction()) return
         armAndLaunchNarDocumentPicker(
             coordinator = foregroundNarImport,
             ownerTaskId = taskId,
@@ -688,19 +676,11 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         )
     }
 
-    fun onMoreGhost() = getMoreGhost()
-    private fun showGhostListDlg() {
-        val manager = gm ?: return
-        simpleDialog = createGhostListDialog(
-            manager.getGDispNames()?.map { it ?: "" }.orEmpty(),
-            manager.getGnames()?.toList().orEmpty(),
-        )
-    }
     private fun createMoreGhostDialog() = NanidroidSimpleDialog.MoreGhost(
         onInstallFromDocument = { startInstallFromSDCard() },
     )
-    private fun allows(action: GuardedAction, origin: ActionOrigin = ActionOrigin.USER): Boolean =
-        GhostActionGuard(runner?.runtimeModeSnapshot() ?: return true).allows(action, origin)
+    private fun allowsUserAction(): Boolean =
+        runner?.runtimeModeSnapshot()?.allowsUserAction ?: true
     private fun createUserInputDialog(pending: PendingInputState, value: String = ""): NanidroidSimpleDialog.UserInput =
         dialogueDialogBinding.userInput(pending, value, ::updateUserInputValue)
     private fun restoreUserInputDialog(
@@ -729,8 +709,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }
     private fun isStageInputBlocked(): Boolean =
         loading || simpleDialog != null || runner?.runtimeModeSnapshot()?.pendingUserAction == true
-    private fun createUserChoiceDialog(labels: List<String>, ids: List<String>, actions: List<DialogueAction> = emptyList()) =
-        dialogueDialogBinding.userChoice(labels, ids, actions)
     private fun restoreUserChoiceDialog(
         labels: List<String>,
         ids: List<String>,
@@ -739,7 +717,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun createGhostListDialog(names: List<String>, ids: List<String>) = NanidroidSimpleDialog.GhostList(
         names, ids,
         onSelect = { index -> selectGhostFromList(ids.getOrNull(index), names.getOrNull(index) ?: "") },
-        onMore = { getMoreGhost() },
+        onMore = { simpleDialog = createMoreGhostDialog() },
     )
     private fun createReadmeDialog(readme: File, ghostId: String) = NanidroidSimpleDialog.TextDocument(
         getString(R.string.new_ghost_installed_title), PlainTextDocument.read(readme), ::openDocumentLink, ghostId,
@@ -757,8 +735,8 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private fun selectGhostFromList(id: String?, name: String) {
         val manager = gm ?: return
         val ghostId = id ?: return
-        if (manager.getGhostReadMe(ghostId).exists()) showReadme(manager.getGhostReadMe(ghostId), ghostId)
-        else simpleDialog = createNoReadmeDialog(ghostId, name)
+        val readme = manager.getGhostReadMe(ghostId)
+        simpleDialog = if (readme.exists()) createReadmeDialog(readme, ghostId) else createNoReadmeDialog(ghostId, name)
     }
     private fun saveSimpleDialog(outState: Bundle) {
         when (val dialog = simpleDialog) {
@@ -900,8 +878,6 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
 
         private const val TAG = "Nanidroid"
         private const val PREF_KEY_LAUNCH_TIME = "keylaunchtime"
-        private const val MIN_TAG = "minimized"
-        private const val MSG_START = 2019
         private const val MSG_LOAD_F = 2020
         private const val MSG_LOAD_N = 2021
         private const val SIMPLE_DIALOG_TYPE = "simple_dialog_type"
