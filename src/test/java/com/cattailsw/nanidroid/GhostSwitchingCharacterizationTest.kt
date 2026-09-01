@@ -401,7 +401,7 @@ class GhostSwitchingCharacterizationTest {
 
         override fun stop() = Unit
 
-        override fun canExit() = Unit
+        override fun canExit(expectedGeneration: Long?) = Unit
 
         override fun switchPlaybackComplete() {
             switchPlaybackCompletions.incrementAndGet()

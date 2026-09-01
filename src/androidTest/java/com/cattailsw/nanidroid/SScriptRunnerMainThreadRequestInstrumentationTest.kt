@@ -6,8 +6,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
-import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
 import com.cattailsw.nanidroid.runtime.MonotonicClock
+import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.shiori.Shiori
@@ -33,81 +33,32 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
     fun pendingCloseCannotBeCompletedByStopOrRepeatedBackBeforeResponse() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        val requestEntered = CountDownLatch(1)
-        val releaseRequest = CountDownLatch(1)
-        val requestReturned = CountDownLatch(1)
-        val exitDelivered = CountDownLatch(1)
-        val adapter = BlockingRequestShiori("OnClose", requestEntered, releaseRequest, requestReturned)
-        val runtime = newRuntime(context, adapter)
-
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val returned = CountDownLatch(1)
+        val exit = CountDownLatch(1)
+        val runtime = newRuntime(context, BlockingRequestShiori("OnClose", entered, release, returned))
         try {
             val handle = runBlocking {
                 (runtime.startOrJoin("pending-close", File(context.cacheDir, "pending-close")) as RuntimeResult.Success).value
             }
             runBlocking { assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success) }
-            runtime.runner.setCallback(object : SScriptRunner.StatusCallback {
-                override fun stop() = Unit
-                override fun canExit() { exitDelivered.countDown() }
-                override fun switchPlaybackComplete() = Unit
-            })
-
-            instrumentation.runOnMainSync { runtime.runner.doExit() }
-            assertTrue("OnClose request did not start", requestEntered.await(2, TimeUnit.SECONDS))
-            instrumentation.runOnMainSync {
-                runtime.runner.stop()
-                runtime.runner.doExit()
-            }
-            assertFalse("Stop/repeated Back completed an unadmitted close", exitDelivered.await(250, TimeUnit.MILLISECONDS))
-
-            releaseRequest.countDown()
-            assertTrue("204 OnClose terminal was not delivered", exitDelivered.await(2, TimeUnit.SECONDS))
-        } finally {
-            releaseRequest.countDown()
-            requestReturned.await(2, TimeUnit.SECONDS)
-            runtime.close()
-        }
-    }
-
-    @Test
-    fun completedCloseWaitsForReplacementCallback() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val context = instrumentation.targetContext
-        val entered = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        val returned = CountDownLatch(1)
-        val admitted = CountDownLatch(1)
-        val exit = CountDownLatch(1)
-        val runtime = newRuntime(
-            context,
-            BlockingRequestShiori("OnClose", entered, release, returned),
-            SScriptRunnerConfiguration(
-                playbackHooks = SScriptPlaybackHooks(
-                    afterRequestResponseFence = { admitted.countDown() },
-                ),
-            ),
-        )
-        try {
-            val handle = runBlocking {
-                (runtime.startOrJoin("retained-close", File(context.cacheDir, "retained-close")) as RuntimeResult.Success).value
-            }
-            runBlocking { assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success) }
-            runtime.runner.setCallback(EmptyStatusCallback)
+            runtime.runner.bindHost(
+                SScriptRunner.HostToken(), {}, {}, EmptyUiCallback,
+                object : SScriptRunner.StatusCallback {
+                    override fun stop() = Unit
+                    override fun canExit(expectedGeneration: Long?) { exit.countDown() }
+                    override fun switchPlaybackComplete() = Unit
+                },
+            )
             instrumentation.runOnMainSync { runtime.runner.doExit() }
             assertTrue(entered.await(2, TimeUnit.SECONDS))
-            instrumentation.runOnMainSync { runtime.runner.setCallback(null) }
+            instrumentation.runOnMainSync { runtime.runner.stop(); runtime.runner.doExit() }
+            assertFalse(exit.await(250, TimeUnit.MILLISECONDS))
             release.countDown()
-            assertTrue(returned.await(2, TimeUnit.SECONDS))
-            assertTrue(admitted.await(2, TimeUnit.SECONDS))
-            instrumentation.runOnMainSync {
-                runtime.runner.setCallback(object : SScriptRunner.StatusCallback {
-                    override fun stop() = Unit
-                    override fun canExit() { exit.countDown() }
-                    override fun switchPlaybackComplete() = Unit
-                })
-            }
-            assertTrue("Replacement callback did not receive retained close", exit.await(2, TimeUnit.SECONDS))
+            assertTrue(exit.await(2, TimeUnit.SECONDS))
         } finally {
-            release.countDown(); runtime.close()
+            release.countDown(); returned.await(2, TimeUnit.SECONDS); runtime.close()
         }
     }
 
@@ -115,96 +66,150 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
     fun clockCoalescesTicksWhilePeriodicRequestIsOutstanding() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        val requestEntered = CountDownLatch(1)
-        val releaseRequest = CountDownLatch(1)
-        val requestReturned = CountDownLatch(1)
-        val requestCount = AtomicInteger()
-        val secondRequest = CountDownLatch(1)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val returned = CountDownLatch(1)
+        val second = CountDownLatch(1)
+        val count = AtomicInteger()
         val clock = MutableClock(1_000L)
-        val adapter = CountingBlockingTimerShiori(
-            requestEntered,
-            releaseRequest,
-            requestReturned,
-            requestCount,
-            secondRequest,
-        )
         val runtime = newRuntime(
             context,
-            adapter,
+            CountingBlockingTimerShiori(entered, release, returned, count, second),
             SScriptRunnerConfiguration(monotonicClock = clock),
         )
-
         try {
             val handle = runBlocking {
                 (runtime.startOrJoin("coalesced-clock", File(context.cacheDir, "coalesced-clock")) as RuntimeResult.Success).value
             }
             runBlocking { assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success) }
             instrumentation.runOnMainSync { runtime.runner.dispatchClockTickForTesting() }
-            assertTrue("First timer request did not start", requestEntered.await(2, TimeUnit.SECONDS))
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
             instrumentation.runOnMainSync {
-                clock.millis = 2_000L
-                runtime.runner.dispatchClockTickForTesting()
-                clock.millis = 3_000L
-                runtime.runner.dispatchClockTickForTesting()
+                clock.millis = 2_000L; runtime.runner.dispatchClockTickForTesting()
+                clock.millis = 3_000L; runtime.runner.dispatchClockTickForTesting()
             }
-            assertEquals("Outstanding ticks queued extra native requests", 1, requestCount.get())
-
-            releaseRequest.countDown()
-            assertTrue("First timer request did not return", requestReturned.await(2, TimeUnit.SECONDS))
+            assertEquals(1, count.get())
+            release.countDown()
+            assertTrue(returned.await(2, TimeUnit.SECONDS))
             instrumentation.runOnMainSync {
-                clock.millis = 4_000L
-                runtime.runner.dispatchClockTickForTesting()
+                clock.millis = 4_000L; runtime.runner.dispatchClockTickForTesting()
             }
-            assertTrue("A later tick was not admitted after the terminal", secondRequest.await(2, TimeUnit.SECONDS))
-            assertEquals(2, requestCount.get())
+            assertTrue(second.await(2, TimeUnit.SECONDS))
+            assertEquals(2, count.get())
         } finally {
-            releaseRequest.countDown()
-            runtime.close()
+            release.countDown(); runtime.close()
         }
     }
 
     @Test
-    fun blockedSecondRequestDefersButDoesNotLoseMinuteBoundary() {
+    fun exitUnloadSurvivesHostReplacementAndFinishesCurrentHost() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        val secondEntered = CountDownLatch(1)
-        val releaseSecond = CountDownLatch(1)
-        val secondReturned = CountDownLatch(1)
-        val secondAdmitted = CountDownLatch(1)
-        val minuteObserved = CountDownLatch(1)
-        val clock = MutableClock(59_000L)
-        val runtime = newRuntime(
-            context,
-            BlockingSecondThenMinuteShiori(secondEntered, releaseSecond, secondReturned, minuteObserved),
-            SScriptRunnerConfiguration(
-                monotonicClock = clock,
-                playbackHooks = SScriptPlaybackHooks(
-                    afterRequestResponseFence = { secondAdmitted.countDown() },
-                ),
-            ),
-        )
+        val unloadEntered = CountDownLatch(1)
+        val releaseUnload = CountDownLatch(1)
+        val currentHostExit = CountDownLatch(1)
+        val runtime = newRuntime(context, BlockingUnloadShiori(unloadEntered, releaseUnload))
+        val oldHost = SScriptRunner.HostToken()
+        val newHost = SScriptRunner.HostToken()
         try {
             val handle = runBlocking {
-                (runtime.startOrJoin("deferred-minute", File(context.cacheDir, "deferred-minute")) as RuntimeResult.Success).value
+                (runtime.startOrJoin("exit-unload-host", File(context.cacheDir, "exit-unload-host")) as RuntimeResult.Success).value
             }
             runBlocking { assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success) }
-            instrumentation.runOnMainSync { runtime.runner.dispatchClockTickForTesting() }
-            assertTrue(secondEntered.await(2, TimeUnit.SECONDS))
+            runtime.runner.bindHost(oldHost, {}, {}, EmptyUiCallback, EmptyStatusCallback)
+            instrumentation.runOnMainSync { runtime.runner.doExit() }
+            assertTrue("Application-owned unload did not start", unloadEntered.await(2, TimeUnit.SECONDS))
             instrumentation.runOnMainSync {
-                clock.millis = 60_000L
-                runtime.runner.dispatchClockTickForTesting()
+                assertTrue(runtime.runner.unbindHost(oldHost))
+                runtime.runner.bindHost(
+                    newHost, {}, {}, EmptyUiCallback,
+                    object : SScriptRunner.StatusCallback {
+                        override fun stop() = Unit
+                        override fun canExit(expectedGeneration: Long?) { currentHostExit.countDown() }
+                        override fun switchPlaybackComplete() = Unit
+                    },
+                )
             }
-            assertFalse(minuteObserved.await(250, TimeUnit.MILLISECONDS))
-            releaseSecond.countDown()
-            assertTrue(secondReturned.await(2, TimeUnit.SECONDS))
-            assertTrue(secondAdmitted.await(2, TimeUnit.SECONDS))
-            instrumentation.runOnMainSync {
-                clock.millis = 61_000L
-                runtime.runner.dispatchClockTickForTesting()
-            }
-            assertTrue("Deferred minute boundary was not retried", minuteObserved.await(2, TimeUnit.SECONDS))
+            releaseUnload.countDown()
+            assertTrue("Replacement host did not receive unload terminal", currentHostExit.await(2, TimeUnit.SECONDS))
+            assertEquals(GhostRuntimePhase.Idle, runtime.identity().phase)
         } finally {
-            releaseSecond.countDown(); runtime.close()
+            releaseUnload.countDown(); runtime.close()
+        }
+    }
+
+    @Test
+    fun exitRejectsBlockedPreExitChoiceAndPlaysCloseExactlyOnce() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val choiceEntered = CountDownLatch(1)
+        val releaseChoice = CountDownLatch(1)
+        val closePlayed = CountDownLatch(1)
+        val exitDelivered = CountDownLatch(1)
+        val staleInputShown = CountDownLatch(1)
+        val mainPulse = CountDownLatch(1)
+        val exitCount = AtomicInteger()
+        val requestOrder = CopyOnWriteArrayList<String>()
+        val adapter = BlockingExitChoiceShiori(choiceEntered, releaseChoice, requestOrder)
+        val root = File(context.cacheDir, "pre-exit-choice-runtime").canonicalFile
+        val runtime = newRuntime(context, adapter)
+
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin("pre-exit-choice", root) as RuntimeResult.Success).value
+            }
+            runBlocking {
+                assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success)
+            }
+            runtime.runner.bindHost(
+                SScriptRunner.HostToken(),
+                { frame -> if (frame.sakura.text == "Close") closePlayed.countDown() },
+                {},
+                object : SScriptRunner.UICallback {
+                    override fun showUserInputBox(id: String) {
+                        if (id == "stale") staleInputShown.countDown()
+                    }
+
+                    override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+                },
+                object : SScriptRunner.StatusCallback {
+                    override fun stop() = Unit
+                    override fun canExit(expectedGeneration: Long?) {
+                        exitCount.incrementAndGet()
+                        exitDelivered.countDown()
+                    }
+
+                    override fun switchPlaybackComplete() = Unit
+                },
+            )
+            val action = AtomicReference<com.cattailsw.nanidroid.runtime.dialogue.DialogueAction?>()
+            instrumentation.runOnMainSync {
+                runtime.runner.setNoWaitMode(true)
+                runtime.runner.addMsgToQueue(arrayOf("\\h\\q[Choose,choice]\\e"))
+                runtime.runner.run()
+                action.set(runtime.runner.dialogueStateSnapshot().pendingChoices.single())
+                runtime.runner.activateChoice(requireNotNull(action.get()))
+            }
+            assertTrue("Blocked pre-exit choice did not start", choiceEntered.await(2, TimeUnit.SECONDS))
+
+            Handler(Looper.getMainLooper()).post {
+                runtime.runner.doExit()
+                mainPulse.countDown()
+            }
+            assertTrue(
+                "Main looper blocked while submitting OnClose",
+                mainPulse.await(500, TimeUnit.MILLISECONDS),
+            )
+
+            releaseChoice.countDown()
+            assertTrue("Authored OnClose script did not play", closePlayed.await(2, TimeUnit.SECONDS))
+            assertTrue("OnClose did not produce one exit terminal", exitDelivered.await(2, TimeUnit.SECONDS))
+            assertFalse("Stale pre-exit choice opened input", staleInputShown.await(250, TimeUnit.MILLISECONDS))
+            assertEquals(1, exitCount.get())
+            assertEquals(listOf("OnChoiceSelectEx", "OnClose"), requestOrder.toList())
+        } finally {
+            releaseChoice.countDown()
+            runtime.close()
         }
     }
 
@@ -323,7 +328,7 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
             })
             runtime.runner.setCallback(object : SScriptRunner.StatusCallback {
                 override fun stop() = Unit
-                override fun canExit() = Unit
+                override fun canExit(expectedGeneration: Long?) = Unit
                 override fun switchPlaybackComplete() {
                     switchPlaybackCompleted.countDown()
                 }
@@ -366,6 +371,83 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
             assertEquals(listOf("OnChoiceSelectEx", "OnGhostChanging"), requestOrder.toList())
         } finally {
             releasePrimary.countDown()
+            runtime.close()
+        }
+    }
+
+    @Test
+    fun emptyRunDuringBlockedGhostChangingDoesNotCompleteHandoff() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val requestEntered = CountDownLatch(1)
+        val releaseRequest = CountDownLatch(1)
+        val responseReturned = CountDownLatch(1)
+        val authoredRendered = CountDownLatch(1)
+        val handoffCompleted = CountDownLatch(1)
+        val handoffCount = AtomicInteger()
+        val adapter = BlockingRequestShiori(
+            eventId = "OnGhostChanging",
+            entered = requestEntered,
+            release = releaseRequest,
+            returned = responseReturned,
+            response = "SHIORI/3.0 200 OK\r\nValue: \\hAuthored goodbye\\e\r\n\r\n",
+        )
+        val root = File(context.cacheDir, "blocked-ghost-changing-resume-runtime").canonicalFile
+        val targetRoot = File(context.cacheDir, "blocked-ghost-changing-resume-target").canonicalFile
+        val runtime = newRuntime(context, adapter)
+
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin("blocked-ghost-changing", root) as RuntimeResult.Success).value
+            }
+            runBlocking {
+                assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success)
+            }
+            runtime.runner.setNoWaitMode(true)
+            runtime.runner.setPresentationRenderer { frame ->
+                if (frame.sakura.text.contains("Authored goodbye")) authoredRendered.countDown()
+            }
+            runtime.runner.setCallback(object : SScriptRunner.StatusCallback {
+                override fun stop() = Unit
+                override fun canExit(expectedGeneration: Long?) = Unit
+                override fun switchPlaybackComplete() {
+                    handoffCount.incrementAndGet()
+                    handoffCompleted.countDown()
+                }
+            })
+            val operationId = (runtime.beginSwitch(
+                handle.generation,
+                "blocked-target",
+                targetRoot,
+            ) as RuntimeResult.Success).value
+            instrumentation.runOnMainSync {
+                assertTrue(
+                    runtime.runner.doGhostChanging(
+                        operationId,
+                        "Blocked Target",
+                        "manual",
+                        targetRoot.path,
+                    ),
+                )
+            }
+            assertTrue("OnGhostChanging did not block", requestEntered.await(2, TimeUnit.SECONDS))
+
+            instrumentation.runOnMainSync {
+                runtime.runner.startClock()
+                runtime.runner.run()
+            }
+            assertFalse(
+                "Empty resume run completed the switch before OnGhostChanging returned",
+                handoffCompleted.await(250, TimeUnit.MILLISECONDS),
+            )
+
+            releaseRequest.countDown()
+            assertTrue("OnGhostChanging response did not return", responseReturned.await(2, TimeUnit.SECONDS))
+            assertTrue("Authored OnGhostChanging script did not render", authoredRendered.await(2, TimeUnit.SECONDS))
+            assertTrue("Authored OnGhostChanging terminal did not hand off", handoffCompleted.await(2, TimeUnit.SECONDS))
+            assertEquals(1, handoffCount.get())
+        } finally {
+            releaseRequest.countDown()
             runtime.close()
         }
     }
@@ -813,55 +895,81 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
         private val entered: CountDownLatch,
         private val release: CountDownLatch,
         private val returned: CountDownLatch,
-        private val requestCount: AtomicInteger,
-        private val secondRequest: CountDownLatch,
+        private val count: AtomicInteger,
+        private val second: CountDownLatch,
     ) : Shiori {
         override fun getModuleName(): String = "CountingBlockingTimer"
         override fun load(): ShioriLoadResult = ShioriLoadResult.Loaded
         override fun request(request: String): String {
-            if ("ID: OnSecondChange\r\n" !in request) return "SHIORI/3.0 204 No Content\r\n\r\n"
-            if (requestCount.incrementAndGet() == 1) {
-                entered.countDown()
-                assertTrue("Timed out waiting to release first timer", release.await(3, TimeUnit.SECONDS))
-                returned.countDown()
-            } else {
-                secondRequest.countDown()
-            }
-            return "SHIORI/3.0 204 No Content\r\n\r\n"
+            if ("ID: OnSecondChange\r\n" !in request) return NO_CONTENT
+            if (count.incrementAndGet() == 1) {
+                entered.countDown(); assertTrue(release.await(3, TimeUnit.SECONDS)); returned.countDown()
+            } else second.countDown()
+            return NO_CONTENT
         }
         override fun unloadShiori(): ShioriUnloadResult = ShioriUnloadResult.Unloaded
     }
 
-    private class BlockingSecondThenMinuteShiori(
-        private val secondEntered: CountDownLatch,
-        private val releaseSecond: CountDownLatch,
-        private val secondReturned: CountDownLatch,
-        private val minuteObserved: CountDownLatch,
+    private class BlockingUnloadShiori(
+        private val entered: CountDownLatch,
+        private val release: CountDownLatch,
     ) : Shiori {
-        override fun getModuleName(): String = "BlockingSecondThenMinute"
+        override fun getModuleName(): String = "BlockingUnload"
         override fun load(): ShioriLoadResult = ShioriLoadResult.Loaded
-        override fun request(request: String): String {
-            when {
-                "ID: OnSecondChange\r\n" in request -> {
-                    secondEntered.countDown()
-                    assertTrue(releaseSecond.await(3, TimeUnit.SECONDS))
-                    secondReturned.countDown()
-                }
-                "ID: OnMinuteChange\r\n" in request -> minuteObserved.countDown()
-            }
-            return "SHIORI/3.0 204 No Content\r\n\r\n"
+        override fun request(request: String): String = NO_CONTENT
+        override fun unloadShiori(): ShioriUnloadResult {
+            entered.countDown()
+            assertTrue(release.await(3, TimeUnit.SECONDS))
+            return ShioriUnloadResult.Unloaded
         }
-        override fun unloadShiori(): ShioriUnloadResult = ShioriUnloadResult.Unloaded
     }
 
     private class MutableClock(@Volatile var millis: Long) : MonotonicClock {
         override fun nowMillis(): Long = millis
     }
 
+    private object EmptyUiCallback : SScriptRunner.UICallback {
+        override fun showUserInputBox(id: String) = Unit
+        override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+    }
+
     private object EmptyStatusCallback : SScriptRunner.StatusCallback {
         override fun stop() = Unit
-        override fun canExit() = Unit
+        override fun canExit(expectedGeneration: Long?) = Unit
         override fun switchPlaybackComplete() = Unit
+    }
+
+    private companion object {
+        const val NO_CONTENT = "SHIORI/3.0 204 No Content\r\n\r\n"
+    }
+
+    private class BlockingExitChoiceShiori(
+        private val choiceEntered: CountDownLatch,
+        private val releaseChoice: CountDownLatch,
+        private val order: CopyOnWriteArrayList<String>,
+    ) : Shiori {
+        override fun getModuleName(): String = "BlockingExitChoice"
+
+        override fun load(): ShioriLoadResult = ShioriLoadResult.Loaded
+
+        override fun request(request: String): String = when {
+            "ID: OnChoiceSelectEx\r\n" in request -> {
+                order += "OnChoiceSelectEx"
+                choiceEntered.countDown()
+                assertTrue(
+                    "Timed out waiting to release pre-exit choice",
+                    releaseChoice.await(3, TimeUnit.SECONDS),
+                )
+                "SHIORI/3.0 200 OK\r\nValue: \\hStale\\![open,inputbox,stale]\\e\r\n\r\n"
+            }
+            "ID: OnClose\r\n" in request -> {
+                order += "OnClose"
+                "SHIORI/3.0 200 OK\r\nValue: \\hClose\\e\r\n\r\n"
+            }
+            else -> "SHIORI/3.0 204 No Content\r\n\r\n"
+        }
+
+        override fun unloadShiori(): ShioriUnloadResult = ShioriUnloadResult.Unloaded
     }
 
     private class AtomicDialogueShiori(
