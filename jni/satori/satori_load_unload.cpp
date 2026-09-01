@@ -242,11 +242,16 @@ bool	Satori::load(const string& iBaseFolder)
 
 	// 指定フォルダの辞書を読み込み
 	strvec::iterator i = dic_folder.begin();
+	bool loaded_dictionary = false;
 	if ( i==dic_folder.end() ) {
-		LoadDicFolder(mBaseFolder);	// ルートフォルダの辞書
+		loaded_dictionary = LoadDicFolder(mBaseFolder);	// ルートフォルダの辞書
 	} else {
 		for ( ; i!=dic_folder.end() ; ++i )
-			LoadDicFolder(mBaseFolder + *i + DIR_CHAR);	// サブフォルダの辞書
+			loaded_dictionary = LoadDicFolder(mBaseFolder + *i + DIR_CHAR) || loaded_dictionary;	// サブフォルダの辞書
+	}
+	if ( !loaded_dictionary ) {
+		sender << "load failed: no usable Satori dictionary." << endl;
+		return false;
 	}
 
 	//------------------------------------------

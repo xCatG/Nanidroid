@@ -22,16 +22,24 @@ class ComposeStageRetirementContractTest(unittest.TestCase):
         )
         self.assertIn("fun setPresentationRenderer(renderer: GhostPresentationRenderer?)", source)
         self.assertIn("fun dispatchSurfaceInteraction(effect: SurfaceInteractionEffect): Boolean", source)
+        self.assertNotIn("fun dispatchComposeDoubleClick", source)
         self.assertNotIn("fun setViews(", source)
         self.assertNotIn("fun setLayoutMgr(", source)
         self.assertNotIn("LegacyGhostPresentationRenderer", source)
         self.assertNotIn("SakuraView", source)
         self.assertNotIn("KeroView", source)
 
-    def test_compose_stage_owns_geometry_images_pointer_routing_and_balloons(self):
+    def test_compose_stage_stack_owns_geometry_images_pointer_routing_and_balloons(self):
         stage = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/compose/GhostPresentationStage.kt").read_text(
             encoding="utf-8"
         )
+        measured_layout = (
+            ROOT
+            / "src/main/kotlin/com/cattailsw/nanidroid/compose/stage/MeasuredGhostStageLayout.kt"
+        ).read_text(encoding="utf-8")
+        bubble = (
+            ROOT / "src/main/kotlin/com/cattailsw/nanidroid/compose/stage/GhostBubble.kt"
+        ).read_text(encoding="utf-8")
         host = (ROOT / "src/main/kotlin/com/cattailsw/nanidroid/compose/ComposeGhostStageHost.kt").read_text(
             encoding="utf-8"
         )

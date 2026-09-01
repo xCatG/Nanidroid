@@ -17,12 +17,13 @@ class SakuraScriptCharacterizationTest {
         com.cattailsw.nanidroid.HostAndroidStubRule()
     private val trace = Trace()
     private lateinit var runner: com.cattailsw.nanidroid.SScriptRunner
+    private lateinit var runtimeFixture: RuntimeFixture
 
     @Before
     fun setUp() {
-        runner = SScriptRunner(null, GhostSessionCoordinator())
+        runtimeFixture = RuntimeFixture(autoStart = false)
+        runner = runtimeFixture.runner
         runner.setNoWaitMode(true)
-        runner.setGhost(null)
         runner.setCallback(null)
         runner.setUICallback(RecordingUiCallback(trace))
         runner.setPresentationRenderer(RecordingRenderer(trace))
@@ -39,8 +40,8 @@ class SakuraScriptCharacterizationTest {
         runner.setUICallback(null)
         runner.clearMsgQueue()
         runner.setCallback(null)
-        runner.setGhost(null)
         runner.setNoWaitMode(true)
+        runtimeFixture.close()
     }
 
     @Test

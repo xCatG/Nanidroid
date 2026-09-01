@@ -235,17 +235,25 @@ inline void enlarge_loghandler_list(size_t size){
  */
 extern "C" DLLEXPORT BOOL_TYPE FUNCATTRIB loadu(yaya::global_t h, long len)
 {
-	if ( vm[0] ) { delete vm[0]; }
+	if ( vm[0] ) {
+		delete vm[0];
+		vm[0] = NULL;
+	}
 
 	id_now=0;
 	enlarge_loghandler_list(1);
-	vm[0] = new CAyaVMWrapper(modulename,h,len,true);
+	CAyaVMWrapper *loaded_vm = new CAyaVMWrapper(modulename,h,len,true);
 
 #if defined(WIN32) || defined(_WIN32_WCE)
 	::GlobalFree(h);
 #elif defined(POSIX)
     free(h);
 #endif
+	if ( loaded_vm->IsSuppress() ) {
+		delete loaded_vm;
+		return 0;
+	}
+	vm[0] = loaded_vm;
 
     return 1;
 }
@@ -256,13 +264,18 @@ extern "C" DLLEXPORT BOOL_TYPE FUNCATTRIB load(yaya::global_t h, long len)
 
 	id_now=0;
 	enlarge_loghandler_list(1);
-	vm[0] = new CAyaVMWrapper(modulename,h,len,false);
+	CAyaVMWrapper *loaded_vm = new CAyaVMWrapper(modulename,h,len,false);
 
 #if defined(WIN32) || defined(_WIN32_WCE)
 	::GlobalFree(h);
 #elif defined(POSIX)
     free(h);
 #endif
+	if ( loaded_vm->IsSuppress() ) {
+		delete loaded_vm;
+		return 0;
+	}
+	vm[0] = loaded_vm;
 
     return 1;
 }
