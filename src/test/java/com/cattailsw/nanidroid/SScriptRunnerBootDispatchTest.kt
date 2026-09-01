@@ -192,8 +192,8 @@ class SScriptRunnerBootDispatchTest {
         Assert.assertEquals(
             listOf(
                 "GET:OnSecondChange:[0, 0, 0, 1]",
-                "GET:OnSecondChange:[0, 0, 0, 1]",
                 "GET:OnMinuteChange:[0, 0, 0, 1]",
+                "GET:OnSecondChange:[0, 0, 0, 1]",
             ),
             harness.rawRequests,
         )
@@ -215,8 +215,8 @@ class SScriptRunnerBootDispatchTest {
             listOf(
                 "GET:OnSecondChange:[0, 0, 0, 1]",
                 "GET:OnSecondChange:[0, 0, 0, 1]",
-                "GET:OnSecondChange:[0, 0, 0, 1]",
                 "GET:OnMinuteChange:[0, 0, 0, 1]",
+                "GET:OnSecondChange:[0, 0, 0, 1]",
             ),
             harness.rawRequests,
         )
@@ -235,6 +235,26 @@ class SScriptRunnerBootDispatchTest {
         harness.runner.dispatchClockTickForTesting()
 
         assertSakuraText(harness.runner, "Intervening")
+    }
+
+    @Test
+    fun timerGetFromStoppedClockDoesNotPlayAfterClockRestarts() {
+        lateinit var harness: Harness
+        val hooks = SScriptPlaybackHooks(
+            beforeTimerResponseAdmission = {
+                harness.runner.stopClock()
+                harness.runner.startClock()
+            },
+        )
+        harness = harness(FakeClock(1_000L), playbackHooks = hooks)
+        harness.runner.setNoWaitMode(true)
+        harness.runner.startClock()
+        harness.responses += talk("\\hStaleTimer\\e")
+
+        harness.runner.dispatchClockTickForTesting()
+
+        Assert.assertTrue(harness.runner.dialogueStateSnapshot().contents.isEmpty())
+        harness.runner.stopClock()
     }
 
     @Test

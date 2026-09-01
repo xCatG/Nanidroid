@@ -270,6 +270,13 @@ and underlying failure plus failed/uncertain cleanup is `-2`.
 status only when underlying load/unload reports success. YAYA's charset function throws when
 `gYayaLoaded` is false instead of returning UTF-8.
 
+An existing directory is not sufficient load evidence. Satori aggregates
+successful parsing of `dic*.txt`/`dic*.sat` across the dictionary roots selected
+by `satori_conf.txt` and returns failure when none loads; a preprocessing error
+does not count as success. YAYA retains a newly constructed normal/emergency VM
+only when configuration leaves it unsuppressed. Both failures must return `0`,
+leave the JNI owner flag empty, and permit an independent second runtime attempt.
+
 Change Kawari load to `jint` and unload to `jboolean`. Its load starts with:
 
 ```cpp
@@ -306,7 +313,9 @@ Replace the old Kawari implicit-dispose assertion with checks for `if (h != 0)`,
 owner-present returns without `unload()`, load signatures return `I`, and unload
 signatures return `Z`. For Satori and YAYA, assert the loaded-flag check appears
 before `GetStringUTFChars`/allocation and that one mutex guard spans both the
-check and underlying `load` call.
+check and underlying `load` call. Add ungated device cases for empty Satori and
+YAYA roots plus a malformed sole Satori dictionary; drive each case through two
+fresh `GhostRuntime` attempts so a hidden retained native owner is observable.
 
 Run:
 
@@ -803,6 +812,16 @@ generation is published by either uncertain terminal.
 `request(expectedGeneration: Long, intent: ShioriRequestIntent):
 RuntimeResult<TaggedShioriResponse>` validates the generation before passing
 `intent.protocolText` to the adapter and returns a parsed tagged response.
+Add `requestAsync(expectedGeneration, intent)` for main-looper runner routes.
+It submits the identical command and returns an accepted data-only future or a
+typed rejected submission; it never accepts or invokes runner callback code on
+the native executor. The synchronous helper remains for bootstrap,
+instrumentation, and callers already off the main looper.
+Add one `requestWithFallback[Async]` command for dialogue primary/legacy pairs.
+It executes both requests inside one native queue command, skips fallback after
+a status-200/nonempty-`Value` primary, runs it after a non-playable or replayable
+primary, and stops after fatal/poison or stale results. The fallback result is
+the single final tagged result; ordinary requests remain independently queued.
 `ShioriRequestException(ownershipCertain = true)` becomes replayable failure;
 `ownershipCertain = false` poisons the runtime. `unload(expectedGeneration):
 RuntimeResult<Unit>` clears the
@@ -1068,6 +1087,25 @@ private fun requestCurrent(intent: ShioriRequestIntent): Boolean {
 ```
 
 The helper itself is never called while already holding the runner monitor.
+Add a device test that blocks the adapter from a real timer route, proves a
+queued main-looper pulse still runs, releases the request, and proves response
+admission occurs on the main looper.
+
+For authored playback requests, keep a separate pending-response bit on the
+exact `PlaybackState`; do not reuse the user-input pause flag. `loopControl`
+does not advance, reset, or stop that state until admission terminalizes. Queue
+a playable returned script before clearing the bit and resuming. Failure, 204,
+stale generation, pre-submit unpinning, stop, and replacement must all clear or
+retire the bit without reviving a dead state. Add blocked `OnSurfaceChange`
+device cases for live response ordering and stopped/replaced stale completion.
+
+For dialogue actions with an extended event plus legacy fallback, submit the
+pair through the queue-atomic runtime command rather than waiting for primary
+main-side admission before submitting fallback. Add a device RED/GREEN that
+blocks the primary, queues a timer while main remains responsive, and requires
+primary → fallback → timer adapter order plus final fallback playback. Cover
+playable primary, replayable/fatal primary, stale generation, and fallback
+failure terminals in the runtime matrix.
 
 - [ ] **Step 6: Replace startup reservations with runtime joining/attachment**
 
