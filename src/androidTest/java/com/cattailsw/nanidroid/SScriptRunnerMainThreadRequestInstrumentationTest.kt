@@ -19,6 +19,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -69,13 +70,19 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val returned = CountDownLatch(1)
+        val responseAdmitted = CountDownLatch(1)
         val second = CountDownLatch(1)
         val count = AtomicInteger()
         val clock = MutableClock(1_000L)
         val runtime = newRuntime(
             context,
             CountingBlockingTimerShiori(entered, release, returned, count, second),
-            SScriptRunnerConfiguration(monotonicClock = clock),
+            SScriptRunnerConfiguration(
+                monotonicClock = clock,
+                playbackHooks = SScriptPlaybackHooks(
+                    beforeRequestResponseAdmission = { responseAdmitted.countDown() },
+                ),
+            ),
         )
         try {
             val handle = runBlocking {
@@ -91,6 +98,7 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
             assertEquals(1, count.get())
             release.countDown()
             assertTrue(returned.await(2, TimeUnit.SECONDS))
+            assertTrue(responseAdmitted.await(2, TimeUnit.SECONDS))
             instrumentation.runOnMainSync {
                 clock.millis = 4_000L; runtime.runner.dispatchClockTickForTesting()
             }
@@ -581,6 +589,223 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
     }
 
     @Test
+    fun slowTimerRequestCoalescesRepeatedElapsedTicksUntilCompletion() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val clock = AtomicLong(1_000L)
+        val firstEntered = CountDownLatch(1)
+        val releaseFirst = CountDownLatch(1)
+        val firstReturned = CountDownLatch(1)
+        val firstAdmitted = CountDownLatch(1)
+        val laterRequestObserved = CountDownLatch(1)
+        val requestCount = AtomicInteger()
+        val adapter = BlockingCountingTimerShiori(
+            "OnSecondChange", firstEntered, releaseFirst, firstReturned,
+            laterRequestObserved, requestCount,
+        )
+        val runtime = newRuntime(
+            context, adapter,
+            SScriptRunnerConfiguration(
+                monotonicClock = MonotonicClock(clock::get),
+                playbackHooks = SScriptPlaybackHooks(
+                    beforeRequestResponseAdmission = { firstAdmitted.countDown() },
+                ),
+            ),
+        )
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin("coalesced-timer", File(context.cacheDir, "coalesced-timer")) as RuntimeResult.Success).value
+            }
+            runBlocking { assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success) }
+            instrumentation.runOnMainSync { runtime.runner.dispatchClockTickForTesting() }
+            assertTrue(firstEntered.await(2, TimeUnit.SECONDS))
+            instrumentation.runOnMainSync {
+                clock.set(2_000L); runtime.runner.dispatchClockTickForTesting()
+                clock.set(3_000L); runtime.runner.dispatchClockTickForTesting()
+            }
+            releaseFirst.countDown()
+            assertTrue(firstReturned.await(2, TimeUnit.SECONDS))
+            assertTrue(firstAdmitted.await(2, TimeUnit.SECONDS))
+            assertFalse(laterRequestObserved.await(500, TimeUnit.MILLISECONDS))
+            assertEquals(1, requestCount.get())
+            instrumentation.runOnMainSync {
+                clock.set(4_000L); runtime.runner.dispatchClockTickForTesting()
+            }
+            assertTrue(laterRequestObserved.await(2, TimeUnit.SECONDS))
+            assertEquals(2, requestCount.get())
+        } finally {
+            releaseFirst.countDown(); runtime.close()
+        }
+    }
+
+    @Test
+    fun coalescedMinuteBoundaryRetriesAfterPendingMinuteCompletes() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val clock = AtomicLong(59_000L)
+        val firstEntered = CountDownLatch(1)
+        val releaseFirst = CountDownLatch(1)
+        val firstReturned = CountDownLatch(1)
+        val firstAdmitted = CountDownLatch(1)
+        val laterRequestObserved = CountDownLatch(1)
+        val requestCount = AtomicInteger()
+        val adapter = BlockingCountingTimerShiori(
+            "OnMinuteChange", firstEntered, releaseFirst, firstReturned,
+            laterRequestObserved, requestCount,
+        )
+        val runtime = newRuntime(
+            context, adapter,
+            SScriptRunnerConfiguration(
+                monotonicClock = MonotonicClock(clock::get),
+                playbackHooks = SScriptPlaybackHooks(
+                    beforeRequestResponseAdmission = {
+                        if (firstReturned.count == 0L) firstAdmitted.countDown()
+                    },
+                ),
+            ),
+        )
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin("retried-minute", File(context.cacheDir, "retried-minute")) as RuntimeResult.Success).value
+            }
+            runBlocking { assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success) }
+            instrumentation.runOnMainSync {
+                runtime.runner.dispatchClockTickForTesting()
+                clock.set(60_000L); runtime.runner.dispatchClockTickForTesting()
+            }
+            assertTrue(firstEntered.await(2, TimeUnit.SECONDS))
+            instrumentation.runOnMainSync {
+                clock.set(120_000L); runtime.runner.dispatchClockTickForTesting()
+            }
+            releaseFirst.countDown()
+            assertTrue(firstReturned.await(2, TimeUnit.SECONDS))
+            assertTrue(firstAdmitted.await(2, TimeUnit.SECONDS))
+            assertFalse(laterRequestObserved.await(500, TimeUnit.MILLISECONDS))
+            instrumentation.runOnMainSync { runtime.runner.dispatchClockTickForTesting() }
+            assertTrue(laterRequestObserved.await(2, TimeUnit.SECONDS))
+            assertEquals(2, requestCount.get())
+        } finally {
+            releaseFirst.countDown(); runtime.close()
+        }
+    }
+
+    @Test
+    fun minuteBoundaryUsesModeAfterSecondResponseAdmission() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val clock = AtomicLong(59_000L)
+        val initialSecondReturned = CountDownLatch(1)
+        val initialSecondAdmitted = CountDownLatch(1)
+        val boundarySecondEntered = CountDownLatch(1)
+        val releaseBoundarySecond = CountDownLatch(1)
+        val minuteObserved = CountDownLatch(1)
+        val minuteRequest = AtomicReference<String?>()
+        val runtime = newRuntime(
+            context,
+            BoundaryTimerShiori(
+                initialSecondReturned,
+                boundarySecondEntered,
+                releaseBoundarySecond,
+                minuteObserved,
+                minuteRequest,
+            ),
+            SScriptRunnerConfiguration(
+                monotonicClock = MonotonicClock(clock::get),
+                playbackHooks = SScriptPlaybackHooks(
+                    beforeRequestResponseAdmission = {
+                        if (initialSecondReturned.count == 0L) initialSecondAdmitted.countDown()
+                    },
+                ),
+            ),
+        )
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin(
+                    "minute-after-second",
+                    File(context.cacheDir, "minute-after-second"),
+                ) as RuntimeResult.Success).value
+            }
+            runBlocking { assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success) }
+            instrumentation.runOnMainSync { runtime.runner.dispatchClockTickForTesting() }
+            assertTrue("Initial second did not settle", initialSecondReturned.await(2, TimeUnit.SECONDS))
+            assertTrue("Initial second was not admitted", initialSecondAdmitted.await(2, TimeUnit.SECONDS))
+
+            instrumentation.runOnMainSync {
+                clock.set(60_000L)
+                runtime.runner.dispatchClockTickForTesting()
+            }
+            assertTrue("Boundary second did not start", boundarySecondEntered.await(2, TimeUnit.SECONDS))
+            releaseBoundarySecond.countDown()
+            assertTrue("Deferred minute request was not sent", minuteObserved.await(2, TimeUnit.SECONDS))
+
+            val request = requireNotNull(minuteRequest.get())
+            assertTrue("Minute request did not observe active second dialogue: $request", request.startsWith("NOTIFY "))
+            assertTrue("Minute request kept idle Reference3: $request", "Reference3: 0\r\n" in request)
+        } finally {
+            releaseBoundarySecond.countDown()
+            runtime.close()
+        }
+    }
+
+    @Test
+    fun stoppingClockCancelsMinuteDeferredBehindSecondAdmission() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val clock = AtomicLong(59_000L)
+        val initialSecondReturned = CountDownLatch(1)
+        val initialSecondAdmitted = CountDownLatch(1)
+        val boundarySecondEntered = CountDownLatch(1)
+        val releaseBoundarySecond = CountDownLatch(1)
+        val minuteObserved = CountDownLatch(1)
+        val runtime = newRuntime(
+            context,
+            BoundaryTimerShiori(
+                initialSecondReturned,
+                boundarySecondEntered,
+                releaseBoundarySecond,
+                minuteObserved,
+                AtomicReference(),
+            ),
+            SScriptRunnerConfiguration(
+                monotonicClock = MonotonicClock(clock::get),
+                playbackHooks = SScriptPlaybackHooks(
+                    beforeRequestResponseAdmission = {
+                        if (initialSecondReturned.count == 0L) initialSecondAdmitted.countDown()
+                    },
+                ),
+            ),
+        )
+        try {
+            val handle = runBlocking {
+                (runtime.startOrJoin(
+                    "stopped-deferred-minute",
+                    File(context.cacheDir, "stopped-deferred-minute"),
+                ) as RuntimeResult.Success).value
+            }
+            runBlocking { assertTrue(runtime.attachHost(handle.generation) is RuntimeResult.Success) }
+            instrumentation.runOnMainSync { runtime.runner.dispatchClockTickForTesting() }
+            assertTrue(initialSecondReturned.await(2, TimeUnit.SECONDS))
+            assertTrue(initialSecondAdmitted.await(2, TimeUnit.SECONDS))
+            instrumentation.runOnMainSync {
+                clock.set(60_000L)
+                runtime.runner.dispatchClockTickForTesting()
+            }
+            assertTrue("Boundary second did not start", boundarySecondEntered.await(2, TimeUnit.SECONDS))
+
+            instrumentation.runOnMainSync { runtime.runner.stopClock() }
+            releaseBoundarySecond.countDown()
+
+            assertFalse(
+                "Stopped clock dispatched its deferred minute",
+                minuteObserved.await(500, TimeUnit.MILLISECONDS),
+            )
+        } finally {
+            releaseBoundarySecond.countDown()
+            runtime.close()
+        }
+    }
+
+    @Test
     fun blockedSurfaceResponsePausesItsPlaybackThenPlaysReturnedScriptInOrder() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -941,6 +1166,62 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
 
     private companion object {
         const val NO_CONTENT = "SHIORI/3.0 204 No Content\r\n\r\n"
+    }
+
+    private class BlockingCountingTimerShiori(
+        private val eventId: String,
+        private val firstEntered: CountDownLatch,
+        private val releaseFirst: CountDownLatch,
+        private val firstReturned: CountDownLatch,
+        private val laterRequestObserved: CountDownLatch,
+        private val requestCount: AtomicInteger,
+    ) : Shiori {
+        override fun getModuleName(): String = "BlockingCountingTimer"
+        override fun load(): ShioriLoadResult = ShioriLoadResult.Loaded
+        override fun request(request: String): String {
+            if ("ID: $eventId\r\n" in request) {
+                if (requestCount.incrementAndGet() == 1) {
+                    firstEntered.countDown()
+                    assertTrue(releaseFirst.await(3, TimeUnit.SECONDS))
+                    firstReturned.countDown()
+                } else {
+                    laterRequestObserved.countDown()
+                }
+            }
+            return NO_CONTENT
+        }
+        override fun unloadShiori(): ShioriUnloadResult = ShioriUnloadResult.Unloaded
+    }
+
+    private class BoundaryTimerShiori(
+        private val initialSecondReturned: CountDownLatch,
+        private val boundarySecondEntered: CountDownLatch,
+        private val releaseBoundarySecond: CountDownLatch,
+        private val minuteObserved: CountDownLatch,
+        private val minuteRequest: AtomicReference<String?>,
+    ) : Shiori {
+        private val secondCount = AtomicInteger()
+
+        override fun getModuleName(): String = "BoundaryTimer"
+        override fun load(): ShioriLoadResult = ShioriLoadResult.Loaded
+        override fun request(request: String): String = when {
+            "ID: OnSecondChange\r\n" in request && secondCount.incrementAndGet() == 1 -> {
+                initialSecondReturned.countDown()
+                NO_CONTENT
+            }
+            "ID: OnSecondChange\r\n" in request -> {
+                boundarySecondEntered.countDown()
+                assertTrue(releaseBoundarySecond.await(3, TimeUnit.SECONDS))
+                "SHIORI/3.0 200 OK\r\nValue: \\hSecond\\e\r\n\r\n"
+            }
+            "ID: OnMinuteChange\r\n" in request -> {
+                minuteRequest.set(request)
+                minuteObserved.countDown()
+                NO_CONTENT
+            }
+            else -> NO_CONTENT
+        }
+        override fun unloadShiori(): ShioriUnloadResult = ShioriUnloadResult.Unloaded
     }
 
     private class BlockingExitChoiceShiori(
