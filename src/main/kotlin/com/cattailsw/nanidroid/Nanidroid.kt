@@ -442,17 +442,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     private suspend fun attachRuntimeHandle(handle: GhostHandle): GhostHandle? {
         return when (ghostRuntime.attachHost(handle.generation)) {
             is RuntimeResult.Success -> {
-                val identity = ghostRuntime.identity()
-                val current = identity.activeHandle ?: return null
-                val compatiblePhase = identity.phase == GhostRuntimePhase.Attached ||
-                    identity.phase == GhostRuntimePhase.SwitchPlayback
-                if (
-                    !compatiblePhase ||
-                    current.generation != handle.generation
-                ) {
-                    return null
-                }
-                current
+                ghostRuntime.identity().playbackHandle(handle.generation)
             }
             is RuntimeResult.Failure -> null
         }
@@ -502,11 +492,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         ) {
             return false
         }
-        val identity = ghostRuntime.identity()
-        val current = identity.activeHandle ?: return false
-        val compatiblePhase = identity.phase == GhostRuntimePhase.Attached ||
-            identity.phase == GhostRuntimePhase.SwitchPlayback
-        return compatiblePhase && current.generation == handle.generation
+        return ghostRuntime.identity().playbackHandle(handle.generation) != null
     }
 
     private fun adoptRuntimeHandle(
@@ -552,10 +538,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             GhostRuntimePhase.Unattached,
             GhostRuntimePhase.Attaching,
             -> identity.activeHandle?.let { attachRuntimeHandle(it) }
-            GhostRuntimePhase.Attached,
-            GhostRuntimePhase.SwitchPlayback,
-            -> identity.activeHandle
-            else -> null
+            else -> identity.playbackHandle()
         } ?: return
         adoptRuntimeHandle(
             lease,
@@ -571,10 +554,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             GhostRuntimePhase.Unattached,
             GhostRuntimePhase.Attaching,
             -> attachRuntimeHandle(handle)
-            GhostRuntimePhase.Attached,
-            GhostRuntimePhase.SwitchPlayback,
-            -> handle
-            else -> null
+            else -> settled.playbackHandle(handle.generation)
         }
     }
 
