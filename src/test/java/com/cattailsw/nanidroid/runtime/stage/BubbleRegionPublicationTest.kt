@@ -5,12 +5,11 @@ import androidx.compose.ui.unit.IntRect
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertSame
 import org.junit.Test
 
 class BubbleRegionPublicationTest {
     @Test
-    fun replacementIsAtomicOrderedHalfOpenAndRejectsAStaleGeometryFence() {
+    fun replacementIsAtomicOrderedHalfOpenAndTracksGeneration() {
         val firstAction = DialogueAction.Normal("First", "first", emptyList())
         val replacementAction = DialogueAction.Normal("Replacement", "replacement", emptyList())
         val firstFence = BubbleRegionFence(
@@ -20,10 +19,8 @@ class BubbleRegionPublicationTest {
             frame = IntRect(0, 0, 30, 30),
         )
         val replacementFence = firstFence.copy(contentRevision = 2L)
-        val first = BubbleRegionPublicationPolicy.replace(
-            current = BubbleRegionPublication.Empty,
-            expectedFence = null,
-            next = BubbleRegionSet(
+        val first = BubbleRegionPublication.Empty.replace(
+            BubbleRegionSet(
                 fence = firstFence,
                 actionRegions = listOf(
                     MeasuredBubbleHitRegion(
@@ -50,10 +47,8 @@ class BubbleRegionPublicationTest {
         assertEquals(BubbleInteractionTarget.Frame(SurfaceSpeaker.SAKURA), firstRegistry.resolve(Offset(20f, 5f)))
         assertEquals(null, firstRegistry.resolve(Offset(30f, 5f)))
 
-        val replacement = BubbleRegionPublicationPolicy.replace(
-            current = first,
-            expectedFence = firstFence,
-            next = BubbleRegionSet(
+        val replacement = first.replace(
+            BubbleRegionSet(
                 fence = replacementFence,
                 actionRegions = listOf(
                     MeasuredBubbleHitRegion(
@@ -73,30 +68,7 @@ class BubbleRegionPublicationTest {
             replacementRegistry.resolve(Offset(12f, 5f)),
         )
 
-        val rejectedStaleWrite = BubbleRegionPublicationPolicy.replace(
-            current = replacement,
-            expectedFence = firstFence,
-            next = BubbleRegionSet(
-                fence = firstFence,
-                actionRegions = emptyList(),
-                scrollViewport = null,
-            ),
-        )
-
-        assertSame(replacement, rejectedStaleWrite)
-
-        val rejectedStaleRemoval = BubbleRegionPublicationPolicy.remove(
-            current = replacement,
-            expectedFence = firstFence,
-            speaker = SurfaceSpeaker.SAKURA,
-        )
-        assertSame(replacement, rejectedStaleRemoval)
-
-        val removed = BubbleRegionPublicationPolicy.remove(
-            current = replacement,
-            expectedFence = replacementFence,
-            speaker = SurfaceSpeaker.SAKURA,
-        )
+        val removed = replacement.remove(SurfaceSpeaker.SAKURA)
         assertEquals(3L, removed.generation)
         assertEquals(emptyList<MeasuredBubbleHitRegion>(), removed.regions)
         assertEquals(null, removed.fence(SurfaceSpeaker.SAKURA))

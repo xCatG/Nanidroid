@@ -5,8 +5,6 @@ import com.cattailsw.nanidroid.runtime.stage.GhostStageLayoutPolicy as AdaptiveS
 import com.cattailsw.nanidroid.runtime.stage.StageDisplayFeature
 import com.cattailsw.nanidroid.runtime.stage.StageDpRect
 import com.cattailsw.nanidroid.runtime.stage.StageEnvironment
-import com.cattailsw.nanidroid.runtime.stage.StageInputCapabilities
-import com.cattailsw.nanidroid.runtime.stage.StageLayoutDirection
 import com.cattailsw.nanidroid.runtime.stage.StageMode
 import com.cattailsw.nanidroid.runtime.stage.StagePosture
 import org.junit.Assert
@@ -74,16 +72,6 @@ class GhostStageLayoutPolicyTest {
     }
 
     @Test
-    fun `physical speaker lanes never mirror in RTL`() {
-        val ltr = AdaptiveStageLayoutPolicy.calculate(environment(720, 360, StageLayoutDirection.LTR))
-        val rtl = AdaptiveStageLayoutPolicy.calculate(environment(720, 360, StageLayoutDirection.RTL))
-
-        Assert.assertEquals(ltr.keroLane, rtl.keroLane)
-        Assert.assertEquals(ltr.sakuraLane, rtl.sakuraLane)
-        Assert.assertTrue(requireNotNull(rtl.keroLane).left < requireNotNull(rtl.sakuraLane).left)
-    }
-
-    @Test
     fun `tiny layout publishes no invisible interactive rectangles`() {
         val layout = AdaptiveStageLayoutPolicy.calculate(environment(480, 230))
 
@@ -100,16 +88,12 @@ class GhostStageLayoutPolicyTest {
     private fun environment(
         width: Int,
         height: Int,
-        direction: StageLayoutDirection = StageLayoutDirection.LTR,
     ) = StageEnvironment(
         safeBounds = StageDpRect(0.dp, 0.dp, width.dp, height.dp),
         density = 1f,
-        fontScale = 1f,
         canonicalAppBarHeight = 0.dp,
         posture = StagePosture.FLAT,
         displayFeatures = emptyList<StageDisplayFeature>(),
-        inputCapabilities = StageInputCapabilities(true, true, true, true),
-        layoutDirection = direction,
     )
 
     private fun assertRect(left: Float, top: Float, right: Float, bottom: Float, actual: StageDpRect) {

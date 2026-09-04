@@ -7,9 +7,7 @@ import android.content.res.Configuration
 import android.hardware.input.InputManager
 import android.view.InputDevice
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.currentWindowSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.window.core.layout.WindowSizeClass
 import androidx.window.layout.DisplayFeature
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
@@ -37,14 +34,11 @@ import com.cattailsw.nanidroid.runtime.stage.StageDisplayFeature
 import com.cattailsw.nanidroid.runtime.stage.StageDpRect
 import com.cattailsw.nanidroid.runtime.stage.StageEnvironment
 import com.cattailsw.nanidroid.runtime.stage.StageInputCapabilities
-import com.cattailsw.nanidroid.runtime.stage.StageLayoutDirection
 import com.cattailsw.nanidroid.runtime.stage.StagePosture
 import com.cattailsw.nanidroid.runtime.stage.StagePointingDeviceCapabilities
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-
-data class IntInsetsPx(val left: Int, val top: Int, val right: Int, val bottom: Int)
 
 data class StageWindowFeature(
     val bounds: IntRect,
@@ -102,18 +96,14 @@ internal class RegisteredInputCapabilitySource(
     }
 }
 
-/** Window-local adaptive facts. IME is retained only for diagnostics and never classification. */
+/** Window-local adaptive facts. */
 data class StageWindowEnvironment(
     val windowSizePx: IntSize,
     val safeBoundsInWindowPx: IntRect,
     val density: Float,
-    val fontScale: Float,
-    val canonicalWindowSizeClass: WindowSizeClass?,
     val posture: StagePosture,
     val displayFeatures: List<StageWindowFeature>,
     val inputCapabilities: StageInputCapabilities,
-    val layoutDirection: StageLayoutDirection,
-    val imeInsetsPx: IntInsetsPx,
 ) {
     fun toStageEnvironment(
         stageBoundsInWindowPx: IntRect,
@@ -151,34 +141,10 @@ data class StageWindowEnvironment(
         return StageEnvironment(
             safeBounds = safe,
             density = density,
-            fontScale = fontScale,
             canonicalAppBarHeight = canonicalAppBarHeight,
             posture = posture,
             displayFeatures = features,
-            inputCapabilities = inputCapabilities,
-            layoutDirection = layoutDirection,
             ghostKey = ghostKey,
-        )
-    }
-
-    companion object {
-        fun forTest(
-            windowSizePx: IntSize,
-            safeBoundsInWindowPx: IntRect,
-            density: Float,
-            fontScale: Float,
-            displayFeatures: List<DisplayFeature>,
-            imeInsetsPx: IntInsetsPx = IntInsetsPx(0, 0, 0, 0),
-        ) = create(
-            windowSizePx = windowSizePx,
-            safeBoundsInWindowPx = safeBoundsInWindowPx,
-            density = density,
-            fontScale = fontScale,
-            canonicalWindowSizeClass = null,
-            displayFeatures = displayFeatures,
-            inputCapabilities = StageInputCapabilities(true, false, false, false),
-            layoutDirection = StageLayoutDirection.LTR,
-            imeInsetsPx = imeInsetsPx,
         )
     }
 }
@@ -195,17 +161,7 @@ fun StageEnvironmentProvider(
 @Composable
 internal fun StageEnvironmentProvider(
     windowLayoutInfoSource: WindowLayoutInfoSource,
-    content: @Composable (StageWindowEnvironment) -> Unit,
-) = StageEnvironmentProviderImpl(
-    windowLayoutInfoSource = windowLayoutInfoSource,
-    inputCapabilitySource = null,
-    content = content,
-)
-
-@Composable
-internal fun StageEnvironmentProvider(
-    windowLayoutInfoSource: WindowLayoutInfoSource,
-    inputCapabilitySource: InputCapabilitySource,
+    inputCapabilitySource: InputCapabilitySource? = null,
     content: @Composable (StageWindowEnvironment) -> Unit,
 ) = StageEnvironmentProviderImpl(
     windowLayoutInfoSource = windowLayoutInfoSource,
@@ -224,21 +180,17 @@ private fun StageEnvironmentProviderImpl(
     val activity = remember(context) { context.findActivity() }
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
-    val adaptiveInfo = currentWindowAdaptiveInfo()
     val windowSize = currentWindowSize()
     val safeDrawing = WindowInsets.safeDrawing
-    val ime = WindowInsets.ime
-    val safeInsets = IntInsetsPx(
-        safeDrawing.getLeft(density, layoutDirection),
-        safeDrawing.getTop(density),
-        safeDrawing.getRight(density, layoutDirection),
-        safeDrawing.getBottom(density),
-    )
-    val imeInsets = IntInsetsPx(
-        ime.getLeft(density, layoutDirection),
-        ime.getTop(density),
-        ime.getRight(density, layoutDirection),
-        ime.getBottom(density),
+    val safeLeft = safeDrawing.getLeft(density, layoutDirection)
+    val safeTop = safeDrawing.getTop(density)
+    val safeRight = safeDrawing.getRight(density, layoutDirection)
+    val safeBottom = safeDrawing.getBottom(density)
+    val safeBoundsInWindowPx = IntRect(
+        safeLeft,
+        safeTop,
+        (windowSize.width - safeRight).coerceAtLeast(safeLeft),
+        (windowSize.height - safeBottom).coerceAtLeast(safeTop),
     )
     val applicationContext = context.applicationContext
     val tracker = remember(applicationContext) { WindowInfoTracker.getOrCreate(applicationContext) }
@@ -275,28 +227,19 @@ private fun StageEnvironmentProviderImpl(
 
     val environment = remember(
         windowSize,
-        safeInsets,
-        imeInsets,
+        safeBoundsInWindowPx,
         density.density,
         density.fontScale,
-        adaptiveInfo,
         layoutInfo,
         configuration.touchscreen,
         configuration.keyboard,
         pointingCapabilities,
         layoutDirection,
     ) {
-        StageWindowEnvironment.create(
+        createStageWindowEnvironment(
             windowSizePx = windowSize,
-            safeBoundsInWindowPx = IntRect(
-                safeInsets.left,
-                safeInsets.top,
-                (windowSize.width - safeInsets.right).coerceAtLeast(safeInsets.left),
-                (windowSize.height - safeInsets.bottom).coerceAtLeast(safeInsets.top),
-            ),
+            safeBoundsInWindowPx = safeBoundsInWindowPx,
             density = density.density,
-            fontScale = density.fontScale,
-            canonicalWindowSizeClass = adaptiveInfo.windowSizeClass,
             displayFeatures = layoutInfo?.displayFeatures.orEmpty(),
             inputCapabilities = StageInputCapabilities(
                 touch = configuration.touchscreen != Configuration.TOUCHSCREEN_NOTOUCH,
@@ -304,27 +247,17 @@ private fun StageEnvironmentProviderImpl(
                 stylus = pointingCapabilities.stylus,
                 hardwareKeyboard = configuration.keyboard != Configuration.KEYBOARD_NOKEYS,
             ),
-            layoutDirection = if (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl) {
-                StageLayoutDirection.RTL
-            } else {
-                StageLayoutDirection.LTR
-            },
-            imeInsetsPx = imeInsets,
         )
     }
     content(environment)
 }
 
-private fun StageWindowEnvironment.Companion.create(
+private fun createStageWindowEnvironment(
     windowSizePx: IntSize,
     safeBoundsInWindowPx: IntRect,
     density: Float,
-    fontScale: Float,
-    canonicalWindowSizeClass: WindowSizeClass?,
     displayFeatures: List<DisplayFeature>,
     inputCapabilities: StageInputCapabilities,
-    layoutDirection: StageLayoutDirection,
-    imeInsetsPx: IntInsetsPx,
 ): StageWindowEnvironment {
     val features = displayFeatures.map(::toStageFeature).sortedWith(FEATURE_ORDER)
     val posture = when {
@@ -337,13 +270,9 @@ private fun StageWindowEnvironment.Companion.create(
         windowSizePx = windowSizePx,
         safeBoundsInWindowPx = safeBoundsInWindowPx,
         density = density,
-        fontScale = fontScale,
-        canonicalWindowSizeClass = canonicalWindowSizeClass,
         posture = posture,
         displayFeatures = features,
         inputCapabilities = inputCapabilities,
-        layoutDirection = layoutDirection,
-        imeInsetsPx = imeInsetsPx,
     )
 }
 

@@ -53,12 +53,6 @@ import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import kotlinx.coroutines.launch
 
-data class DialogueActionFocusRequest(
-    val windowFocused: Boolean,
-    val firstRowAttached: Boolean,
-    val accepted: Boolean,
-)
-
 /** Dialog presentation follows actual usable width, not the stage's bubble-layout mode. */
 internal fun useCompactDialogueActionSurface(
     widthPx: Int,
@@ -76,7 +70,6 @@ fun DialogueActionSurface(
     onDismiss: () -> Unit,
     onAction: (DialogueAction) -> Unit,
     modifier: Modifier = Modifier,
-    onInitialFocusRequest: (DialogueActionFocusRequest) -> Unit = {},
 ) {
     if (!open || actions.isEmpty()) return
     val actionKeys = actions.map(::ActionIdentity)
@@ -92,7 +85,6 @@ fun DialogueActionSurface(
                 onDismiss = onDismiss,
                 onAction = onAction,
                 modifier = modifier,
-                onInitialFocusRequest = onInitialFocusRequest,
             )
         }
     }
@@ -107,7 +99,6 @@ internal fun DialogueActionSurfaceContent(
     onDismiss: () -> Unit,
     onAction: (DialogueAction) -> Unit,
     modifier: Modifier = Modifier,
-    onInitialFocusRequest: (DialogueActionFocusRequest) -> Unit = {},
 ) {
     if (actions.isEmpty()) return
     val actionKeys = actions.map(::ActionIdentity)
@@ -122,13 +113,7 @@ internal fun DialogueActionSurfaceContent(
             val windowFocused = dialogView.hasWindowFocus()
             if (firstRowAttached && windowFocused) {
                 inputModeManager.requestInputMode(InputMode.Keyboard)
-                onInitialFocusRequest(
-                    DialogueActionFocusRequest(
-                        windowFocused = true,
-                        firstRowAttached = true,
-                        accepted = focusRequesters.first().requestFocus(),
-                    ),
-                )
+                focusRequesters.first().requestFocus()
             }
         }
         val windowFocusListener = android.view.ViewTreeObserver.OnWindowFocusChangeListener { focused ->

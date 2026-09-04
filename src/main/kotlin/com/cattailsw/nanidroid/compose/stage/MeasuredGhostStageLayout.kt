@@ -22,7 +22,6 @@ import com.cattailsw.nanidroid.runtime.GhostPresentationState
 import com.cattailsw.nanidroid.runtime.stage.GhostStageLayoutPolicy
 import com.cattailsw.nanidroid.runtime.stage.BubbleRegionFence
 import com.cattailsw.nanidroid.runtime.stage.BubbleRegionPublication
-import com.cattailsw.nanidroid.runtime.stage.BubbleRegionPublicationPolicy
 import com.cattailsw.nanidroid.runtime.stage.BubbleRegionSet
 import com.cattailsw.nanidroid.runtime.stage.MeasuredBubbleHitRegion
 import com.cattailsw.nanidroid.runtime.stage.StageEnvironment
@@ -61,7 +60,6 @@ class GhostStageMeasureState {
         private set
     private var bubblePublication = BubbleRegionPublication.Empty
     private var committedInputGeometry: StageMeasuredInputGeometry? = null
-    private var bubbleGeneration = 0L
     internal var inputEpoch = 0L
         private set
 
@@ -74,7 +72,6 @@ class GhostStageMeasureState {
             baseline = null
             latest = null
             bubblePublication = BubbleRegionPublication.Empty
-            bubbleGeneration = 0L
             committedInputGeometry = null
             inputEpoch++
         }
@@ -84,23 +81,18 @@ class GhostStageMeasureState {
         SurfaceSpeaker.entries.forEach { speaker ->
             val publishedFence = bubblePublication.fence(speaker)
             if (publishedFence != null && snapshot.activeBubbleFences[speaker] != publishedFence) {
-                bubblePublication = BubbleRegionPublicationPolicy.remove(
-                    current = bubblePublication,
-                    expectedFence = publishedFence,
-                    speaker = speaker,
-                )
+                bubblePublication = bubblePublication.remove(speaker)
             }
         }
-        bubbleGeneration = bubblePublication.generation
         val committed = if (
-            snapshot.bubbleGeneration == bubbleGeneration &&
+            snapshot.bubbleGeneration == bubblePublication.generation &&
             snapshot.bubbleRegions == bubblePublication.regions
         ) {
             snapshot
         } else {
             snapshot.copy(
                 bubbleRegions = bubblePublication.regions,
-                bubbleGeneration = bubbleGeneration,
+                bubbleGeneration = bubblePublication.generation,
             )
         }
         updateInputGeometry(committed)
@@ -112,14 +104,9 @@ class GhostStageMeasureState {
     internal fun publishBubbleRegions(next: BubbleRegionSet): Boolean {
         val speaker = next.fence.speaker
         if (latest?.activeBubbleFences?.get(speaker) != next.fence) return false
-        val replacement = BubbleRegionPublicationPolicy.replace(
-            current = bubblePublication,
-            expectedFence = bubblePublication.fence(speaker),
-            next = next,
-        )
+        val replacement = bubblePublication.replace(next)
         if (replacement === bubblePublication) return false
         bubblePublication = replacement
-        bubbleGeneration = replacement.generation
         val current = latest ?: return false
         val committed = current.copy(
             bubbleRegions = replacement.regions,

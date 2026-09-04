@@ -113,7 +113,6 @@ data class ComposedSurface(
         collisions = effectiveCollisions,
         explicitlyHidden = explicitlyHidden,
         surfaceKey = surfaceKey,
-        revision = revision,
     )
 }
 

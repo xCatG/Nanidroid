@@ -25,6 +25,7 @@ import androidx.compose.ui.test.then
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsProperties
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import org.junit.Assert.assertEquals
@@ -151,7 +152,6 @@ class DialogueActionSurfaceTest {
             DialogueAction.Normal("Choice $index", "id-$index", listOf(index.toString()))
         }
         val selected = mutableListOf<DialogueAction>()
-        val focusRequests = mutableListOf<DialogueActionFocusRequest>()
         var dismissals = 0
         composeRule.setContent {
             DialogueActionSurface(
@@ -164,15 +164,16 @@ class DialogueActionSurfaceTest {
                     open.value = false
                 },
                 onAction = selected::add,
-                onInitialFocusRequest = focusRequests::add,
             )
         }
 
-        composeRule.waitUntil(5_000) { focusRequests.any { it.accepted } }
-        composeRule.runOnIdle {
-            assertTrue(focusRequests.isNotEmpty())
-            assertTrue(focusRequests.all { it.windowFocused && it.firstRowAttached })
-            assertTrue(focusRequests.last().accepted)
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithTag("dialogue-action-0")
+                    .fetchSemanticsNode()
+                    .config
+                    .getOrElse(SemanticsProperties.Focused) { false }
+            }.getOrDefault(false)
         }
         composeRule.onNodeWithTag("dialogue-action-0").assertIsFocused()
         composeRule.onNodeWithTag("dialogue-action-0").performKeyInput { pressKey(Key.DirectionDown) }

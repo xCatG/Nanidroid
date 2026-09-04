@@ -53,30 +53,6 @@ class BubbleRegionPublication private constructor(
     }
 }
 
-object BubbleRegionPublicationPolicy {
-    /**
-     * Replaces all regions for one speaker together. A callback captured from
-     * an earlier talk/layout cannot overwrite the current geometry fence.
-     */
-    fun replace(
-        current: BubbleRegionPublication,
-        expectedFence: BubbleRegionFence?,
-        next: BubbleRegionSet,
-    ): BubbleRegionPublication {
-        if (current.fence(next.fence.speaker) != expectedFence) return current
-        return current.replace(next)
-    }
-
-    fun remove(
-        current: BubbleRegionPublication,
-        expectedFence: BubbleRegionFence,
-        speaker: SurfaceSpeaker,
-    ): BubbleRegionPublication {
-        if (current.fence(speaker) != expectedFence) return current
-        return current.remove(speaker)
-    }
-}
-
 private fun BubbleRegionSet.immutableCopy() = copy(actionRegions = actionRegions.toList())
 
 private fun BubbleRegionSet.orderedRegions(): List<MeasuredBubbleHitRegion> = buildList {

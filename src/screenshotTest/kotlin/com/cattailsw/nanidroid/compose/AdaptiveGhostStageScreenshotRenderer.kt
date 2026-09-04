@@ -28,8 +28,6 @@ import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.stage.GhostStageLayoutPolicy
 import com.cattailsw.nanidroid.runtime.stage.StageDpRect
 import com.cattailsw.nanidroid.runtime.stage.StageEnvironment
-import com.cattailsw.nanidroid.runtime.stage.StageInputCapabilities
-import com.cattailsw.nanidroid.runtime.stage.StageLayoutDirection
 import com.cattailsw.nanidroid.runtime.stage.StageMode
 import kotlin.math.roundToInt
 
@@ -62,7 +60,6 @@ private fun AdaptiveGhostStageFixture(fixture: StageScreenshotCase) {
             fixture = fixture,
             sizePx = fixture.windowSizeDp.toPixels(density),
             density = density.density,
-            fontScale = density.fontScale,
         )
     }
     val mode = remember(environment, sakura, kero) {
@@ -88,7 +85,6 @@ private fun AdaptiveGhostStageFixture(fixture: StageScreenshotCase) {
                             fixture = fixture,
                             sizePx = size,
                             density = density.density,
-                            fontScale = density.fontScale,
                         )
                     },
                     measureState = measureState,
@@ -176,27 +172,15 @@ private fun screenshotEnvironment(
     fixture: StageScreenshotCase,
     sizePx: IntSize,
     density: Float,
-    fontScale: Float,
 ): StageEnvironment {
     val widthDp = sizePx.width / density
     val heightDp = sizePx.height / density
     return StageEnvironment(
         safeBounds = StageDpRect(0.dp, 0.dp, widthDp.dp, heightDp.dp),
         density = density,
-        fontScale = fontScale,
         canonicalAppBarHeight = 64.dp,
         posture = fixture.posture,
         displayFeatures = fixture.state.displayFeatures,
-        inputCapabilities = StageInputCapabilities(
-            touch = true,
-            mouse = true,
-            stylus = false,
-            hardwareKeyboard = true,
-        ),
-        layoutDirection = when (fixture.layoutDirection) {
-            androidx.compose.ui.unit.LayoutDirection.Ltr -> StageLayoutDirection.LTR
-            androidx.compose.ui.unit.LayoutDirection.Rtl -> StageLayoutDirection.RTL
-        },
         ghostKey = "screenshot-${fixture.name}",
     )
 }

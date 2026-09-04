@@ -62,7 +62,6 @@ import com.cattailsw.nanidroid.runtime.stage.StageMode
 import com.cattailsw.nanidroid.runtime.stage.StageDisplayFeature
 import com.cattailsw.nanidroid.runtime.stage.StageDpRect
 import com.cattailsw.nanidroid.runtime.stage.StageEnvironment
-import com.cattailsw.nanidroid.runtime.stage.StageInputCapabilities
 import com.cattailsw.nanidroid.runtime.stage.StagePosture
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -763,11 +762,9 @@ class GhostBubbleInteractionTest {
                                     (size.height / density.density).dp,
                                 ),
                                 density = density.density,
-                                fontScale = density.fontScale,
                                 canonicalAppBarHeight = 64.dp,
                                 posture = StagePosture.FLAT,
                                 displayFeatures = emptyList<StageDisplayFeature>(),
-                                inputCapabilities = StageInputCapabilities(true, false, false, false),
                                 ghostKey = "layout-fixture",
                             )
                         },

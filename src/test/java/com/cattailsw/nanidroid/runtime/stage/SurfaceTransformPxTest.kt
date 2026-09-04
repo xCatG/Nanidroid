@@ -50,21 +50,10 @@ class SurfaceTransformPxTest {
         val stagePoint = transform.stageCenterForIntrinsic(IntOffset(312, 6))
 
         assertEquals(IntOffset(73, 2), stagePoint)
-        assertEquals(IntOffset(313, 8), transform.toIntrinsic(stagePoint!!))
-    }
-
-    @Test
-    fun `root inverse mapping applies stage translation exactly once`() {
-        val transform = SurfaceTransformPx(
-            intrinsicSize = IntSize(10, 20),
-            renderedBounds = IntRect(7, 9, 27, 49),
-            scale = 2f,
-            stageToRoot = IntOffset(100, 200),
+        assertEquals(
+            IntOffset(313, 8),
+            transform.toIntrinsic(Offset(stagePoint!!.x.toFloat(), stagePoint.y.toFloat())),
         )
-
-        assertEquals(IntRect(107, 209, 127, 249), transform.rootBounds)
-        assertEquals(IntOffset(4, 9), transform.rootToIntrinsic(Offset(116.999f, 228.999f)))
-        assertNull(transform.rootToIntrinsic(Offset(127f, 228f)))
     }
 
     @Test
@@ -385,16 +374,9 @@ class SurfaceTransformPxTest {
 
         shapes.forEach { shape ->
             val stageRegion = transform.toStageRegion(shape)
-            val rootRegion = transform.toRootRegion(shape)
             probeCoordinates(transform).forEach { stagePoint ->
                 val expected = transform.toIntrinsic(stagePoint)?.let(shape::contains) == true
                 assertEquals("stage shape=$shape point=$stagePoint", expected, stageRegion.contains(stagePoint))
-                val rootPoint = Offset(
-                    stagePoint.x + transform.stageToRoot.x,
-                    stagePoint.y + transform.stageToRoot.y,
-                )
-                val expectedRoot = transform.rootToIntrinsic(rootPoint)?.let(shape::contains) == true
-                assertEquals("root shape=$shape point=$rootPoint", expectedRoot, rootRegion.contains(rootPoint))
             }
         }
     }
@@ -611,22 +593,6 @@ class SurfaceTransformPxTest {
         assertTrue(budget.consumedRects <= budget.maxRects)
         assertTrue(budget.consumedBoundarySegments <= budget.maxBoundarySegments)
         assertEquals(2_097_152, budget.maxWork)
-    }
-
-    @Test
-    fun `root collision and hit coordinates share one translation`() {
-        val transform = SurfaceTransformPx(
-            IntSize(8, 8),
-            IntRect(11, 13, 27, 29),
-            2f,
-            IntOffset(100, 200),
-        )
-        val rootShape = transform.toRoot(CollisionShape.Rectangle(IntRect(2, 3, 5, 7)))
-
-        assertEquals(CollisionShapePx.Rectangle(FloatRect(115f, 219f, 121f, 227f)), rootShape)
-        assertEquals(IntOffset(2, 3), transform.rootToIntrinsic(Offset(115f, 219f)))
-        assertEquals(IntOffset(4, 6), transform.rootToIntrinsic(Offset(120.999f, 226.999f)))
-        assertNull(transform.rootToIntrinsic(Offset(121f + 6f, 227f + 2f)))
     }
 
     @Test
