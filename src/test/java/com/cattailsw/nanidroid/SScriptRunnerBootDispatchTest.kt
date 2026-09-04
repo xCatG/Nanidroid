@@ -10,6 +10,11 @@ import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert
 import org.junit.Rule
@@ -192,8 +197,8 @@ class SScriptRunnerBootDispatchTest {
         Assert.assertEquals(
             listOf(
                 "GET:OnSecondChange:[0, 0, 0, 1]",
-                "GET:OnMinuteChange:[0, 0, 0, 1]",
                 "GET:OnSecondChange:[0, 0, 0, 1]",
+                "GET:OnMinuteChange:[0, 0, 0, 1]",
             ),
             harness.rawRequests,
         )
@@ -215,11 +220,176 @@ class SScriptRunnerBootDispatchTest {
             listOf(
                 "GET:OnSecondChange:[0, 0, 0, 1]",
                 "GET:OnSecondChange:[0, 0, 0, 1]",
-                "GET:OnMinuteChange:[0, 0, 0, 1]",
                 "GET:OnSecondChange:[0, 0, 0, 1]",
+                "GET:OnMinuteChange:[0, 0, 0, 1]",
             ),
             harness.rawRequests,
         )
+    }
+
+    @Test
+    fun retiringGenerationClearsItsDeferredMinuteBoundary() {
+        val clock = FakeClock(59_000L)
+        val admissionEntered = CountDownLatch(1)
+        val releaseAdmission = CountDownLatch(1)
+        val blockAdmission = AtomicBoolean(false)
+        val tickExecutor = Executors.newSingleThreadExecutor()
+        val harness = harness(
+            clock,
+            playbackHooks = SScriptPlaybackHooks(
+                beforeRequestResponseAdmission = {
+                    if (blockAdmission.get()) {
+                        admissionEntered.countDown()
+                        check(releaseAdmission.await(5, TimeUnit.SECONDS))
+                    }
+                },
+            ),
+        )
+        harness.runner.setNoWaitMode(true)
+        harness.runner.dispatchClockTickForTesting()
+
+        try {
+            blockAdmission.set(true)
+            val tick = tickExecutor.submit<Unit> {
+                clock.millis = 60_000L
+                harness.runner.dispatchClockTickForTesting()
+            }
+            Assert.assertTrue(
+                "Second response did not reach admission",
+                admissionEntered.await(5, TimeUnit.SECONDS),
+            )
+            Assert.assertEquals(1L to 0L, harness.runner.deferredMinuteBoundaryForTesting())
+
+            val outgoing = requireNotNull(harness.fixture.runtime.identity().activeHandle)
+            harness.runner.retireGenerationForSwitch(outgoing.generation)
+            releaseAdmission.countDown()
+            tick.get(5, TimeUnit.SECONDS)
+
+            Assert.assertNull(harness.runner.deferredMinuteBoundaryForTesting())
+            Assert.assertEquals(
+                listOf(
+                    "GET:OnSecondChange:[0, 0, 0, 1]",
+                    "GET:OnSecondChange:[0, 0, 0, 1]",
+                ),
+                harness.rawRequests,
+            )
+        } finally {
+            releaseAdmission.countDown()
+            tickExecutor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun staleSecondSettlementCannotClaimReplacementMinuteBoundary() {
+        val clock = FakeClock(59_000L)
+        val admissionGate = AtomicInteger()
+        val outgoingEntered = CountDownLatch(1)
+        val releaseOutgoing = CountDownLatch(1)
+        val replacementEntered = CountDownLatch(1)
+        val releaseReplacement = CountDownLatch(1)
+        val tickExecutor = Executors.newFixedThreadPool(2)
+        val harness = harness(
+            clock,
+            playbackHooks = SScriptPlaybackHooks(
+                beforeRequestResponseAdmission = {
+                    when (admissionGate.getAndSet(0)) {
+                        1 -> {
+                            outgoingEntered.countDown()
+                            check(releaseOutgoing.await(5, TimeUnit.SECONDS))
+                        }
+                        2 -> {
+                            replacementEntered.countDown()
+                            check(releaseReplacement.await(5, TimeUnit.SECONDS))
+                        }
+                    }
+                },
+            ),
+        )
+        harness.runner.setNoWaitMode(true)
+        harness.runner.dispatchClockTickForTesting()
+
+        try {
+            admissionGate.set(1)
+            val outgoingTick = tickExecutor.submit<Unit> {
+                clock.millis = 60_000L
+                harness.runner.dispatchClockTickForTesting()
+            }
+            Assert.assertTrue(outgoingEntered.await(5, TimeUnit.SECONDS))
+
+            switchAndAttach(harness.fixture, "replacement-timer-owner")
+            admissionGate.set(2)
+            val replacementTick = tickExecutor.submit<Unit> {
+                clock.millis = 61_000L
+                harness.runner.dispatchClockTickForTesting()
+            }
+            Assert.assertTrue(replacementEntered.await(5, TimeUnit.SECONDS))
+            Assert.assertEquals(1L to 0L, harness.runner.deferredMinuteBoundaryForTesting())
+
+            releaseOutgoing.countDown()
+            outgoingTick.get(5, TimeUnit.SECONDS)
+
+            Assert.assertEquals(1L to 0L, harness.runner.deferredMinuteBoundaryForTesting())
+            Assert.assertTrue(harness.rawRequests.none { "OnMinuteChange" in it })
+
+            releaseReplacement.countDown()
+            replacementTick.get(5, TimeUnit.SECONDS)
+            Assert.assertEquals(1, harness.rawRequests.count { "OnMinuteChange" in it })
+        } finally {
+            releaseOutgoing.countDown()
+            releaseReplacement.countDown()
+            tickExecutor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun clockRestartCoalescesPendingSecondWithoutClaimingItsMinuteBoundary() {
+        val clock = FakeClock(59_000L)
+        val oldClockEntered = CountDownLatch(1)
+        val releaseOldClock = CountDownLatch(1)
+        val blockAdmission = AtomicBoolean(false)
+        val tickExecutor = Executors.newSingleThreadExecutor()
+        val harness = harness(
+            clock,
+            playbackHooks = SScriptPlaybackHooks(
+                beforeRequestResponseAdmission = {
+                    if (blockAdmission.get()) {
+                        oldClockEntered.countDown()
+                        check(releaseOldClock.await(5, TimeUnit.SECONDS))
+                    }
+                },
+            ),
+        )
+        harness.runner.setNoWaitMode(true)
+        harness.runner.dispatchClockTickForTesting()
+
+        try {
+            blockAdmission.set(true)
+            val oldTick = tickExecutor.submit<Unit> {
+                clock.millis = 60_000L
+                harness.runner.dispatchClockTickForTesting()
+            }
+            Assert.assertTrue(oldClockEntered.await(5, TimeUnit.SECONDS))
+
+            harness.runner.stopClock()
+            harness.runner.startClock()
+            clock.millis = 61_000L
+            harness.runner.dispatchClockTickForTesting()
+            Assert.assertEquals(2, harness.rawRequests.count { "OnSecondChange" in it })
+
+            releaseOldClock.countDown()
+            oldTick.get(5, TimeUnit.SECONDS)
+            Assert.assertTrue(harness.rawRequests.none { "OnMinuteChange" in it })
+
+            blockAdmission.set(false)
+            clock.millis = 62_000L
+            harness.runner.dispatchClockTickForTesting()
+            Assert.assertEquals(3, harness.rawRequests.count { "OnSecondChange" in it })
+            Assert.assertEquals(1, harness.rawRequests.count { "OnMinuteChange" in it })
+        } finally {
+            releaseOldClock.countDown()
+            harness.runner.stopClock()
+            tickExecutor.shutdownNow()
+        }
     }
 
     @Test

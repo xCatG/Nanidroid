@@ -68,6 +68,26 @@ private data class RequestAdmissionStamp(
     val epoch: Long,
 )
 
+private data class TimerEventKey(
+    val event: String,
+    val generation: Long,
+    val clockEpoch: Long,
+)
+
+private data class DeferredMinuteBoundary(
+    val elapsedMinute: Long,
+    val uptimeHours: Long,
+    val generation: Long,
+    val clockEpoch: Long,
+)
+
+private data class TimerRequestCapture(
+    val handle: GhostHandle,
+    val key: TimerEventKey,
+    val wasIdle: Boolean,
+    val modeGeneration: Long,
+)
+
 internal data class SurfaceInteractionDispatchResult(
     val candidateEvent: String?,
     val accepted: Boolean,
@@ -151,6 +171,9 @@ open class SScriptRunner internal constructor(
     private var currentPresentationFrame: GhostPresentationFrame? = null
     private var hostOwner: HostToken? = null
     private var clockOwner: HostToken? = null
+    private var clockEpoch = 0L
+    private val pendingTimerEvents = mutableSetOf<TimerEventKey>()
+    private var deferredMinuteBoundary: DeferredMinuteBoundary? = null
     private var activeHandle: GhostHandle? = null
     private var admittedAttachmentOperationId: Long? = null
     private var retiredGenerationAwaitingAttachment: Long? = null
@@ -161,7 +184,6 @@ open class SScriptRunner internal constructor(
     private var lastElapsedSecond: Long? = null
     private var lastElapsedMinute: Long? = null
     private var restore = false; private var pendingSwitch: RunnerSwitchOperation? = null; private val bootDispatchState = BootDispatchState()
-    private var periodicRequestPending = false
     private var nextExitOperationId = 0L
     private var exitOperation: ExitOperation? = null
     private var dialogueState = DialogueRuntimeState()
@@ -204,6 +226,9 @@ open class SScriptRunner internal constructor(
     }
     internal fun exitOperationIdForTesting(): Long? = synchronized(this) {
         exitOperation?.operationId
+    }
+    internal fun deferredMinuteBoundaryForTesting(): Pair<Long, Long>? = synchronized(this) {
+        deferredMinuteBoundary?.let { it.elapsedMinute to it.uptimeHours }
     }
 
     private data class HostBindingEffects(
@@ -450,6 +475,8 @@ open class SScriptRunner internal constructor(
             admittedAttachmentOperationId = null
             retiredGenerationAwaitingAttachment = expectedGeneration
             pendingSwitch = null
+            pendingTimerEvents.removeAll { it.generation == expectedGeneration }
+            deferredMinuteBoundary = null
             passive = false
             runtimeModeGeneration++
             msgQueue.clear()
@@ -552,7 +579,7 @@ open class SScriptRunner internal constructor(
             if (token != null && hostOwner !== token) return false
             if (exitOperation != null) return false
             clockOwner = token
-            bootDispatchState.startClock()
+            bootDispatchState.startClock().also { if (it.started) clockEpoch++ }
         }
         if (!start.started) return true
         LegacyPlatform.scheduleDelayed(CLOCK_STEP) {
@@ -580,6 +607,8 @@ open class SScriptRunner internal constructor(
                 return false
             }
             clockOwner = null
+            clockEpoch++
+            deferredMinuteBoundary = null
             runtimeModeGeneration++
             bootDispatchState.stopClock()
         }
@@ -1205,29 +1234,37 @@ open class SScriptRunner internal constructor(
         if (state.talkAnimeControl == 10) state.talkAnimeControl = 0
         return frame
     }
-    private fun doPerSecondEvent(hr: Long): Boolean = dispatchTimerEvent("OnSecondChange", hr)
-    private fun doPerMinuteEvent(hr: Long): Boolean = dispatchTimerEvent("OnMinuteChange", hr)
-    private fun dispatchTimerEvent(event: String, uptimeHours: Long): Boolean {
+    private fun doPerSecondEvent(hr: Long, generation: Long, epoch: Long): Boolean =
+        dispatchTimerEvent("OnSecondChange", hr, generation, epoch)
+    private fun doPerMinuteEvent(hr: Long, generation: Long, epoch: Long): Boolean =
+        dispatchTimerEvent("OnMinuteChange", hr, generation, epoch)
+    private fun dispatchTimerEvent(
+        event: String,
+        uptimeHours: Long,
+        expectedGeneration: Long,
+        expectedClockEpoch: Long,
+    ): Boolean {
         val captured = synchronized(this) {
             val handle = activeHandle ?: return false
-            if (periodicRequestPending) return false
-            periodicRequestPending = true
-            Triple(handle, runtimeModeSnapshot().canTalk, runtimeModeGeneration)
+            if (handle.generation != expectedGeneration || clockEpoch != expectedClockEpoch) return false
+            val key = TimerEventKey(event, handle.generation, clockEpoch)
+            if (hasPendingTimerEvent(event, handle.generation)) return false
+            pendingTimerEvents.add(key)
+            TimerRequestCapture(handle, key, runtimeModeSnapshot().canTalk, runtimeModeGeneration)
         }
-        val (handle, wasIdle, capturedModeGeneration) = captured
-        val method = if (wasIdle) ShioriMethod.GET else ShioriMethod.NOTIFY
+        val method = if (captured.wasIdle) ShioriMethod.GET else ShioriMethod.NOTIFY
         return requestPinned(
-            handle,
+            captured.handle,
             ShioriRequestIntent.raw(
                 method,
                 event,
-                listOf(uptimeHours.toString(), "0", "0", if (wasIdle) "1" else "0"),
+                listOf(uptimeHours.toString(), "0", "0", if (captured.wasIdle) "1" else "0"),
             ),
-            onUnscheduled = { synchronized(this) { periodicRequestPending = false } },
+            onUnscheduled = { settleTimerEvent(captured.key) },
         ) { result, admissionStamp ->
             try {
                 val tagged = (result as? RuntimeResult.Success)?.value ?: return@requestPinned false
-                if (!wasIdle) return@requestPinned true
+                if (!captured.wasIdle) return@requestPinned true
                 val value = tagged.response
                     .takeIf { it.getStatusCode() == 200 }
                     ?.getKey("Value")
@@ -1236,7 +1273,7 @@ open class SScriptRunner internal constructor(
                 val shouldRun = synchronized(this) {
                     if (
                         !admissionIsCurrent(admissionStamp) ||
-                        !timerResponseIsEligible(handle, capturedModeGeneration)
+                        !timerResponseIsEligible(captured.handle, captured.modeGeneration)
                     ) {
                         false
                     } else {
@@ -1248,22 +1285,72 @@ open class SScriptRunner internal constructor(
                 if (shouldRun) run()
                 true
             } finally {
-                synchronized(this) { periodicRequestPending = false }
+                settleTimerEvent(captured.key)
             }
         }
     }
+
+    private fun hasPendingTimerEvent(event: String, generation: Long): Boolean =
+        pendingTimerEvents.any { it.event == event && it.generation == generation }
+
+    private fun settleTimerEvent(key: TimerEventKey) {
+        val minuteBoundary = synchronized(this) {
+            pendingTimerEvents.remove(key)
+            deferredMinuteBoundary?.takeIf {
+                key.event == "OnSecondChange" &&
+                    it.generation == key.generation &&
+                    it.clockEpoch == key.clockEpoch
+            }
+        }
+        minuteBoundary?.let(::dispatchDeferredMinuteBoundary)
+    }
+
+    private fun dispatchDeferredMinuteBoundary(boundary: DeferredMinuteBoundary) {
+        if (synchronized(this) { deferredMinuteBoundary != boundary }) return
+        if (!doPerMinuteEvent(boundary.uptimeHours, boundary.generation, boundary.clockEpoch)) return
+        synchronized(this) {
+            if (deferredMinuteBoundary == boundary) {
+                lastElapsedMinute = boundary.elapsedMinute
+                deferredMinuteBoundary = null
+            }
+        }
+    }
+
     private fun perClockEvent() {
         val secondsAll = monotonicClock.nowMillis() / 1_000L
         val minutesAll = secondsAll / 60L
         val hour = minutesAll / 60L
-        if (lastElapsedMinute == null) {
-            lastElapsedMinute = minutesAll
-        } else if (lastElapsedMinute != minutesAll && doPerMinuteEvent(hour)) {
-            lastElapsedMinute = minutesAll
+        val (generation, epoch) = synchronized(this) {
+            (activeHandle?.generation ?: return) to clockEpoch
         }
-        if (lastElapsedSecond != secondsAll && doPerSecondEvent(hour)) {
+        val minuteBoundary = when {
+            lastElapsedMinute == null -> {
+                lastElapsedMinute = minutesAll
+                null
+            }
+            lastElapsedMinute != minutesAll -> synchronized(this) {
+                if (
+                    activeHandle?.generation == generation &&
+                    clockEpoch == epoch &&
+                    !hasPendingTimerEvent("OnMinuteChange", generation)
+                ) {
+                    DeferredMinuteBoundary(minutesAll, hour, generation, epoch).also { boundary ->
+                        deferredMinuteBoundary = boundary
+                    }
+                } else {
+                    null
+                }
+            }
+            else -> null
+        }
+        var secondIsSettling = synchronized(this) {
+            hasPendingTimerEvent("OnSecondChange", generation)
+        }
+        if (lastElapsedSecond != secondsAll && doPerSecondEvent(hour, generation, epoch)) {
             lastElapsedSecond = secondsAll
+            secondIsSettling = true
         }
+        if (minuteBoundary != null && !secondIsSettling) dispatchDeferredMinuteBoundary(minuteBoundary)
     }
     internal fun dispatchClockTickForTesting() = perClockEvent()
     private fun parseShioriResponseAndInsert(
