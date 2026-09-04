@@ -420,7 +420,7 @@ open class SScriptRunner internal constructor(
             bootDispatchState.markBootDispatched()
             RuntimeResult.Success(Unit)
         }
-        clearedDialogueState?.let(::publishDialogueState)
+        clearedDialogueState?.let(::publishAttachmentDialogueState)
         return admitted
     }
 
@@ -2260,6 +2260,15 @@ open class SScriptRunner internal constructor(
         synchronized(this) {
             if (dialogueState !== state) return
             dialogueStateObserver?.invoke(state)
+        }
+    }
+
+    private fun publishAttachmentDialogueState(state: DialogueRuntimeState) {
+        val mainLooper = runCatching { Looper.getMainLooper() }.getOrNull()
+        if (mainLooper == null || Looper.myLooper() === mainLooper) {
+            publishDialogueState(state)
+        } else {
+            Handler(mainLooper).post { publishDialogueState(state) }
         }
     }
 

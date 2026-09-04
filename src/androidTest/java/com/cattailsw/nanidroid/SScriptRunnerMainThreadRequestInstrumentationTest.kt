@@ -589,6 +589,82 @@ class SScriptRunnerMainThreadRequestInstrumentationTest {
     }
 
     @Test
+    fun replacementDialogueClearPublishesOnMainLooper() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val unused = CountDownLatch(1)
+        val adapter = BlockingRequestShiori(
+            eventId = "Never",
+            entered = unused,
+            release = unused,
+            returned = unused,
+        )
+        val root = File(context.cacheDir, "switch-dialogue-thread-runtime").canonicalFile
+        val targetRoot = File(context.cacheDir, "switch-dialogue-thread-target").canonicalFile
+        val runtime = newRuntime(context, adapter)
+        val cleared = CountDownLatch(1)
+        val clearedThread = AtomicReference<Thread?>()
+        val outgoingIncarnation = AtomicLong(Long.MAX_VALUE)
+
+        try {
+            val outgoing = runBlocking {
+                (runtime.startOrJoin("switch-dialogue-thread", root) as RuntimeResult.Success).value
+            }
+            runBlocking {
+                assertTrue(runtime.attachHost(outgoing.generation) is RuntimeResult.Success)
+            }
+            instrumentation.runOnMainSync {
+                runtime.runner.bindHost(
+                    SScriptRunner.HostToken(),
+                    {},
+                    { state ->
+                        if (state.incarnation > outgoingIncarnation.get()) {
+                            clearedThread.set(Thread.currentThread())
+                            cleared.countDown()
+                        }
+                    },
+                    object : SScriptRunner.UICallback {
+                        override fun showUserInputBox(id: String) = Unit
+                        override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
+                    },
+                    object : SScriptRunner.StatusCallback {
+                        override fun stop() = Unit
+                        override fun canExit(expectedGeneration: Long?) = Unit
+                        override fun switchPlaybackComplete() = Unit
+                    },
+                )
+                runtime.runner.setNoWaitMode(true)
+                runtime.runner.addMsgToQueue(arrayOf("\\h\\q[Choose,choice]\\e"))
+                runtime.runner.run()
+                outgoingIncarnation.set(runtime.runner.dialogueStateSnapshot().incarnation)
+            }
+
+            val switchId = (runtime.beginSwitch(
+                outgoing.generation,
+                "switch-dialogue-target",
+                targetRoot,
+            ) as RuntimeResult.Success).value
+            val replacement = runBlocking {
+                (runtime.completeSwitchPlayback(
+                    outgoing.generation,
+                    switchId,
+                ) as RuntimeResult.Success).value
+            }
+            runBlocking {
+                assertTrue(runtime.attachHost(replacement.generation) is RuntimeResult.Success)
+            }
+
+            assertTrue("Replacement dialogue clear was not published", cleared.await(2, TimeUnit.SECONDS))
+            assertTrue(
+                "Replacement dialogue clear was not published on the main looper",
+                clearedThread.get() === Looper.getMainLooper().thread,
+            )
+        } finally {
+            runtime.close()
+        }
+    }
+
+    @Test
     fun slowTimerRequestCoalescesRepeatedElapsedTicksUntilCompletion() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
