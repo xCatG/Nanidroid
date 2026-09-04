@@ -5,7 +5,6 @@ import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueSegment
 import com.cattailsw.nanidroid.runtime.dialogue.InputPresentation
-import com.cattailsw.nanidroid.shiori.Shiori
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -17,6 +16,8 @@ import org.junit.Test
 class SScriptRunnerDialogueTimingTest {
     @get:Rule
     val androidStubs = HostAndroidStubRule()
+    @get:Rule
+    val runtimes = RuntimeFixtureRegistry()
 
     @Test
     fun scheduledPlaybackDoesNotExposeUnreachedTextActionsOrInput() {
@@ -125,7 +126,6 @@ class SScriptRunnerDialogueTimingTest {
     fun selectingOneChoiceRetiresItsEntirePresentedSiblingGeneration() {
         val scheduler = RecordingScheduler()
         val runner = runner(scheduler)
-        runner.setGhost(RecordingGhost())
         runner.addMsgToQueue(arrayOf("\\q[A,a]\\q[B,b]\\_w[5000]X\\e"))
         runner.run()
         scheduler.runUntil { runner.dialogueStateSnapshot().pendingChoices.size == 2 }
@@ -140,9 +140,8 @@ class SScriptRunnerDialogueTimingTest {
     @Test
     fun pendingChoicesKeepAlternatingSpeakerSourceOrderAndIdentityClaims() {
         val scheduler = RecordingScheduler()
-        val ghost = RecordingGhost()
-        val runner = runner(scheduler)
-        runner.setGhost(ghost)
+        val port = RecordingPort()
+        val runner = runner(scheduler, port)
         runner.setNoWaitMode(true)
         runner.addMsgToQueue(arrayOf("\\h\\q[A,a]\\u\\q[B,OnB]\\h\\q[C,script:\\hDone]\\e"))
         runner.run()
@@ -153,18 +152,17 @@ class SScriptRunnerDialogueTimingTest {
         runner.activateChoice(presented[1])
 
         assertTrue(runner.dialogueStateSnapshot().pendingChoices.isEmpty())
-        assertEquals(1, ghost.requestCount)
+        assertEquals(1, port.requestCount)
 
         runner.activateChoice(presented[1])
 
-        assertEquals(1, ghost.requestCount)
+        assertEquals(1, port.requestCount)
     }
 
     @Test
     fun authoredInputsPublishInOrderWithDistinctGenerationsAsPlaybackReachesEachOne() {
         val scheduler = RecordingScheduler()
         val runner = runner(scheduler)
-        runner.setGhost(RecordingGhost())
         runner.setUICallback(object : SScriptRunner.UICallback {
             override fun showUserInputBox(id: String) = Unit
             override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
@@ -193,9 +191,8 @@ class SScriptRunnerDialogueTimingTest {
     @Test
     fun clearRetiresPreviouslyVisibleChoiceAndRejectsPreviouslyVisibleAnchor() {
         val scheduler = RecordingScheduler()
-        val ghost = RecordingGhost()
-        val runner = runner(scheduler)
-        runner.setGhost(ghost)
+        val port = RecordingPort()
+        val runner = runner(scheduler, port)
         runner.addMsgToQueue(
             arrayOf("\\q[A,a]\\_a[anchor]Link\\_a\\_w[5000]\\cAfter\\e"),
         )
@@ -224,16 +221,15 @@ class SScriptRunnerDialogueTimingTest {
         runner.activateChoice(staleChoice)
         runner.activateAnchor(staleAnchor)
 
-        assertEquals(0, ghost.requestCount)
+        assertEquals(0, port.requestCount)
     }
 
     @Test
     fun playbackShioriResponseIsQueuedWithoutChangingTheCurrentSourceCursorTuple() {
         val scheduler = RecordingScheduler()
-        val ghost = RecordingGhost(surfaceResponse = "\\hIncoming response\\e")
+        val port = RecordingPort(surfaceResponse = "\\hIncoming response\\e")
         val frames = mutableListOf<GhostPresentationFrame>()
-        val runner = runner(scheduler)
-        runner.setGhost(ghost)
+        val runner = runner(scheduler, port)
         runner.setPresentationRenderer(GhostPresentationRenderer(frames::add))
         runner.addMsgToQueue(arrayOf("\\s[1]\\q[OLD,old]\\_w[5000]Original\\e"))
         runner.run()
@@ -248,14 +244,13 @@ class SScriptRunnerDialogueTimingTest {
             runner.dialogueStateSnapshot().contents.singleOrNull()?.segments?.text() == "Incoming response"
         }
         assertEquals(2L, runner.dialogueStateSnapshot().talkId)
-        assertEquals(1, ghost.surfaceRequestCount)
+        assertEquals(1, port.surfaceRequestCount)
     }
 
     @Test
     fun inputOnlyDialogueIsHiddenUntilReachedThenCanSubmitAndResumePlayback() {
         val scheduler = RecordingScheduler()
         val runner = runner(scheduler)
-        runner.setGhost(RecordingGhost())
         runner.setUICallback(object : SScriptRunner.UICallback {
             override fun showUserInputBox(id: String) = Unit
             override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
@@ -281,7 +276,6 @@ class SScriptRunnerDialogueTimingTest {
     fun passwordInputPublishesObscuredPendingInputAndPausesBeforeTrailingText() {
         val scheduler = RecordingScheduler()
         val runner = runner(scheduler)
-        runner.setGhost(RecordingGhost())
         runner.setUICallback(object : SScriptRunner.UICallback {
             override fun showUserInputBox(id: String) = Unit
             override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
@@ -302,12 +296,26 @@ class SScriptRunnerDialogueTimingTest {
         assertNull(runner.dialogueStateSnapshot().pendingInput)
     }
 
-    private fun runner(scheduler: RecordingScheduler): SScriptRunner = SScriptRunner(
-        ctx = null,
-        sessionCoordinator = GhostSessionCoordinator(),
-        monotonicClock = MonotonicClock { 10_000L },
-        playbackSchedulerFactory = { scheduler },
-    )
+    private fun runner(
+        scheduler: RecordingScheduler,
+        port: RecordingPort = RecordingPort(),
+    ): SScriptRunner = runtimes.create(
+        response = port::request,
+        runnerConfiguration = SScriptRunnerConfiguration(
+            monotonicClock = MonotonicClock { 10_000L },
+            playbackSchedulerFactory = { scheduler },
+        ),
+        preparedFactory = { operationId, ghostId, root ->
+            preparedGhost(
+                operationId,
+                ghostId,
+                root,
+                name = "Recording",
+                sakuraName = "Sakura",
+                keroName = "Kero",
+            )
+        },
+    ).runner
 
     private fun List<DialogueSegment>.text(): String = buildString {
         this@text.forEach { segment -> if (segment is DialogueSegment.Text) append(segment.value) }
@@ -344,38 +352,23 @@ class SScriptRunnerDialogueTimingTest {
         }
     }
 
-    private class RecordingGhost(
+    private class RecordingPort(
         private val surfaceResponse: String? = null,
-    ) : Ghost("recording") {
+    ) {
         var requestCount: Int = 0
             private set
         var surfaceRequestCount: Int = 0
             private set
 
-        init {
-            shiori = object : Shiori {
-                override fun getModuleName(): String = "recording"
-                override fun request(request: String): String {
-                    requestCount++
-                    if (request.contains("ID: OnSurfaceChange")) {
-                        surfaceRequestCount++
-                        surfaceResponse?.let {
-                            return "SHIORI/3.0 200 OK\r\nValue: $it\r\n\r\n"
-                        }
-                    }
-                    return "SHIORI/3.0 204 No Content\r\n\r\n"
+        fun request(request: String): String {
+            requestCount++
+            if (request.contains("ID: OnSurfaceChange")) {
+                surfaceRequestCount++
+                surfaceResponse?.let {
+                    return "SHIORI/3.0 200 OK\r\nValue: $it\r\n\r\n"
                 }
-                override fun load() = com.cattailsw.nanidroid.shiori.ShioriLoadResult.Loaded
-                override fun unloadShiori() = com.cattailsw.nanidroid.shiori.ShioriUnloadResult.Unloaded
             }
+            return "SHIORI/3.0 204 No Content\r\n\r\n"
         }
-
-        override fun loadGhostInfo() = Unit
-        override fun getCreateCount(): Long = 1L
-        override fun incrementCreateCount() = Unit
-        override fun getGhostName(): String = "Recording"
-        override fun getSakuraName(): String = "Sakura"
-        override fun getKeroName(): String = "Kero"
-        override fun unload() = Unit
     }
 }

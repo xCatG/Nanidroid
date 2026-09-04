@@ -66,7 +66,7 @@ class GhostRuntimeSwitchTest {
 
             allowReplacement.countDown()
             val replacement = assertIs<RuntimeResult.Success<GhostHandle>>(completion.await()).value
-            assertEquals(targetRoot.name, replacement.prepared.id)
+            assertEquals(targetRoot.name, replacement.ghost.id)
             assertEquals(2, preparationCount.get())
         } finally {
             allowReplacement.countDown()
@@ -166,6 +166,14 @@ class GhostRuntimeSwitchTest {
 
             assertSame(completedHandle, recreatedHandle)
             assertEquals(1, trace.unloadCount.get())
+            assertEquals(
+                listOf(
+                    "factory:${outgoingRoot.name}",
+                    "unload:${outgoingRoot.name}",
+                    "factory:${targetRoot.name}",
+                ),
+                trace.lifecycleEvents,
+            )
             assertEquals(listOf(outgoingRoot.name, targetRoot.name), persistence.lastRunWrites)
         }
     }
@@ -281,6 +289,51 @@ class GhostRuntimeSwitchTest {
             assertSame(target, runtime.identity().activeHandle)
             assertEquals(1, trace.unloadCount.get())
         }
+    }
+
+    @Test
+    fun duplicateOldGenerationUnloadCannotTouchActiveReplacement() = runBlocking {
+        val outgoingRoot = root("retired-outgoing")
+        val targetRoot = root("retired-target")
+        val trace = RecordingShioriTrace()
+        val runtime = testRuntime(scriptedPreparer(), trace)
+
+        runtime.use {
+            val outgoing = start(runtime, outgoingRoot)
+            val target = assertIs<RuntimeResult.Success<GhostHandle>>(
+                runtime.completeSwitchPlayback(
+                    outgoing.generation,
+                    begin(runtime, outgoing, targetRoot),
+                ),
+            ).value
+            assertEquals(1, trace.unloadCount.get())
+
+            assertIs<RuntimeResult.Success<Unit>>(runtime.unload(outgoing.generation))
+            assertEquals(1, trace.unloadCount.get())
+            assertSame(target, runtime.identity().activeHandle)
+            assertIs<RuntimeResult.Success<TaggedShioriResponse>>(
+                runtime.request(target.generation, ShioriRequestIntent.event("OnBoot")),
+            )
+            assertIs<RuntimeFailure.StaleGeneration>(
+                assertIs<RuntimeResult.Failure>(runtime.unload(target.generation + 1L)).failure,
+            )
+            assertEquals(1, trace.unloadCount.get())
+            assertSame(target, runtime.identity().activeHandle)
+
+            trace.unloadResults += ShioriUnloadResult.Failed(
+                IllegalStateException("replacement teardown failed"),
+                ownershipCertain = false,
+            )
+            assertIs<RuntimeFailure.Fatal>(
+                assertIs<RuntimeResult.Failure>(runtime.unload(target.generation)).failure,
+            )
+            assertIs<RuntimeFailure.Fatal>(
+                assertIs<RuntimeResult.Failure>(runtime.unload(outgoing.generation)).failure,
+            )
+            assertEquals(2, trace.unloadCount.get())
+        }
+
+        assertEquals(2, trace.unloadCount.get())
     }
 
     @Test

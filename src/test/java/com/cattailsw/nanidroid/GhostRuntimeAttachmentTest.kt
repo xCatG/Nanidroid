@@ -73,7 +73,7 @@ class GhostRuntimeAttachmentTest {
                     shellName = "Custom Shell",
                 )
             },
-            adapterFactory = { RecordingShiori(trace) },
+            adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
             persistence = persistence,
         )
 
@@ -219,7 +219,7 @@ class GhostRuntimeAttachmentTest {
             preparer = GhostPreparer { operationId, ghostId, canonicalRoot ->
                 preparedGhost(operationId, ghostId, canonicalRoot)
             },
-            adapterFactory = { RecordingShiori(trace) },
+            adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
             persistence = persistence,
             admission = AttachmentAdmission { _, _, _ ->
                 if (admissionAttempts.incrementAndGet() == 1) error("retry admission")
@@ -304,6 +304,46 @@ class GhostRuntimeAttachmentTest {
             assertEquals(1, admissionCount.get())
             assertEquals(1, persistence.activationWrites.size)
             assertEquals(1, trace.requests.size)
+        }
+    }
+
+    @Test
+    fun defaultAttachmentAdmissionBindsTheRuntimeOwnedRunnerRequestPort() = runBlocking {
+        val root = root("runner-admission")
+        val trace = RecordingShioriTrace().apply {
+            requestHandler.set { request ->
+                if ("ID: OnProbe\r\n" in request) {
+                    "SHIORI/3.0 200 OK\r\nValue: \\hattached\\e\r\n\r\n"
+                } else {
+                    "SHIORI/3.0 204 No Content\r\n\r\n"
+                }
+            }
+        }
+        val runtime = GhostRuntime.testRuntime(
+            context = null,
+            preparer = scriptedPreparer(),
+            adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
+            persistence = InMemoryGhostRuntimePersistence(),
+        )
+
+        runtime.use {
+            val handle = start(runtime, root)
+            assertIs<RuntimeResult.Success<AttachmentReceipt>>(
+                runtime.attachHost(handle.generation),
+            )
+            trace.requests.clear()
+            runtime.runner.setNoWaitMode(true)
+
+            assertTrue(runtime.runner.doShioriEvent("OnProbe", null))
+            assertEquals(
+                listOf(
+                    "GET SHIORI/3.0\r\n" +
+                        "Sender: Nanidroid\r\n" +
+                        "ID: OnProbe\r\n" +
+                        "SecurityLevel: local\r\n\r\n",
+                ),
+                trace.requests,
+            )
         }
     }
 

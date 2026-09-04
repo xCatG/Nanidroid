@@ -34,6 +34,7 @@ import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.GhostPresentationFrame
 import com.cattailsw.nanidroid.ShellSurface
 import com.cattailsw.nanidroid.SurfaceHitTarget
+import com.cattailsw.nanidroid.SurfaceCatalog
 import com.cattailsw.nanidroid.SurfaceManager
 import com.cattailsw.nanidroid.NO_COLLISION
 import com.cattailsw.nanidroid.compose.ComposedSurface
@@ -52,6 +53,7 @@ import com.cattailsw.nanidroid.compose.SurfaceRenderFrame
 import com.cattailsw.nanidroid.compose.SurfaceRenderLayer
 import com.cattailsw.nanidroid.compose.SurfaceRenderPlan
 import com.cattailsw.nanidroid.SurfaceTransparencyPolicy
+import com.cattailsw.nanidroid.toSurfaceDefinition
 import com.cattailsw.nanidroid.runtime.GhostPresentationReducer
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.PointerSource
@@ -627,7 +629,14 @@ class RenderedTransformContractTest {
             addSurface("22", source)
         }
         val host = ComposeGhostStageHost(SurfaceInteractionPort(effects::add), assets).apply {
-            setSurfaceManager(manager, "rendered-transform-fixture")
+            setSurfaceCatalog(
+                SurfaceCatalog.freeze(
+                    manager.getSurfaceKeys().associateWith { id ->
+                        requireNotNull(manager.getSurface(id)).toSurfaceDefinition()
+                    },
+                ),
+                "rendered-transform-fixture",
+            )
         }
         composeRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
@@ -729,7 +738,14 @@ class RenderedTransformContractTest {
             addSurface("10", shellSurface(10, 1, 1, "kero", collisionId = 10))
         }
         val host = ComposeGhostStageHost(SurfaceInteractionPort { }, assets).apply {
-            setSurfaceManager(manager, "animation-switch-fixture")
+            setSurfaceCatalog(
+                SurfaceCatalog.freeze(
+                    manager.getSurfaceKeys().associateWith { id ->
+                        requireNotNull(manager.getSurface(id)).toSurfaceDefinition()
+                    },
+                ),
+                "animation-switch-fixture",
+            )
         }
         composeRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {

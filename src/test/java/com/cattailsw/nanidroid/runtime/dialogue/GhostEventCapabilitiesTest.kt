@@ -1,8 +1,10 @@
 package com.cattailsw.nanidroid.runtime.dialogue
 
-import com.cattailsw.nanidroid.Ghost
+import com.cattailsw.nanidroid.RuntimeFixture
+import com.cattailsw.nanidroid.RuntimeResult
+import com.cattailsw.nanidroid.ShioriRequestIntent
 import com.cattailsw.nanidroid.ShioriResponse
-import com.cattailsw.nanidroid.shiori.Shiori
+import com.cattailsw.nanidroid.assertIs
 import com.cattailsw.nanidroid.shiori.ShioriRequestException
 import java.io.BufferedReader
 import java.io.StringReader
@@ -191,11 +193,17 @@ class GhostEventCapabilitiesTest {
     }
 
     @Test
-    fun `raw requests preserve notify method and an empty positional reference`() {
-        val shiori = RecordingShiori()
-        val ghost = RecordingGhost(shiori)
-
-        ghost.requestRaw(ShioriMethod.NOTIFY, "OnSecondChange", listOf("123", "", "0"))
+    fun `raw requests preserve notify method and an empty positional reference`() = RuntimeFixture().use { fixture ->
+        assertIs<RuntimeResult.Success<*>>(
+            fixture.runtime.request(
+                fixture.requireHandle().generation,
+                ShioriRequestIntent.raw(
+                    ShioriMethod.NOTIFY,
+                    "OnSecondChange",
+                    listOf("123", "", "0"),
+                ),
+            ),
+        )
 
         assertEquals(
             "NOTIFY SHIORI/3.0\r\n" +
@@ -205,7 +213,7 @@ class GhostEventCapabilitiesTest {
                 "Reference0: 123\r\n" +
                 "Reference1: \r\n" +
                 "Reference2: 0\r\n\r\n",
-            shiori.requests.single(),
+            fixture.trace.requests.single(),
         )
     }
 
@@ -222,26 +230,4 @@ class GhostEventCapabilitiesTest {
         })),
     )
 
-    private class RecordingShiori : Shiori {
-        val requests = mutableListOf<String>()
-
-        override fun getModuleName(): String = "recording"
-
-        override fun request(request: String): String {
-            requests += request
-            return "SHIORI/3.0 204 No Content\r\n\r\n"
-        }
-
-        override fun load() = com.cattailsw.nanidroid.shiori.ShioriLoadResult.Loaded
-
-        override fun unloadShiori() = com.cattailsw.nanidroid.shiori.ShioriUnloadResult.Unloaded
-    }
-
-    private class RecordingGhost(shiori: Shiori) : Ghost("recording") {
-        init {
-            this.shiori = shiori
-        }
-
-        override fun loadGhostInfo() = Unit
-    }
 }

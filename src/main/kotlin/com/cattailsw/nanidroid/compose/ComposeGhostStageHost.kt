@@ -13,8 +13,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import android.os.SystemClock
-import com.cattailsw.nanidroid.SurfaceManager
-import com.cattailsw.nanidroid.toSurfaceDefinition
+import com.cattailsw.nanidroid.SurfaceCatalog
+import com.cattailsw.nanidroid.runtime.GhostPresentationRuntimeState
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.KotlinGhostPresentationRuntime
 import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
@@ -63,14 +63,14 @@ class ComposeGhostStageHost internal constructor(
             hasDialogueStateSnapshot = true
         }
     }
-    private var activeSurfaceManager: SurfaceManager? by mutableStateOf(null)
+    private var activeSurfaceCatalog: SurfaceCatalog? by mutableStateOf(null)
     private var activeGhostKey: String by mutableStateOf("")
     private var sakuraFrame: SurfaceRenderFrame? by mutableStateOf(null)
     private var keroFrame: SurfaceRenderFrame? by mutableStateOf(null)
     private var sakuraScheduler: SurfaceAnimationScheduler? = null
     private var keroScheduler: SurfaceAnimationScheduler? = null
-    /* A SurfaceManager describes immutable ghost assets. Cache both the parsed
-       plans and their rasterized frames for that manager; recomposition must
+    /* A SurfaceCatalog describes immutable ghost assets. Cache both the parsed
+       plans and their rasterized frames for that catalog; recomposition must
        never reopen/decode assets merely because an animation clock ticked. */
     private val speakerSurfaces = mutableMapOf<SpeakerSurfaceKey, SpeakerSurface>()
     private val renderedFrames = LinkedHashMap<RenderedFrameKey, ComposedSurface>(16, 0.75f, true)
@@ -80,23 +80,23 @@ class ComposeGhostStageHost internal constructor(
     private val activeComposedSurfaces = mutableMapOf<SurfaceSpeaker, ActiveComposedSurface>()
     private var renderedFramePixels = 0L
     private var nextComposedRevision = 1L
-    private var surfaceManagerInputEpoch = 0L
+    private var surfaceCatalogInputEpoch = 0L
     private val stageMeasureState = GhostStageMeasureState()
     internal val latestMeasuredSnapshot get() = stageMeasureState.latest
 
     val renderer = KotlinGhostPresentationRuntime { state ->
-        val manager = activeSurfaceManager ?: return@KotlinGhostPresentationRuntime
+        val catalog = activeSurfaceCatalog ?: return@KotlinGhostPresentationRuntime
         // The Kotlin runtime owns the legacy shared talk cadence. Passing its
         // gate through directly also keeps activity recreation from resetting it.
-        schedule(GhostSpeaker.SAKURA, manager.speakerSurface(state.presentation.sakura.surfaceId, true).plan,
+        schedule(GhostSpeaker.SAKURA, catalog.speakerSurface(state.presentation.sakura.surfaceId, true).plan,
             state.presentation.sakura, state.talkingAnimationEnabled)
-        schedule(GhostSpeaker.KERO, manager.speakerSurface(state.presentation.kero.surfaceId, false).plan,
+        schedule(GhostSpeaker.KERO, catalog.speakerSurface(state.presentation.kero.surfaceId, false).plan,
             state.presentation.kero, state.talkingAnimationEnabled)
     }
 
-    fun setSurfaceManager(manager: SurfaceManager?, ghostKey: String) {
-        if (activeSurfaceManager !== manager || activeGhostKey != ghostKey) {
-            surfaceManagerInputEpoch++
+    internal fun setSurfaceCatalog(catalog: SurfaceCatalog?, ghostKey: String) {
+        if (activeSurfaceCatalog !== catalog || activeGhostKey != ghostKey) {
+            surfaceCatalogInputEpoch++
             sakuraScheduler = null
             keroScheduler = null
             sakuraFrame = null
@@ -105,9 +105,9 @@ class ComposeGhostStageHost internal constructor(
             nextPeriodicTicks.clear()
             speakerSurfaces.clear()
             clearRenderedFrames()
-            stageMeasureState.resetFor(manager)
+            stageMeasureState.resetFor(catalog)
         }
-        activeSurfaceManager = manager
+        activeSurfaceCatalog = catalog
         activeGhostKey = ghostKey
     }
 
@@ -123,15 +123,15 @@ class ComposeGhostStageHost internal constructor(
         onDialogueInput: (DialogueSegment.InputBox) -> Unit = {},
         collisionOverlaySpeaker: SurfaceSpeaker? = null,
     ) {
-        val manager = activeSurfaceManager
+        val catalog = activeSurfaceCatalog
         val state = renderer.state
-        val plans = remember(manager) { manager?.getSurfaceKeys()
-            ?.mapNotNull { id -> manager.getSurface(id)?.toSurfaceDefinition()?.toSurfaceRenderPlan() }
+        val plans = remember(catalog) { catalog?.keys
+            ?.mapNotNull { id -> catalog.definition(id)?.toSurfaceRenderPlan() }
             ?.filter { it.isRenderableSurface() }
             .orEmpty() }
-        val compositor = remember(manager, pixelAssets) { SurfaceCompositor(pixelAssets, SurfacePlanRegistry(plans)) }
-        val sakura = manager.speakerSurface(state.presentation.sakura.surfaceId, true)
-        val kero = manager.speakerSurface(state.presentation.kero.surfaceId, false)
+        val compositor = remember(catalog, pixelAssets) { SurfaceCompositor(pixelAssets, SurfacePlanRegistry(plans)) }
+        val sakura = catalog.speakerSurface(state.presentation.sakura.surfaceId, true)
+        val kero = catalog.speakerSurface(state.presentation.kero.surfaceId, false)
         val sakuraComposed = safeComposedSurface(
             compositor,
             SurfaceSpeaker.SAKURA,
@@ -179,13 +179,13 @@ class ComposeGhostStageHost internal constructor(
             measureState = stageMeasureState,
             ghostKey = activeGhostKey,
             bubbleScrollSessionKey = bubbleScrollSessionKey,
-            ghostIdentity = manager ?: NoGhostIdentity,
+            ghostIdentity = catalog ?: NoGhostIdentity,
             blockingInput = blockingInput(),
-            ghostIdentityProvider = { activeSurfaceManager ?: NoGhostIdentity },
+            ghostIdentityProvider = { activeSurfaceCatalog ?: NoGhostIdentity },
             blockingInputProvider = blockingInput,
             routingEpochProvider = {
                 HostRoutingEpoch(
-                    surfaceManager = surfaceManagerInputEpoch,
+                    surfaceCatalog = surfaceCatalogInputEpoch,
                     blocking = blockingInputEpoch(),
                 )
             },
@@ -223,7 +223,7 @@ class ComposeGhostStageHost internal constructor(
     private data class SpeakerSurfaceKey(val sakura: Boolean, val surfaceId: String)
     private data class RenderedFrameKey(val speaker: SurfaceSpeaker, val surfaceId: String, val frame: SurfaceRenderFrame?)
     private data class ActiveComposedSurface(val key: RenderedFrameKey, val surface: ComposedSurface)
-    private data class HostRoutingEpoch(val surfaceManager: Long, val blocking: Long)
+    private data class HostRoutingEpoch(val surfaceCatalog: Long, val blocking: Long)
 
     private fun composedSurface(
         compositor: SurfaceCompositor,
@@ -341,12 +341,11 @@ class ComposeGhostStageHost internal constructor(
         }
     }
 
-    private fun SurfaceManager?.speakerSurface(id: String, sakura: Boolean): SpeakerSurface {
+    private fun SurfaceCatalog?.speakerSurface(id: String, sakura: Boolean): SpeakerSurface {
         if (id == "-1") return SpeakerSurface(SurfaceRenderPlan.Missing, false)
         val key = SpeakerSurfaceKey(sakura, id)
         return speakerSurfaces.getOrPut(key) {
-            val shell = if (sakura) this?.getSakuraSurface(id) else this?.getKeroSurface(id)
-            val definition = shell?.toSurfaceDefinition()
+            val definition = if (sakura) this?.sakuraDefinition(id) else this?.keroDefinition(id)
             val plan = definition.toSurfaceRenderPlan()
             if (!plan.isRenderableSurface()) {
                 SpeakerSurface(SurfaceRenderPlan.Missing, false)

@@ -214,7 +214,7 @@ class GhostRuntimeTest {
                 prepareCount.incrementAndGet()
                 preparedGhost(operationId, ghostId, canonicalRoot)
             },
-            adapterFactory = { RecordingShiori(trace) },
+            adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
             persistence = persistence,
         )
 
@@ -350,19 +350,29 @@ internal class RecordingShioriTrace {
     val loadCount = AtomicInteger()
     val unloadCount = AtomicInteger()
     val requests = CopyOnWriteArrayList<String>()
+    val ownedRequests = CopyOnWriteArrayList<RecordedShioriRequest>()
     val commandThreadNames = CopyOnWriteArrayList<String>()
+    val lifecycleEvents = CopyOnWriteArrayList<String>()
     val loadResults = ConcurrentLinkedQueue<ShioriLoadResult>()
     val unloadResults = ConcurrentLinkedQueue<ShioriUnloadResult>()
     val requestFailure = AtomicReference<Throwable?>(null)
     val requestHandler = AtomicReference<((String) -> String)?>(null)
+    val requestObserver = AtomicReference<((RecordedShioriRequest) -> Unit)?>(null)
     val response = AtomicReference("SHIORI/3.0 204 No Content\r\n\r\n")
 }
 
+internal data class RecordedShioriRequest(
+    val ownerGhostId: String,
+    val protocolText: String,
+)
+
 internal class RecordingShiori(
     private val trace: RecordingShioriTrace,
+    private val ownerGhostId: String,
 ) : Shiori {
     init {
         trace.factoryCount.incrementAndGet()
+        trace.lifecycleEvents += "factory:$ownerGhostId"
     }
 
     override fun getModuleName(): String = "Recording"
@@ -376,13 +386,18 @@ internal class RecordingShiori(
     override fun request(request: String): String {
         trace.requests += request
         trace.commandThreadNames += Thread.currentThread().name
+        val recorded = RecordedShioriRequest(ownerGhostId, request)
+        trace.ownedRequests += recorded
+        trace.requestObserver.get()?.invoke(recorded)
         trace.requestFailure.get()?.let { throw it }
         trace.requestHandler.get()?.let { return it(request) }
         return trace.response.get()
     }
 
-    override fun unloadShiori(): ShioriUnloadResult {
+    override
+    fun unloadShiori(): ShioriUnloadResult {
         trace.unloadCount.incrementAndGet()
+        trace.lifecycleEvents += "unload:$ownerGhostId"
         trace.commandThreadNames += Thread.currentThread().name
         return trace.unloadResults.poll() ?: ShioriUnloadResult.Unloaded
     }
@@ -392,11 +407,11 @@ internal fun testRuntime(
     preparer: GhostPreparer,
     trace: RecordingShioriTrace,
     persistence: InMemoryGhostRuntimePersistence = InMemoryGhostRuntimePersistence(),
-    admission: AttachmentAdmission = AttachmentAdmission { _, _, _ -> RuntimeResult.Success(Unit) },
+    admission: AttachmentAdmission? = null,
 ): GhostRuntime = GhostRuntime.testRuntime(
     context = null,
     preparer = preparer,
-    adapterFactory = { RecordingShiori(trace) },
+    adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
     persistence = persistence,
     admission = admission,
 )
@@ -410,6 +425,12 @@ internal fun preparedGhost(
     engine: GhostEngine = GhostEngine.Unsupported,
     name: String? = ghostId,
     shellName: String? = "master",
+    crafterName: String? = null,
+    sakuraName: String? = null,
+    keroName: String? = null,
+    surfaces: SurfaceCatalog = SurfaceCatalog.freeze(emptyMap()),
+    ghostDescriptor: Map<String, String> = emptyMap(),
+    shellDescriptor: Map<String, String>? = null,
     nanidroidContent: Map<String, String> = emptyMap(),
 ): PreparedGhost = PreparedGhost(
     operationId = operationId,
@@ -417,12 +438,12 @@ internal fun preparedGhost(
     canonicalRoot = canonicalRoot.canonicalFile,
     name = name,
     shellName = shellName,
-    crafterName = null,
-    sakuraName = null,
-    keroName = null,
-    surfaces = SurfaceCatalog.freeze(emptyMap()),
-    ghostDescriptor = emptyMap(),
-    shellDescriptor = null,
+    crafterName = crafterName,
+    sakuraName = sakuraName,
+    keroName = keroName,
+    surfaces = surfaces,
+    ghostDescriptor = ghostDescriptor,
+    shellDescriptor = shellDescriptor,
     engine = engine,
     nanidroidContent = nanidroidContent,
 )
