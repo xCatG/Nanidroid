@@ -22,7 +22,7 @@ class KotlinShioriResponseContractTest(unittest.TestCase):
         )
         ghost_source = (root / "src/main/kotlin/com/cattailsw/nanidroid/Ghost.kt").read_text(encoding="utf-8")
         self.assertIn(
-            "private fun parseShioriResponseAndInsert(tagged: TaggedShioriResponse)",
+            "private fun parseShioriResponseAndInsert(",
             runner_source,
         )
         self.assertIn("tagged.response.getStatusCode() != 200", runner_source)

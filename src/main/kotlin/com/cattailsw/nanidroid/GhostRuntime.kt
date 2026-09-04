@@ -20,6 +20,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.StringReader
 import java.util.concurrent.Callable
+import java.util.concurrent.CompletableFuture
 import java.util.Collections
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -99,6 +100,16 @@ internal sealed interface RuntimeFailure {
 internal sealed interface RuntimeResult<out T> {
     data class Success<T>(val value: T) : RuntimeResult<T>
     data class Failure(val failure: RuntimeFailure) : RuntimeResult<Nothing>
+}
+
+internal sealed interface RuntimeRequestSubmission {
+    data class Accepted(
+        val result: CompletableFuture<RuntimeResult<TaggedShioriResponse>>,
+    ) : RuntimeRequestSubmission
+
+    data class Rejected(
+        val failure: RuntimeResult.Failure,
+    ) : RuntimeRequestSubmission
 }
 
 internal sealed interface BootOutcome {
@@ -289,16 +300,91 @@ internal class GhostRuntime private constructor(
         expectedGeneration: Long,
         intent: ShioriRequestIntent,
     ): RuntimeResult<TaggedShioriResponse> = submitNativeResult {
+        requestOnNative(expectedGeneration, intent)
+    }
+
+    internal fun requestAsync(
+        expectedGeneration: Long,
+        intent: ShioriRequestIntent,
+    ): RuntimeRequestSubmission = submitRequestAsync {
+        requestOnNative(expectedGeneration, intent)
+    }
+
+    internal fun requestWithFallback(
+        expectedGeneration: Long,
+        primary: ShioriRequestIntent,
+        fallback: ShioriRequestIntent,
+    ): RuntimeResult<TaggedShioriResponse> = submitNativeResult {
+        requestWithFallbackOnNative(expectedGeneration, primary, fallback)
+    }
+
+    internal fun requestWithFallbackAsync(
+        expectedGeneration: Long,
+        primary: ShioriRequestIntent,
+        fallback: ShioriRequestIntent,
+    ): RuntimeRequestSubmission = submitRequestAsync {
+        requestWithFallbackOnNative(expectedGeneration, primary, fallback)
+    }
+
+    private fun submitRequestAsync(
+        command: () -> RuntimeResult<TaggedShioriResponse>,
+    ): RuntimeRequestSubmission {
+        val completion = CompletableFuture<RuntimeResult<TaggedShioriResponse>>()
+        return try {
+            nativeExecutor.execute {
+                val result = try {
+                    command()
+                } catch (failure: Throwable) {
+                    fatalResult(failure)
+                }
+                completion.complete(result)
+            }
+            RuntimeRequestSubmission.Accepted(completion)
+        } catch (failure: RejectedExecutionException) {
+            RuntimeRequestSubmission.Rejected(
+                RuntimeResult.Failure(RuntimeFailure.Fatal(failure)),
+            )
+        }
+    }
+
+    private fun requestWithFallbackOnNative(
+        expectedGeneration: Long,
+        primary: ShioriRequestIntent,
+        fallback: ShioriRequestIntent,
+    ): RuntimeResult<TaggedShioriResponse> {
+        val primaryResult = requestOnNative(expectedGeneration, primary)
+        return when (primaryResult) {
+            is RuntimeResult.Success -> {
+                if (primaryResult.value.response.isPlayable()) {
+                    primaryResult
+                } else {
+                    requestOnNative(expectedGeneration, fallback)
+                }
+            }
+            is RuntimeResult.Failure -> when (primaryResult.failure) {
+                is RuntimeFailure.Replayable -> requestOnNative(expectedGeneration, fallback)
+                else -> primaryResult
+            }
+        }
+    }
+
+    private fun ShioriResponse.isPlayable(): Boolean =
+        getStatusCode() == 200 && !getKey("Value").isNullOrEmpty()
+
+    private fun requestOnNative(
+        expectedGeneration: Long,
+        intent: ShioriRequestIntent,
+    ): RuntimeResult<TaggedShioriResponse> {
         val active = synchronized(stateLock) {
             when {
-                poison != null -> return@submitNativeResult fatalResult(requireNotNull(poison))
+                poison != null -> return fatalResult(requireNotNull(poison))
                 session?.handle?.generation != expectedGeneration -> {
-                    return@submitNativeResult RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
+                    return RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
                 }
                 else -> requireNotNull(session)
             }
         }
-        try {
+        return try {
             RuntimeResult.Success(
                 TaggedShioriResponse(
                     expectedGeneration,

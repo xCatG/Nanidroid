@@ -48,7 +48,8 @@ split across caller threads:
 - `Ghost` parses descriptors and surfaces, selects `Shiori`, performs native
   load in adapter constructors, and immediately runs capability probes.
 - runner UI, playback, timer, and dialogue paths invoke requests from their
-  caller threads, normally the main thread.
+  caller threads, normally the main thread, where waiting for the native result
+  would freeze input and rendering.
 - `GhostSessionCoordinator` invokes unload while holding nested root/global
   monitors.
 
@@ -203,16 +204,35 @@ The minimum internal command surface is:
 - `attachHost(expectedGeneration)` — joins or starts one runtime-owned
   attachment operation and returns whether presentation is newly attached or
   already attached;
-- `request(expectedGeneration, request)` — synchronous-to-caller,
-  queue-confined native request returning an immutable tagged response;
+- `requestAsync(expectedGeneration, request)` — nonblocking queue submission
+  returning a data-only awaitable tagged result for main-looper runner routes;
+- `request(expectedGeneration, request)` — synchronous queue-confined helper
+  restricted to bootstrap, instrumentation, and callers already off the main
+  looper;
 - `unload(expectedGeneration)` — synchronous-to-caller, queue-confined typed
   teardown; and
 - read-only runtime/session identity for instrumentation and attachment.
 
-`request` input is already formatted immutable SHIORI intent/protocol data.
-Command execution never calls runner, Activity, Compose, renderer, observer, or
-callback code. Callers must not hold the runner monitor while waiting for a
-runtime result.
+Request input is already formatted immutable SHIORI intent/protocol data.
+Command execution completes only a data-only result; it never calls runner,
+Activity, Compose, renderer, observer, or response-admission code. The runner
+observes an asynchronous result outside the command and schedules admission on
+the main-side response scheduler. Callers must not hold the runner monitor
+while waiting for a runtime result, and main-looper callers never wait.
+
+An authored playback request such as `OnSurfaceChange` temporarily suspends
+only the exact initiating playback sequence. Its fenced response is admitted
+before that sequence resumes, so a short initiating script cannot finish and
+discard a delayed returned `Value`. Failure, stale, unscheduled, stop, and
+replacement paths clear the pending state exactly once without reviving an old
+playback or changing a user-input pause.
+
+A dialogue operation with an extended primary event and legacy fallback is one
+queue-atomic, data-only runtime command. The native executor issues the fallback
+immediately only when the primary is non-playable or fails replayably with
+ownership still certain. Fatal/poison and stale-generation results stop without
+fallback; the fallback result is final. Unrelated timer or pointer requests may
+remain responsive on main, but cannot execute between the primary and fallback.
 
 Bootstrap capability discovery executes directly inside the load command on
 the runtime thread. It must not submit a nested command to its own executor.
@@ -403,6 +423,9 @@ For Satori, YAYA, and Kawari:
 - duplicate unload is idempotent known success;
 - successful unload clears all native global handles/loaded flags;
 - request and YAYA charset lookup reject the unloaded state;
+- an existing but engine-invalid master root is a proven-empty load failure:
+  Satori requires a successfully parsed `dic*.txt`/`dic*.sat` from its
+  configured dictionary roots, and YAYA rejects a suppressed configured VM;
 - a load failure leaves the native loaded flag/handle empty; and
 - unexpected native/linkage failure is surfaced without fabricating success.
 
@@ -554,6 +577,10 @@ Using an injected internal adapter factory and deterministic hooks, prove:
   failure path, uncertain replacement cleanup, success, stale completion, and
   duplicate completion reach the exact terminal states defined above;
 - stale queued requests/completions are rejected across switch;
+- a blocked timer-route request leaves the main looper responsive and admits
+  its eventual response on the main looper;
+- a blocked extended dialogue request followed by a queued timer preserves
+  primary → fallback → timer native order without blocking main;
 - uncertain unload poisons and forbids reload; and
 - isolated test runtimes do not share thread, session, generation, or queue.
 

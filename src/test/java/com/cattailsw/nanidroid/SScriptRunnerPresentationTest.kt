@@ -718,14 +718,17 @@ class SScriptRunnerPresentationTest {
     }
 
     @Test
-    fun transitionDuringPrimaryResponsePreventsFallbackAndStaleTalkEnqueue() {
+    fun transitionAtAtomicDialogueAdmissionDropsFinalTalkAfterAdjacentFallback() {
         val fixture = fixture(responses = listOf(noContent()))
         val action = fixture.openChoice("Choice", "choice-id")
         fixture.shiori.beforeResponse = fixture::replaceGeneration
 
         fixture.runner.activateChoice(action)
 
-        Assert.assertEquals(listOf(request("OnChoiceSelectEx", "Choice", "choice-id")), fixture.shiori.requests)
+        Assert.assertEquals(
+            listOf(request("OnChoiceSelectEx", "Choice", "choice-id"), request("OnChoiceSelect", "choice-id")),
+            fixture.shiori.requests,
+        )
         Assert.assertTrue(fixture.runner.dialogueStateSnapshot().contents.isEmpty())
     }
 

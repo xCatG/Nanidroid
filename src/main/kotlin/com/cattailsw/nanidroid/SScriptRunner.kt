@@ -22,13 +22,19 @@ import com.cattailsw.nanidroid.runtime.dialogue.tokenizeWithInteractions
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionProtocol
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.IdentityHashMap
 import java.util.UUID
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executor
+import java.util.concurrent.RejectedExecutionException
 
 internal interface SScriptPlaybackScheduler {
     fun schedule(delayMillis: Long, action: () -> Unit)
     fun cancelPending()
+}
+
+internal fun interface SScriptResponseScheduler {
+    fun schedule(action: () -> Unit)
 }
 
 internal data class SScriptPlaybackHooks(
@@ -42,6 +48,7 @@ internal data class SScriptPlaybackHooks(
     val afterPresentationEffectCaptured: () -> Unit = {},
     val afterSurfaceInteractionCaptured: () -> Unit = {},
     val beforeRequestResponseAdmission: () -> Unit = {},
+    val afterRequestResponseFence: () -> Unit = {},
 )
 
 internal data class SScriptRunnerConfiguration(
@@ -49,7 +56,15 @@ internal data class SScriptRunnerConfiguration(
     val playbackSchedulerFactory: () -> SScriptPlaybackScheduler = {
         HandlerSScriptPlaybackScheduler()
     },
+    val responseSchedulerFactory: () -> SScriptResponseScheduler = {
+        HandlerSScriptResponseScheduler()
+    },
     val playbackHooks: SScriptPlaybackHooks = SScriptPlaybackHooks(),
+)
+
+private data class RequestAdmissionStamp(
+    val generation: Long,
+    val epoch: Long,
 )
 
 internal data class SurfaceInteractionDispatchResult(
@@ -66,6 +81,14 @@ private class HandlerSScriptPlaybackScheduler : SScriptPlaybackScheduler {
 
     override fun cancelPending() {
         handler.removeCallbacksAndMessages(null)
+    }
+}
+
+private class HandlerSScriptResponseScheduler : SScriptResponseScheduler {
+    private val handler = Handler(Looper.getMainLooper())
+
+    override fun schedule(action: () -> Unit) {
+        handler.post(action)
     }
 }
 
@@ -109,11 +132,17 @@ open class SScriptRunner internal constructor(
         var keroAnimationId: String? = null
         var dialogueScript: AuthoredDialogueScript? = null
         var legacyChoiceCallbackPublished = false
+        // A SHIORI terminal may clear this, but must never clear the independent user-input pause.
+        var authoredRequestPending = false
     }
 
     private val msgQueue = ConcurrentLinkedQueue<String>()
     private val monotonicClock = configuration.monotonicClock
     private val playbackSchedulerFactory = configuration.playbackSchedulerFactory
+    private val responseScheduler = lazy(configuration.responseSchedulerFactory)
+    private val responseExecutor = Executor { command ->
+        responseScheduler.value.schedule { command.run() }
+    }
     private val playbackHooks = configuration.playbackHooks
     private var presentationRenderer: GhostPresentationRenderer? = null
     private var currentPresentationFrame: GhostPresentationFrame? = null
@@ -126,7 +155,10 @@ open class SScriptRunner internal constructor(
     private var sakuraSurfaceId = "0"; private var keroSurfaceId = "10"
     private var lastElapsedSecond: Long? = null
     private var lastElapsedMinute: Long? = null
-    private var restore = false; private var exitPending = false; private var pendingSwitch: RunnerSwitchOperation? = null; private val bootDispatchState = BootDispatchState()
+    private var restore = false; private var pendingSwitch: RunnerSwitchOperation? = null; private val bootDispatchState = BootDispatchState()
+    private var periodicRequestPending = false
+    private var nextExitOperationId = 0L
+    private var exitOperation: ExitOperation? = null
     private var dialogueState = DialogueRuntimeState()
     private var dialogueIncarnation = 0L
     private var nextDialogueTalkId = 0L
@@ -139,12 +171,21 @@ open class SScriptRunner internal constructor(
     private var pendingChoiceGeneration: Long? = null
     private var passive = false
     private var runtimeModeGeneration: Long = 0L
+    private var requestAdmissionEpoch: Long = 0L
     private val playbackScheduler = lazy(playbackSchedulerFactory)
     @Volatile private var dialogueClaimHookForTesting: (() -> Unit)? = null
 
     private data class RunnerSwitchOperation(
         val operationId: Long,
         val outgoingGeneration: Long,
+    )
+
+    private enum class ExitPhase { AwaitingResponse, AwaitingPlayback, ReadyForHost }
+
+    private data class ExitOperation(
+        val operationId: Long,
+        val generation: Long?,
+        var phase: ExitPhase = ExitPhase.AwaitingResponse,
     )
 
     internal fun setDialogueClaimHookForTesting(hook: (() -> Unit)?) { dialogueClaimHookForTesting = hook }
@@ -178,18 +219,21 @@ open class SScriptRunner internal constructor(
             return SurfaceInteractionDispatchResult(candidateEvent, false)
         }
         if (!isPinnedHandle(handle)) return SurfaceInteractionDispatchResult(candidateEvent, false)
-        val tagged = requestPinned(
+        val accepted = requestPinned(
             handle,
             ShioriRequestIntent.raw(
                 ShioriMethod.GET,
                 candidateEvent,
                 SurfaceInteractionProtocol.references(effect),
             ),
-        ) ?: return SurfaceInteractionDispatchResult(candidateEvent, false)
-        if (!passiveSequence && !runtimeModeSnapshot().passive && isPinnedHandle(handle)) {
-            parseShioriResponseAndInsert(tagged)
+        ) { result, admissionStamp ->
+            val tagged = (result as? RuntimeResult.Success)?.value ?: return@requestPinned false
+            if (!passiveSequence && !runtimeModeSnapshot().passive && isPinnedHandle(handle)) {
+                parseShioriResponseAndInsert(tagged, admissionStamp)
+            }
+            true
         }
-        return SurfaceInteractionDispatchResult(candidateEvent, true)
+        return SurfaceInteractionDispatchResult(candidateEvent, accepted)
     }
 
     internal fun admitAttachment(
@@ -260,7 +304,15 @@ open class SScriptRunner internal constructor(
         if (msgs.isNotEmpty()) runtimeModeGeneration++
         msgs.forEach { msgQueue.add(it) }
     }
-    fun setNoWaitMode(wait: Boolean) { noWaitMode=wait }; fun setCallback(c: StatusCallback?) { cb=c }; fun setUICallback(c: UICallback?) { ucb=c }
+    fun setNoWaitMode(wait: Boolean) { noWaitMode=wait }
+    fun setCallback(c: StatusCallback?) {
+        val pendingExit = synchronized(this) {
+            cb = c
+            exitOperation?.takeIf { c != null && it.phase == ExitPhase.ReadyForHost }?.operationId
+        }
+        pendingExit?.let(::deliverPendingExit)
+    }
+    fun setUICallback(c: UICallback?) { ucb=c }
     private val clockHandler: Handler by lazy { object: Handler(Looper.getMainLooper()) { override fun handleMessage(m: Message) { if(m.what==INC_CLOCK){perClockEvent();sendEmptyMessageDelayed(INC_CLOCK,1000)} } } }
     fun resumeEvt() {
         val resumed = synchronized(this) {
@@ -289,25 +341,29 @@ open class SScriptRunner internal constructor(
         }
     }
     private fun loopControl(state: PlaybackState) {
-        val claimed = synchronized(this) { playback === state && state.running && !state.paused }
+        val claimed = synchronized(this) {
+            playback === state && state.running && !state.paused && !state.authoredRequestPending
+        }
         if (!claimed) return
         playbackHooks.afterRunClaimed()
         val current = synchronized(this) {
-            if (playback !== state || !state.running || state.paused) return
+            if (playback !== state || !state.running || state.paused || state.authoredRequestPending) return
             state.msg?.takeIf { state.charIndex < it.length }
         }
         if (current != null) {
             parseMsg(state)
             updateUI(state)
             publishDialogueProjection(state)
-            val paused = synchronized(this) { playback !== state || state.paused }
-            if (!paused) {
+            val suspended = synchronized(this) {
+                playback !== state || state.paused || state.authoredRequestPending
+            }
+            if (!suspended) {
                 if (noWaitMode) loopControl(state) else schedulePlayback(RUN, state.waitTime, state)
             }
             return
         }
         val next = synchronized(this) {
-            if (playback !== state || !state.running || state.paused) return
+            if (playback !== state || !state.running || state.paused || state.authoredRequestPending) return
             reset(state)
             state.msg = getFromQueue(state)
             state.msg
@@ -331,7 +387,11 @@ open class SScriptRunner internal constructor(
             doShioriEvent("OnWindowStateRestore", null)
         }
     }
-    fun stopClock() { LegacyPlatform.cancelDelayed { clockHandler.removeMessages(INC_CLOCK) }; bootDispatchState.stopClock() }
+    fun stopClock() {
+        synchronized(this) { runtimeModeGeneration++ }
+        LegacyPlatform.cancelDelayed { clockHandler.removeMessages(INC_CLOCK) }
+        bootDispatchState.stopClock()
+    }
     override fun run() {
         val prepared = synchronized(this) {
             val state = playback
@@ -357,10 +417,20 @@ open class SScriptRunner internal constructor(
             .replace("%selfname2?", ghost.sakuraName ?: "null")
             .replace("%keroname", ghost.keroName ?: "null")
     }
-    fun clearMsgQueue(){val state=synchronized(this){msgQueue.clear();playback.msg=null;runtimeModeGeneration++;playback};stop(state)}
+    fun clearMsgQueue() {
+        val state = synchronized(this) {
+            msgQueue.clear()
+            playback.msg = null
+            runtimeModeGeneration++
+            requestAdmissionEpoch++
+            playback
+        }
+        stop(state)
+    }
     private fun clearMsgQueueIfPinned(handle: GhostHandle): Boolean {
         val state = synchronized(this) {
             if (activeHandle?.generation != handle.generation) return false
+            requestAdmissionEpoch++
             msgQueue.clear()
             playback.msg = null
             runtimeModeGeneration++
@@ -369,7 +439,13 @@ open class SScriptRunner internal constructor(
         stop(state)
         return true
     }
-    fun stop() = stop(synchronized(this) { playback })
+    fun stop() {
+        val state = synchronized(this) {
+            requestAdmissionEpoch++
+            playback
+        }
+        stop(state)
+    }
     private fun stop(state: PlaybackState, continueQueuedTalk: Boolean = false) {
         val switch = synchronized(this) {
             if (playback !== state) return
@@ -394,6 +470,7 @@ open class SScriptRunner internal constructor(
                 if (playbackScheduler.isInitialized()) playbackScheduler.value.cancelPending()
                 state.running = false
                 state.paused = false
+                state.authoredRequestPending = false
                 if (switch != null) {
                     passive = false
                     runtimeModeGeneration++
@@ -404,12 +481,21 @@ open class SScriptRunner internal constructor(
                 currentPresentationFrame = frame
                 val renderer = presentationRenderer
                 val callback = cb
-                val exit = callback != null && exitPending
+                val pendingExit = exitOperation
+                val exitOperationId = if (pendingExit?.phase == ExitPhase.AwaitingPlayback) {
+                    if (pendingExit.generation != activeHandle?.generation) {
+                        exitOperation = null
+                        null
+                    } else {
+                        pendingExit.operationId
+                    }
+                } else {
+                    null
+                }
                 val handoff = pendingSwitch == switch && switch != null
-                if (exit) exitPending = false
                 if (handoff) pendingSwitch = null
                 playback = PlaybackState(state.talkAnimeControl)
-                StopEffects(renderer, frame, callback, exit, switch.takeIf { handoff })
+                StopEffects(renderer, frame, callback, exitOperationId, switch.takeIf { handoff })
             }
         }
         if (restarted) {
@@ -417,9 +503,12 @@ open class SScriptRunner internal constructor(
             return
         }
         effects ?: return
-        effects.renderer?.render(effects.frame)
-        effects.callback?.stop()
-        if (effects.exit) effects.callback?.canExit()
+        try {
+            effects.renderer?.render(effects.frame)
+            effects.callback?.stop()
+        } finally {
+            effects.exitOperationId?.let(::completePlaybackExit)
+        }
         effects.switch?.let { operation ->
             runtimePort.completeSwitchPlaybackFromRunner(
                 operation.outgoingGeneration,
@@ -432,7 +521,7 @@ open class SScriptRunner internal constructor(
         val renderer: GhostPresentationRenderer?,
         val frame: GhostPresentationFrame,
         val callback: StatusCallback?,
-        val exit: Boolean,
+        val exitOperationId: Long?,
         val switch: RunnerSwitchOperation?,
     )
     private fun reset(state: PlaybackState){
@@ -790,6 +879,7 @@ open class SScriptRunner internal constructor(
         event: String,
         prepareReferences: () -> Array<String>,
     ): Boolean {
+        val awaitResponse = runsOnMainLooper()
         val captured = synchronized(this) {
             if (playback !== state || !state.running) return false
             val handle = activeHandle ?: run {
@@ -798,27 +888,64 @@ open class SScriptRunner internal constructor(
                 prepareReferences()
                 return false
             }
-            handle to prepareReferences()
+            val references = prepareReferences()
+            if (awaitResponse) {
+                if (state.authoredRequestPending) return false
+                state.authoredRequestPending = true
+            }
+            handle to references
         }
         val (handle, references) = captured
-        val tagged = requestPinned(
-            handle,
-            ShioriRequestIntent.event(event, references.toList()),
-        ) ?: return false
-        parsePlaybackShioriResponseAndInsert(state, handle, tagged.response)
-        return true
+        return try {
+            requestPinned(
+                handle,
+                ShioriRequestIntent.event(event, references.toList()),
+                onUnscheduled = {
+                    if (awaitResponse) finishPlaybackShioriRequest(state, resume = false)
+                },
+            ) { result, admissionStamp ->
+                try {
+                    val tagged = (result as? RuntimeResult.Success)?.value
+                        ?: return@requestPinned false
+                    parsePlaybackShioriResponseAndInsert(
+                        state,
+                        handle,
+                        tagged.response,
+                        admissionStamp,
+                    )
+                    true
+                } finally {
+                    if (awaitResponse) finishPlaybackShioriRequest(state, resume = true)
+                }
+            }
+        } catch (failure: Throwable) {
+            if (awaitResponse) finishPlaybackShioriRequest(state, resume = false)
+            throw failure
+        }
+    }
+
+    private fun finishPlaybackShioriRequest(state: PlaybackState, resume: Boolean) {
+        val shouldResume = synchronized(this) {
+            if (!state.authoredRequestPending) return
+            state.authoredRequestPending = false
+            resume && playback === state && state.running && !state.paused
+        }
+        if (!shouldResume) return
+        if (noWaitMode) loopControl(state) else schedulePlayback(RUN, state = state)
     }
 
     private fun parsePlaybackShioriResponseAndInsert(
         state: PlaybackState,
         handle: GhostHandle,
         response: ShioriResponse?,
+        admissionStamp: RequestAdmissionStamp,
     ) {
         if (response == null || response.getStatusCode() != 200) return
         val value = response.getKey("Value") ?: return
         synchronized(this) {
             if (
                 activeHandle?.generation != handle.generation ||
+                !admissionIsCurrent(admissionStamp) ||
                 playback !== state ||
                 !state.running
             ) return
@@ -883,91 +1010,209 @@ open class SScriptRunner internal constructor(
         if (state.talkAnimeControl == 10) state.talkAnimeControl = 0
         return frame
     }
-    private fun doPerSecondEvent(hr: Long) { dispatchTimerEvent("OnSecondChange", hr) }
-    private fun doPerMinuteEvent(hr: Long) { dispatchTimerEvent("OnMinuteChange", hr) }
-    private fun dispatchTimerEvent(event: String, uptimeHours: Long) {
+    private fun doPerSecondEvent(hr: Long): Boolean = dispatchTimerEvent("OnSecondChange", hr)
+    private fun doPerMinuteEvent(hr: Long): Boolean = dispatchTimerEvent("OnMinuteChange", hr)
+    private fun dispatchTimerEvent(event: String, uptimeHours: Long): Boolean {
         val captured = synchronized(this) {
-            val handle = activeHandle ?: return
+            val handle = activeHandle ?: return false
+            if (periodicRequestPending) return false
+            periodicRequestPending = true
             Triple(handle, runtimeModeSnapshot().canTalk, runtimeModeGeneration)
         }
         val (handle, wasIdle, capturedModeGeneration) = captured
         val method = if (wasIdle) ShioriMethod.GET else ShioriMethod.NOTIFY
-        val tagged = requestPinned(
+        return requestPinned(
             handle,
             ShioriRequestIntent.raw(
                 method,
                 event,
                 listOf(uptimeHours.toString(), "0", "0", if (wasIdle) "1" else "0"),
             ),
-        ) ?: return
-        if (!wasIdle) return
-        val value = tagged.response
-            .takeIf { it.getStatusCode() == 200 }
-            ?.getKey("Value")
-            ?: return
-        playbackHooks.beforeTimerResponseAdmission()
-        val shouldRun = synchronized(this) {
-            if (!timerResponseIsEligible(handle, capturedModeGeneration)) {
-                false
-            } else {
-                msgQueue.add(value)
-                runtimeModeGeneration++
-                !playback.running
+            onUnscheduled = { synchronized(this) { periodicRequestPending = false } },
+        ) { result, admissionStamp ->
+            try {
+                val tagged = (result as? RuntimeResult.Success)?.value ?: return@requestPinned false
+                if (!wasIdle) return@requestPinned true
+                val value = tagged.response
+                    .takeIf { it.getStatusCode() == 200 }
+                    ?.getKey("Value")
+                    ?: return@requestPinned true
+                playbackHooks.beforeTimerResponseAdmission()
+                val shouldRun = synchronized(this) {
+                    if (
+                        !admissionIsCurrent(admissionStamp) ||
+                        !timerResponseIsEligible(handle, capturedModeGeneration)
+                    ) {
+                        false
+                    } else {
+                        msgQueue.add(value)
+                        runtimeModeGeneration++
+                        !playback.running
+                    }
+                }
+                if (shouldRun) run()
+                true
+            } finally {
+                synchronized(this) { periodicRequestPending = false }
             }
         }
-        if (shouldRun) run()
     }
     private fun perClockEvent() {
         val secondsAll = monotonicClock.nowMillis() / 1_000L
         val minutesAll = secondsAll / 60L
         val hour = minutesAll / 60L
-        if (lastElapsedSecond != secondsAll) {
-            doPerSecondEvent(hour)
+        if (lastElapsedMinute == null) {
+            lastElapsedMinute = minutesAll
+        } else if (lastElapsedMinute != minutesAll && doPerMinuteEvent(hour)) {
+            lastElapsedMinute = minutesAll
+        }
+        if (lastElapsedSecond != secondsAll && doPerSecondEvent(hour)) {
             lastElapsedSecond = secondsAll
         }
-        if (lastElapsedMinute != null && lastElapsedMinute != minutesAll) {
-            doPerMinuteEvent(hour)
-        }
-        lastElapsedMinute = minutesAll
     }
     internal fun dispatchClockTickForTesting() = perClockEvent()
-    private fun parseShioriResponseAndInsert(tagged: TaggedShioriResponse) {
-        if (tagged.response.getStatusCode() != 200) return
-        val value = tagged.response.getKey("Value") ?: return
+    private fun parseShioriResponseAndInsert(
+        tagged: TaggedShioriResponse,
+        admissionStamp: RequestAdmissionStamp? = null,
+    ): Boolean {
+        if (tagged.response.getStatusCode() != 200) return false
+        val value = tagged.response.getKey("Value") ?: return false
         val shouldRun = synchronized(this) {
-            if (activeHandle?.generation != tagged.generation) return@synchronized false
+            if (
+                activeHandle?.generation != tagged.generation ||
+                (admissionStamp != null && !admissionIsCurrent(admissionStamp))
+            ) return@synchronized null
             msgQueue.add(value)
             !playback.running
-        }
+        } ?: return false
         if (shouldRun) run()
+        return true
     }
     private fun doMouseWheel(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseWheel",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
     private fun doMouseMove(x:Int,y:Int,w:Int,s:Boolean,c:Int)=doShioriEvent("OnMouseMove",arrayOf("$x","$y","$w",if(s)"0" else "1",if(c>-1)"$c" else "",null,"touch"))
-    fun doMinimize(){doShioriEvent("OnWindowStateMinimize",null)};fun doRestore(){restore=true};fun doExit(){synchronized(this){exitPending=true};doShioriEvent("OnClose",null)}
+    fun doMinimize(){doShioriEvent("OnWindowStateMinimize",null)};fun doRestore(){restore=true}
+    fun doExit() {
+        val captured = synchronized(this) {
+            if (exitOperation != null) return
+            val operation = ExitOperation(++nextExitOperationId, activeHandle?.generation)
+            exitOperation = operation
+            msgQueue.clear()
+            playback.msg = null
+            runtimeModeGeneration++
+            requestAdmissionEpoch++
+            Triple(operation, activeHandle, playback)
+        }
+        val (operation, handle, state) = captured
+        stop(state)
+        if (handle == null) {
+            completePendingExit(operation)
+            return
+        }
+        requestPinned(
+            handle,
+            ShioriRequestIntent.event("OnClose"),
+            onUnscheduled = { completePendingExit(operation) },
+            admission = { result, _ -> admitExitResponse(operation, result) },
+        )
+    }
+
+    private fun admitExitResponse(
+        operation: ExitOperation,
+        result: RuntimeResult<TaggedShioriResponse>,
+    ): Boolean {
+        val playable = (result as? RuntimeResult.Success)?.value?.takeIf { tagged ->
+            tagged.response.getStatusCode() == 200 &&
+                !tagged.response.getKey("Value").isNullOrEmpty()
+        }
+        if (playable != null) {
+            val admitted = synchronized(this) {
+                if (exitOperation?.operationId != operation.operationId) return@synchronized false
+                if (operation.generation != activeHandle?.generation) {
+                    exitOperation = null
+                    return@synchronized false
+                }
+                operation.phase = ExitPhase.AwaitingPlayback
+                true
+            }
+            if (admitted && parseShioriResponseAndInsert(playable)) return true
+        }
+        return completePendingExit(operation)
+    }
+
+    private fun completePendingExit(operation: ExitOperation): Boolean {
+        val ready = synchronized(this) {
+            if (exitOperation?.operationId != operation.operationId) return@synchronized false
+            if (operation.generation != activeHandle?.generation) {
+                exitOperation = null
+                return@synchronized false
+            }
+            operation.phase = ExitPhase.ReadyForHost
+            true
+        }
+        if (ready) deliverPendingExit(operation.operationId)
+        return ready
+    }
+
+    private fun completePlaybackExit(operationId: Long) {
+        val operation = synchronized(this) {
+            exitOperation?.takeIf {
+                it.operationId == operationId && it.phase == ExitPhase.AwaitingPlayback
+            }
+        } ?: return
+        completePendingExit(operation)
+    }
+
+    private fun deliverPendingExit(operationId: Long): Boolean {
+        val callback = synchronized(this) {
+            val operation = exitOperation
+            if (
+                operation?.operationId != operationId ||
+                operation.phase != ExitPhase.ReadyForHost
+            ) {
+                return@synchronized null
+            }
+            if (operation.generation != activeHandle?.generation) {
+                exitOperation = null
+                return@synchronized null
+            }
+            val current = cb ?: return@synchronized null
+            exitOperation = null
+            current
+        } ?: return false
+        callback.canExit()
+        return true
+    }
     fun doGhostChanging(
         switchOperationId: Long,
         nextName: String,
         type: String,
         nextPath: String,
     ): Boolean {
-        val operation = synchronized(this) {
+        val captured = synchronized(this) {
             val handle = activeHandle ?: return false
-            RunnerSwitchOperation(switchOperationId, handle.generation).also { pendingSwitch = it }
+            RunnerSwitchOperation(switchOperationId, handle.generation)
+                .also { pendingSwitch = it } to handle
         }
-        val result = runtimePort.request(
-            operation.outgoingGeneration,
+        val (operation, handle) = captured
+        return requestPinned(
+            handle,
             ShioriRequestIntent.event("OnGhostChanging", listOf(nextName, type, null, nextPath)),
-        )
+        ) { result, _ -> admitGhostChangingResponse(operation, result) }
+    }
+
+    private fun admitGhostChangingResponse(
+        operation: RunnerSwitchOperation,
+        result: RuntimeResult<TaggedShioriResponse>,
+    ): Boolean {
         val tagged = when (result) {
-            is RuntimeResult.Success -> result.value.takeIf { response ->
-                synchronized(this) {
-                    activeHandle?.generation == response.generation && pendingSwitch == operation
-                }
+            is RuntimeResult.Success -> result.value.takeIf {
+                synchronized(this) { pendingSwitch == operation }
             }
             is RuntimeResult.Failure -> {
-                synchronized(this) {
-                    if (pendingSwitch == operation) pendingSwitch = null
+                val owned = synchronized(this) {
+                    (pendingSwitch == operation).also { if (it) pendingSwitch = null }
                 }
+                if (!owned) return false
                 val cause = when (val failure = result.failure) {
                     is RuntimeFailure.Replayable -> failure.cause
                     is RuntimeFailure.Fatal -> failure.cause
@@ -1023,30 +1268,131 @@ open class SScriptRunner internal constructor(
     }
     fun doInstallBegin(id:String){doShioriEvent("OnInstallBegin",arrayOf("ghost",id,id))};fun doInstallComplete(id:String){doShioriEvent("OnInstallComplete",arrayOf("ghost",id,id))}
     fun doShioriEvent(evt: String, ref: Array<out String?>?): Boolean {
-        val tagged = requestCurrent(
+        return requestCurrent(
             ShioriRequestIntent.event(evt, ref?.toList().orEmpty()),
-        ) ?: return false
-        parseShioriResponseAndInsert(tagged)
-        return true
+        ) { result, admissionStamp ->
+            val tagged = (result as? RuntimeResult.Success)?.value ?: return@requestCurrent false
+            parseShioriResponseAndInsert(tagged, admissionStamp)
+            true
+        }
     }
 
-    private fun requestCurrent(intent: ShioriRequestIntent): TaggedShioriResponse? {
-        val handle = synchronized(this) { activeHandle } ?: return null
-        return requestPinned(handle, intent)
+    private fun requestCurrent(
+        intent: ShioriRequestIntent,
+        admission: (RuntimeResult<TaggedShioriResponse>, RequestAdmissionStamp) -> Boolean,
+    ): Boolean {
+        val handle = synchronized(this) { activeHandle } ?: return false
+        return requestPinned(handle, intent, admission = admission)
     }
 
     private fun requestPinned(
         handle: GhostHandle,
         intent: ShioriRequestIntent,
-    ): TaggedShioriResponse? = when (val result = runtimePort.request(handle.generation, intent)) {
-        is RuntimeResult.Success -> {
-            playbackHooks.beforeRequestResponseAdmission()
-            result.value.takeIf { tagged ->
-                synchronized(this) { activeHandle?.generation == tagged.generation }
+        onUnscheduled: () -> Unit = {},
+        admission: (RuntimeResult<TaggedShioriResponse>, RequestAdmissionStamp) -> Boolean,
+    ): Boolean = requestPinnedCommand(
+        handle = handle,
+        onUnscheduled = onUnscheduled,
+        request = { runtimePort.request(handle.generation, intent) },
+        requestAsync = { runtimePort.requestAsync(handle.generation, intent) },
+        admission = admission,
+    )
+
+    private fun requestPinnedWithFallback(
+        handle: GhostHandle,
+        primary: ShioriRequestIntent,
+        fallback: ShioriRequestIntent,
+        admission: (RuntimeResult<TaggedShioriResponse>, RequestAdmissionStamp) -> Boolean,
+    ): Boolean = requestPinnedCommand(
+        handle = handle,
+        request = {
+            runtimePort.requestWithFallback(handle.generation, primary, fallback)
+        },
+        requestAsync = {
+            runtimePort.requestWithFallbackAsync(handle.generation, primary, fallback)
+        },
+        admission = admission,
+    )
+
+    private fun requestPinnedCommand(
+        handle: GhostHandle,
+        onUnscheduled: () -> Unit = {},
+        request: () -> RuntimeResult<TaggedShioriResponse>,
+        requestAsync: () -> RuntimeRequestSubmission,
+        admission: (RuntimeResult<TaggedShioriResponse>, RequestAdmissionStamp) -> Boolean,
+    ): Boolean {
+        val capturedAdmissionEpoch = synchronized(this) {
+            requestAdmissionEpoch.takeIf { activeHandle?.generation == handle.generation }
+        }
+        if (capturedAdmissionEpoch == null) {
+            onUnscheduled()
+            return false
+        }
+
+        val admissionStamp = RequestAdmissionStamp(handle.generation, capturedAdmissionEpoch)
+        fun admit(result: RuntimeResult<TaggedShioriResponse>): Boolean {
+            val fenced = when (result) {
+                is RuntimeResult.Success -> {
+                    playbackHooks.beforeRequestResponseAdmission()
+                    if (
+                        result.value.generation == handle.generation &&
+                        synchronized(this) {
+                            activeHandle?.generation == handle.generation &&
+                                requestAdmissionEpoch == capturedAdmissionEpoch
+                        }
+                    ) {
+                        result
+                    } else {
+                        RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
+                    }
+                }
+                is RuntimeResult.Failure -> result
+            }
+            playbackHooks.afterRequestResponseFence()
+            return admission(fenced, admissionStamp)
+        }
+
+        // Legacy/background callers keep the result-returning contract. On Android's main
+        // looper the Boolean is an acceptance receipt; the generation-fenced response is
+        // admitted later by the main-side scheduler.
+        if (!runsOnMainLooper()) {
+            return admit(request())
+        }
+        return when (val submission = requestAsync()) {
+            is RuntimeRequestSubmission.Accepted -> observeRequest(submission, ::admit)
+            is RuntimeRequestSubmission.Rejected -> {
+                responseScheduler.value.schedule { admit(submission.failure) }
+                false
             }
         }
-        is RuntimeResult.Failure -> null
     }
+
+    private fun observeRequest(
+        submission: RuntimeRequestSubmission.Accepted,
+        admission: (RuntimeResult<TaggedShioriResponse>) -> Boolean,
+    ): Boolean = try {
+        submission.result.whenCompleteAsync(
+            { result, failure ->
+                val outcome = if (failure == null) {
+                    requireNotNull(result)
+                } else {
+                    RuntimeResult.Failure(RuntimeFailure.Fatal(failure.cause ?: failure))
+                }
+                admission(outcome)
+            },
+            responseExecutor,
+        )
+        true
+    } catch (failure: RejectedExecutionException) {
+        responseScheduler.value.schedule {
+            admission(RuntimeResult.Failure(RuntimeFailure.Fatal(failure)))
+        }
+        false
+    }
+
+    private fun runsOnMainLooper(): Boolean = runCatching {
+        Looper.myLooper() === Looper.getMainLooper()
+    }.getOrDefault(false)
     /** A UI host observes this immutable value; it never owns pending actions. */
     internal fun dialogueStateSnapshot(): DialogueRuntimeState = synchronized(this) { dialogueState }
     internal fun dialogueDialogRuntimeSnapshot(): DialogueDialogRuntimeSnapshot = synchronized(this) {
@@ -1183,19 +1529,17 @@ open class SScriptRunner internal constructor(
         dialogueClaimHookForTesting?.invoke()
         if (!isPinnedHandle(handle)) return false
 
-        fun request(event: DialogueEvent): TaggedShioriResponse? = requestPinned(
-            handle,
-            ShioriRequestIntent.event(event.event, event.references),
-        )
-
-        fun enqueueIfPlayable(tagged: TaggedShioriResponse?): Boolean {
+        fun enqueueIfPlayable(
+            tagged: TaggedShioriResponse?,
+            admissionStamp: RequestAdmissionStamp,
+        ): Boolean {
             val value = tagged?.response
                 ?.takeIf { it.getStatusCode() == 200 }
                 ?.getKey("Value")
                 ?.takeIf(String::isNotEmpty)
                 ?: return false
             val shouldRun = synchronized(this) {
-                if (activeHandle?.generation != handle.generation) return@synchronized false
+                if (!admissionIsCurrent(admissionStamp)) return@synchronized false
                 msgQueue.add(value)
                 runtimeModeGeneration++
                 !playback.running
@@ -1204,13 +1548,35 @@ open class SScriptRunner internal constructor(
             return true
         }
 
-        if (enqueueIfPlayable(request(primary(claimed)))) return true
-        if (!isPinnedHandle(handle) || fallback == null) return false
-        return enqueueIfPlayable(request(fallback(claimed)))
+        val primaryEvent = primary(claimed)
+        val primaryIntent = ShioriRequestIntent.event(primaryEvent.event, primaryEvent.references)
+        val fallbackEvent = fallback?.invoke(claimed)
+        if (fallbackEvent != null) {
+            return requestPinnedWithFallback(
+                handle,
+                primaryIntent,
+                ShioriRequestIntent.event(fallbackEvent.event, fallbackEvent.references),
+            ) { finalResult, admissionStamp ->
+                enqueueIfPlayable(
+                    (finalResult as? RuntimeResult.Success)?.value,
+                    admissionStamp,
+                )
+            }
+        }
+        return requestPinned(handle, primaryIntent) { primaryResult, admissionStamp ->
+            enqueueIfPlayable(
+                (primaryResult as? RuntimeResult.Success)?.value,
+                admissionStamp,
+            )
+        }
     }
 
     private fun isPinnedHandle(handle: GhostHandle): Boolean =
         synchronized(this) { activeHandle?.generation == handle.generation }
+
+    /** Called with the runner lock held at the state mutation that admits a response. */
+    private fun admissionIsCurrent(stamp: RequestAdmissionStamp): Boolean =
+        activeHandle?.generation == stamp.generation && requestAdmissionEpoch == stamp.epoch
 
     /** Called with the runner lock held after the runtime response has returned. */
     private fun timerResponseIsEligible(handle: GhostHandle, capturedGeneration: Long): Boolean =
