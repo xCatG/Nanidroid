@@ -7,8 +7,7 @@ class SurfaceHitTestContractTest(unittest.TestCase):
         root = pathlib.Path(__file__).resolve().parents[1]
         source = (root / "src/main/kotlin/com/cattailsw/nanidroid/SurfaceHitTest.kt").read_text(encoding="utf-8")
         self.assertIn("fun findCollisionId", source)
-        self.assertIn("x >= collision.x && x < collision.x + collision.width", source)
-        self.assertIn("y >= collision.y && y < collision.y + collision.height", source)
+        self.assertIn("collision.shape.contains", source)
         self.assertNotIn("android.graphics", source)
 
 
