@@ -59,7 +59,7 @@ object GhostStageSemantics {
 
     fun build(snapshot: StageSurfaceSnapshot): GhostSurfaceSemantics {
         val surface = snapshot.composedSurface
-        val transform = snapshot.semanticsTransform
+        val transform = snapshot.transform
         val token = GhostStageSemanticToken(
             speaker = snapshot.speaker,
             surfaceKey = surface.surfaceKey,

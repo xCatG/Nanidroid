@@ -47,6 +47,7 @@ import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
 import com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx
 import com.cattailsw.nanidroid.surface.CollisionShape
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -181,6 +182,7 @@ class StagePointerInputTest {
         assertEquals(PointerSource.MOUSE, PointerType.Mouse.toPointerSource())
         assertEquals(PointerSource.PEN, PointerType.Stylus.toPointerSource())
         assertEquals(PointerSource.ERASER, PointerType.Eraser.toPointerSource())
+        assertNull(PointerType.Unknown.toPointerSource())
     }
 
     @Test
@@ -195,7 +197,7 @@ class StagePointerInputTest {
         composeRule.runOnIdle {
             state.value = StageInputRouter.snapshot(
                 blocking = true,
-                bubbleRegistry = BubbleHitRegionRegistry.Empty,
+                bubbleRegistry = BubbleHitRegionRegistry.from(emptyList()),
                 bubbleGeneration = 0,
                 ghostKey = "device-fixture",
                 surfaces = listOf(surface),

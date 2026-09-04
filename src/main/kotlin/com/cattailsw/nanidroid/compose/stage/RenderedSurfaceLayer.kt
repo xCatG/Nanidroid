@@ -77,13 +77,13 @@ fun RenderedSurfaceLayer(
     ) {
         SurfaceCompositorImage(
             surface = snapshot.composedSurface,
-            transform = snapshot.rendererTransform,
+            transform = snapshot.transform,
             modifier = Modifier.fillMaxSize(),
         )
         if (showCollisionOverlay) {
             CollisionOverlay(
                 collisions = snapshot.composedSurface.effectiveCollisions,
-                transform = snapshot.overlayTransform,
+                transform = snapshot.transform,
                 visible = true,
             )
         }

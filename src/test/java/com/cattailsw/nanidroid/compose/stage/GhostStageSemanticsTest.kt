@@ -298,7 +298,7 @@ class GhostStageSemanticsTest {
             GhostStageSemantics.resolveActivation(
                 current = StageInputRouter.snapshot(
                     blocking = false,
-                    bubbleRegistry = BubbleHitRegionRegistry.Empty,
+                    bubbleRegistry = BubbleHitRegionRegistry.from(emptyList()),
                     bubbleGeneration = 0,
                     ghostKey = "tiny",
                     surfaces = emptyList(),
@@ -368,7 +368,7 @@ class GhostStageSemanticsTest {
     private fun inputSnapshot(
         surface: StageSurfaceSnapshot,
         blocking: Boolean = false,
-        bubbleRegistry: BubbleHitRegionRegistry = BubbleHitRegionRegistry.Empty,
+        bubbleRegistry: BubbleHitRegionRegistry = BubbleHitRegionRegistry.from(emptyList()),
     ) = StageInputRouter.snapshot(
         blocking = blocking,
         bubbleRegistry = bubbleRegistry,

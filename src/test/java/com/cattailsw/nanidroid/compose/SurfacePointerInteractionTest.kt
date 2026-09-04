@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid.compose
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -12,18 +13,21 @@ import com.cattailsw.nanidroid.runtime.stage.SurfaceKey
 import com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx
 import com.cattailsw.nanidroid.surface.CollisionShape
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SurfacePointerInteractionTest {
     @Test
-    fun `collision rectangles win over transparent pixels and preserve their id`() {
+    fun `first collision wins over later collisions and transparent pixels`() {
         val resolution = map(
             image = image(0x00000000),
-            collisions = listOf(collision(id = 41, x = 1, y = 1)),
-            position = SurfacePointerPosition(1f, 1f),
-        ) as SurfacePointerResolution.Hit
+            collisions = listOf(
+                collision(id = 41, x = 1, y = 1),
+                collision(id = 42, x = 1, y = 1),
+            ),
+            position = Offset(1f, 1f),
+        )
 
         assertEquals(SurfaceHitTarget.Collision(41, "Collision41"), resolution.target)
         assertEquals(
@@ -43,9 +47,9 @@ class SurfacePointerInteractionTest {
 
     @Test
     fun `opaque transparent and unavailable noncollision pixels retain legacy generic click`() {
-        val opaque = map(image = image(0xff001122.toInt()), position = SurfacePointerPosition(0f, 0f)) as SurfacePointerResolution.Hit
-        val transparent = map(image = image(0x00000000), position = SurfacePointerPosition(0f, 0f)) as SurfacePointerResolution.Hit
-        val unavailable = map(image = null, position = SurfacePointerPosition(0f, 0f)) as SurfacePointerResolution.Hit
+        val opaque = map(image = image(0xff001122.toInt()), position = Offset.Zero)
+        val transparent = map(image = image(0x00000000), position = Offset.Zero)
+        val unavailable = map(image = null, position = Offset.Zero)
 
         assertSame(SurfaceHitTarget.OpaquePixel, opaque.target)
         assertSame(SurfaceHitTarget.TransparentPixel, transparent.target)
@@ -61,13 +65,13 @@ class SurfacePointerInteractionTest {
     @Test
     fun `shared transform uses stage origin exact scale and half open bounds`() {
         val transform = SurfaceTransformPx(IntSize(10, 5), IntRect(10, 30, 30, 40), 2f, IntOffset.Zero)
-        val resolution = SurfacePointerInteractionMapper.map(
+        val resolution = requireNotNull(SurfacePointerInteractionMapper.map(
             SurfaceSpeaker.KERO,
             surface(image(0xff000000.toInt(), width = 10, height = 5)),
             transform,
-            SurfacePointerPosition(16.9f, 34.1f),
+            Offset(16.9f, 34.1f),
             PointerSource.TOUCH,
-        ) as SurfacePointerResolution.Hit
+        ))
 
         assertEquals(
             SurfaceInteractionEffect(
@@ -82,55 +86,27 @@ class SurfacePointerInteractionTest {
             ),
             resolution.effect,
         )
-        assertSame(
-            SurfacePointerResolution.OutsideSurface,
+        assertNull(
             SurfacePointerInteractionMapper.map(
                 SurfaceSpeaker.KERO,
                 surface(null),
                 transform,
-                SurfacePointerPosition(30f, 35f),
+                Offset(30f, 35f),
                 PointerSource.TOUCH,
             ),
         )
     }
 
     @Test
-    fun `port receives only typed in bounds effects`() {
-        val delivered = mutableListOf<SurfaceInteractionEffect>()
-        val dispatcher = SurfacePointerInteractionDispatcher(SurfaceInteractionPort(delivered::add))
-        val hit = map(image = image(0xff000000.toInt()), position = SurfacePointerPosition(0f, 0f))
-
-        dispatcher.dispatch(hit)
-        dispatcher.dispatch(SurfacePointerResolution.OutsideSurface)
-
-        assertEquals(listOf((hit as SurfacePointerResolution.Hit).effect), delivered)
-        assertTrue(hit.effect.speaker.legacyReference == "0")
-    }
-
-    @Test
-    fun `unknown pointer source emits no effect rather than defaulting to touch`() {
-        assertSame(
-            SurfacePointerResolution.UnsupportedPointerSource,
-            SurfacePointerInteractionMapper.map(
-                SurfaceSpeaker.SAKURA,
-                surface(image(0xff000000.toInt())),
-                SurfaceTransformPx(IntSize(2, 2), IntRect(0, 0, 2, 2), 1f, IntOffset.Zero),
-                SurfacePointerPosition(0f, 0f),
-                null,
-            ),
-        )
-    }
-
-    @Test
     fun `mapper retains event-local physical source and primary button`() {
-        val resolution = SurfacePointerInteractionMapper.map(
+        val resolution = requireNotNull(SurfacePointerInteractionMapper.map(
             SurfaceSpeaker.KERO,
             surface(image(0xff000000.toInt())),
             SurfaceTransformPx(IntSize(2, 2), IntRect(0, 0, 2, 2), 1f, IntOffset.Zero),
-            SurfacePointerPosition(1f, 1f),
+            Offset(1f, 1f),
             PointerSource.ERASER,
             button = 0,
-        ) as SurfacePointerResolution.Hit
+        ))
 
         assertEquals(PointerSource.ERASER, resolution.effect.source)
         assertEquals(0, resolution.effect.button)
@@ -140,13 +116,15 @@ class SurfacePointerInteractionTest {
     private fun map(
         image: SurfacePixelImage?,
         collisions: List<SurfaceCollision> = emptyList(),
-        position: SurfacePointerPosition,
-    ) = SurfacePointerInteractionMapper.map(
-        SurfaceSpeaker.SAKURA,
-        surface(image, collisions),
-        SurfaceTransformPx(IntSize(2, 2), IntRect(0, 0, 2, 2), 1f, IntOffset.Zero),
-        position,
-        PointerSource.TOUCH,
+        position: Offset,
+    ) = requireNotNull(
+        SurfacePointerInteractionMapper.map(
+            SurfaceSpeaker.SAKURA,
+            surface(image, collisions),
+            SurfaceTransformPx(IntSize(2, 2), IntRect(0, 0, 2, 2), 1f, IntOffset.Zero),
+            position,
+            PointerSource.TOUCH,
+        ),
     )
 
     private fun surface(

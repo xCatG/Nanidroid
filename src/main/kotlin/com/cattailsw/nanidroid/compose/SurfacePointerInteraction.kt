@@ -1,5 +1,7 @@
 package com.cattailsw.nanidroid.compose
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntOffset
 import com.cattailsw.nanidroid.NO_COLLISION
 import com.cattailsw.nanidroid.SurfaceHitTarget
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventKind
@@ -8,52 +10,36 @@ import com.cattailsw.nanidroid.runtime.dialogue.SurfaceInteractionEffect
 import com.cattailsw.nanidroid.runtime.stage.SurfaceTransformPx
 import kotlin.math.roundToInt
 
-/** Raw local coordinates accepted by a future Compose pointer modifier. */
-data class SurfacePointerPosition(val x: Float, val y: Float)
-
-/** Adds a surface node's stage origin exactly once to its local pointer point. */
-fun SurfaceTransformPx.stagePositionFromLocal(local: androidx.compose.ui.geometry.Offset) = SurfacePointerPosition(
-    renderedBounds.left + local.x,
-    renderedBounds.top + local.y,
-)
-
 enum class SurfaceSpeaker(val legacyReference: String) {
     SAKURA("0"),
     KERO("1"),
 }
 
-/** Host boundary; the future runtime maps typed effects to SHIORI events. */
+/** Boundary for delivering routed surface effects. */
 fun interface SurfaceInteractionPort {
     fun dispatch(effect: SurfaceInteractionEffect)
 }
 
-sealed interface SurfacePointerResolution {
-    data object OutsideSurface : SurfacePointerResolution
-    data object UnsupportedPointerSource : SurfacePointerResolution
-
-    data class Hit(
-        val target: SurfaceHitTarget,
-        val effect: SurfaceInteractionEffect,
-    ) : SurfacePointerResolution
-}
+internal data class SurfacePointerHit(
+    val target: SurfaceHitTarget,
+    val effect: SurfaceInteractionEffect,
+)
 
 /**
  * Platform-free adapter for pointer input. It preserves the legacy contract:
  * a delivered in-bounds touch emits a double-click effect even on a transparent
  * pixel; collision rectangles merely supply a stronger collision id.
  */
-object SurfacePointerInteractionMapper {
+internal object SurfacePointerInteractionMapper {
     fun map(
         speaker: SurfaceSpeaker,
         surface: ComposedSurface?,
         transform: SurfaceTransformPx,
-        position: SurfacePointerPosition,
-        source: PointerSource?,
+        position: Offset,
+        source: PointerSource,
         button: Int = 0,
-    ): SurfacePointerResolution {
-        source ?: return SurfacePointerResolution.UnsupportedPointerSource
-        val intrinsic = transform.toIntrinsic(androidx.compose.ui.geometry.Offset(position.x, position.y))
-            ?: return SurfacePointerResolution.OutsideSurface
+    ): SurfacePointerHit? {
+        val intrinsic = transform.toIntrinsic(position) ?: return null
         val collisionHit = surface?.effectiveCollisions?.firstOrNull { collision ->
             collision.shape.contains(intrinsic)
         }
@@ -72,29 +58,21 @@ object SurfacePointerInteractionMapper {
             null -> SurfaceHitTarget.PixelUnavailable
         }
         val collision = target as? SurfaceHitTarget.Collision
-        return SurfacePointerResolution.Hit(
+        return SurfacePointerHit(
             target,
             SurfaceInteractionEffect(
                 kind = PointerEventKind.CLICK,
                 speaker = speaker,
-                intrinsic = androidx.compose.ui.unit.IntOffset(intrinsic.x, intrinsic.y),
+                intrinsic = IntOffset(intrinsic.x, intrinsic.y),
                 button = button,
                 source = source,
                 collisionIdentifier = collision?.identifier,
                 diagnosticCollisionId = collision?.id ?: NO_COLLISION,
-                viewportPosition = androidx.compose.ui.unit.IntOffset(
+                viewportPosition = IntOffset(
                     position.x.roundToInt(),
                     position.y.roundToInt(),
                 ),
             ),
         )
-    }
-}
-
-/** Dispatches only a resolved in-bounds pointer effect; it owns no UI state. */
-class SurfacePointerInteractionDispatcher(private val port: SurfaceInteractionPort) {
-    fun dispatch(resolution: SurfacePointerResolution): SurfacePointerResolution {
-        if (resolution is SurfacePointerResolution.Hit) port.dispatch(resolution.effect)
-        return resolution
     }
 }

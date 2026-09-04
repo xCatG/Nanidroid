@@ -4,8 +4,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntRect
 import com.cattailsw.nanidroid.SurfaceHitTarget
 import com.cattailsw.nanidroid.compose.SurfacePointerInteractionMapper
-import com.cattailsw.nanidroid.compose.SurfacePointerPosition
-import com.cattailsw.nanidroid.compose.SurfacePointerResolution
 import com.cattailsw.nanidroid.compose.SurfaceSpeaker
 import com.cattailsw.nanidroid.compose.stage.StageSurfaceSnapshot
 import com.cattailsw.nanidroid.runtime.dialogue.DialogueAction
@@ -32,8 +30,6 @@ fun interface BubbleHitRegionRegistry {
     fun resolve(stagePoint: Offset): BubbleInteractionTarget?
 
     companion object {
-        val Empty = BubbleHitRegionRegistry { null }
-
         fun from(regions: List<MeasuredBubbleHitRegion>): BubbleHitRegionRegistry {
             val immutable = regions.toList()
             return BubbleHitRegionRegistry { point ->
@@ -60,7 +56,6 @@ data class StageSurfaceHitGeometryToken(
     val speaker: SurfaceSpeaker,
     val surfaceKey: SurfaceKey,
     val inputAuthority: Any,
-    val visible: Boolean,
     val transform: SurfaceTransformPx,
     val collisions: List<com.cattailsw.nanidroid.SurfaceCollision>,
 )
@@ -105,7 +100,6 @@ object StageInputRouter {
                         speaker = surface.speaker,
                         surfaceKey = surface.composedSurface.surfaceKey,
                         inputAuthority = surface.composedSurface.inputAuthority,
-                        visible = !surface.composedSurface.explicitlyHidden,
                         transform = surface.transform,
                         collisions = surface.composedSurface.effectiveCollisions.toList(),
                     )
@@ -129,15 +123,14 @@ object StageInputRouter {
         }
 
         val hits = snapshot.surfaces.mapNotNull { surface ->
-            val resolution = SurfacePointerInteractionMapper.map(
+            SurfacePointerInteractionMapper.map(
                 speaker = surface.speaker,
                 surface = surface.composedSurface,
-                transform = surface.pointerTransform,
-                position = SurfacePointerPosition(stagePoint.x, stagePoint.y),
+                transform = surface.transform,
+                position = stagePoint,
                 source = source,
                 button = button,
-            ) as? SurfacePointerResolution.Hit
-            resolution?.let { surface to it }
+            )?.let { surface to it }
         }
         val selected = hits.firstOrNull { (_, hit) -> hit.target is SurfaceHitTarget.Collision }
             ?: hits.firstOrNull()
