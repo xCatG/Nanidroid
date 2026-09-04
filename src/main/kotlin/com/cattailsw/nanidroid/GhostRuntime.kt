@@ -180,7 +180,16 @@ internal data class GhostRuntimeIdentity(
     val activeHandle: GhostHandle?,
     val pending: PendingGhostIdentity?,
     val phase: GhostRuntimePhase,
-)
+) {
+    fun playbackHandle(expectedGeneration: Long? = null): GhostHandle? {
+        if (phase != GhostRuntimePhase.Attached && phase != GhostRuntimePhase.SwitchPlayback) {
+            return null
+        }
+        return activeHandle?.takeIf {
+            expectedGeneration == null || it.generation == expectedGeneration
+        }
+    }
+}
 
 internal class GhostRuntime private constructor(
     context: Context?,

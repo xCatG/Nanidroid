@@ -1,6 +1,8 @@
 package com.cattailsw.nanidroid
 
+import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
+import com.cattailsw.nanidroid.runtime.dialogue.Support
 import com.cattailsw.nanidroid.shiori.Shiori
 import com.cattailsw.nanidroid.shiori.ShioriLoadResult
 import com.cattailsw.nanidroid.shiori.ShioriUnloadResult
@@ -17,6 +19,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -27,6 +30,30 @@ class GhostRuntimeTest {
     @Rule
     @JvmField
     val androidStubs = HostAndroidStubRule()
+
+    @Test
+    fun runtimeIdentityExposesOnlyCurrentPlaybackHandle() {
+        val handle = GhostHandle(
+            Ghost(preparedGhost(1L, "identity", File("build/ghost-runtime-test/identity"))),
+            pointerCapabilities = PointerEventCapabilities(
+                Support.UNKNOWN,
+                Support.UNKNOWN,
+            ),
+            generation = 7L,
+        )
+
+        GhostRuntimePhase.entries.forEach { phase ->
+            val identity = GhostRuntimeIdentity(handle, null, phase)
+            if (phase == GhostRuntimePhase.Attached || phase == GhostRuntimePhase.SwitchPlayback) {
+                assertSame(handle, identity.playbackHandle())
+                assertSame(handle, identity.playbackHandle(expectedGeneration = 7L))
+                assertNull(identity.playbackHandle(expectedGeneration = 8L))
+            } else {
+                assertNull(identity.playbackHandle())
+                assertNull(identity.playbackHandle(expectedGeneration = 7L))
+            }
+        }
+    }
 
     @Test
     fun eventIntentPreservesLegacyHeaderOrderAndNullReferenceSlots() {

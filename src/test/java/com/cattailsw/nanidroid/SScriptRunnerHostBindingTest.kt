@@ -86,6 +86,8 @@ class SScriptRunnerHostBindingTest {
             .substringBefore("else ->")
         val resumeHelper = source.substringAfter("private suspend fun resumeRuntimeForLease(")
             .substringBefore("private fun showNoGhostAvailable()")
+        val leaseValidation = source.substringAfter("private fun adoptionLeaseIsCurrent(")
+            .substringBefore("private fun adoptRuntimeHandle(")
         val adoptionHelper = source.substringAfter("private fun adoptRuntimeHandle(")
             .substringBefore("private suspend fun resumeRuntimeForLease(")
 
@@ -114,7 +116,7 @@ class SScriptRunnerHostBindingTest {
             source.contains("resumeActivationEpoch++") &&
                 source.contains("hostResumed") &&
                 source.contains("adoptionLeaseIsCurrent(lease, handle)") &&
-                source.contains("current.generation == handle.generation"),
+                leaseValidation.contains("playbackHandle(handle.generation)"),
         )
         assertTrue(
             "Every production clock transition must be owned by this Activity host token",
@@ -185,9 +187,9 @@ class SScriptRunnerHostBindingTest {
         val attach = source.substringAfter("private suspend fun attachRuntimeHandle(")
             .substringBefore("private fun bindRuntimeHandle(")
 
-        assertTrue(attach.contains("GhostRuntimePhase.Attached"))
-        assertTrue(attach.contains("GhostRuntimePhase.SwitchPlayback"))
-        assertTrue(attach.contains("current.generation != handle.generation"))
+        assertTrue(
+            attach.contains("ghostRuntime.identity().playbackHandle(handle.generation)"),
+        )
     }
 
     @Test
