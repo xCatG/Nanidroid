@@ -334,19 +334,6 @@ internal class GhostSessionCoordinator {
         return bind(construction, ghost)
     }
 
-    fun clearForTesting() = withAllRootStates {
-        synchronized(globalMonitor) {
-            check(globalOwner == null && globalPoison == null) {
-                "cannot reset while SHIORI ownership is live or uncertain"
-            }
-            check(roots.values.none { it.construction != null || it.reservation != null || it.active != null }) {
-                "cannot reset while a ghost session is pending or active"
-            }
-            roots.clear()
-            globalMonitor.notifyAll()
-        }
-    }
-
     private fun identity(ghost: Ghost): Pair<String, File> = ghost.getGhostId() to rootOf(ghost)
 
     private fun poisonStaleConstructedGhost(state: RootState, ghost: Ghost) {
@@ -373,10 +360,4 @@ internal class GhostSessionCoordinator {
         return lock(0)
     }
 
-    private fun <T> withAllRootStates(action: () -> T): T {
-        val states = roots.entries.sortedBy { it.key }.map { it.value }
-        fun lock(index: Int): T = if (index == states.size) action()
-        else synchronized(states[index].monitor) { lock(index + 1) }
-        return lock(0)
-    }
 }

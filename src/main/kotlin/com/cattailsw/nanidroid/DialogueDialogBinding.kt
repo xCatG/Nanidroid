@@ -43,25 +43,6 @@ internal class DialogueDialogBinding(
         )
     }
 
-    fun userInput(
-        id: String,
-        generation: Long?,
-        value: String = "",
-        onValueChanged: (String) -> Unit = {},
-    ): NanidroidSimpleDialog.UserInput {
-        val pending = currentRunner()?.dialogueDialogRuntimeSnapshot()?.dialogue?.pendingInput
-            ?.takeIf { it.generation == generation && inputId(it) == id }
-        return pending?.let { userInput(it, value, onValueChanged) } ?: inputDialog(
-            id,
-            value,
-            InputPresentation(),
-            onValueChanged,
-            null,
-            null,
-            null,
-        )
-    }
-
     fun restoreUserInput(
         id: String,
         restoration: DialogueDialogRestoration?,
@@ -86,30 +67,6 @@ internal class DialogueDialogBinding(
                 restoration,
             )
         }
-    }
-
-    fun userChoice(
-        labels: List<String>,
-        ids: List<String>,
-        actions: List<DialogueAction>,
-    ): NanidroidSimpleDialog.UserChoice {
-        val runner = currentRunner()
-        val snapshot = runner?.dialogueDialogRuntimeSnapshot()
-        val exactActions = actions.takeIf {
-            it.size == labels.size &&
-                it.size == ids.size &&
-                snapshot?.dialogue?.pendingChoices?.hasSameIdentities(it) == true
-        }.orEmpty()
-        val restoration = snapshot?.choiceGeneration
-            ?.takeIf { exactActions.isNotEmpty() }
-            ?.let { DialogueDialogRestoration(snapshot.owner, it) }
-        return choiceDialog(
-            labels,
-            ids,
-            runner.takeIf { restoration != null },
-            exactActions,
-            restoration,
-        )
     }
 
     fun restoreUserChoice(
@@ -189,9 +146,6 @@ internal class DialogueDialogBinding(
         runner.resumeEvt()
         runner.dismissInput(generation)
     }
-
-    private fun List<DialogueAction>.hasSameIdentities(other: List<DialogueAction>): Boolean =
-        size == other.size && indices.all { this[it] === other[it] }
 
     private fun inputId(pending: PendingInputState): String = when (val dispatch = pending.spec.dispatch) {
         is InputDispatch.Normal -> dispatch.id

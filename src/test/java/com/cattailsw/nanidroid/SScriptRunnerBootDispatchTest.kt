@@ -485,7 +485,7 @@ class SScriptRunnerBootDispatchTest {
 
             override fun showUserSelection(textlabel: Array<String>, ids: Array<String>) = Unit
         })
-        runner.setPresentationRendererForTesting(frames::add)
+        runner.setPresentationRenderer(frames::add)
         runner.setGhost(RawRecordingGhost("ordinary", "Ordinary", 2, mutableListOf()))
         runner.addMsgToQueue(arrayOf("\\hwaiting\\![open,inputbox,answer]\\w9resumed tail\\e"))
         runner.run()
@@ -494,7 +494,7 @@ class SScriptRunnerBootDispatchTest {
         Assert.assertEquals(1, scheduler.pendingCount)
         scheduler.runUntil { inputShown }
         val pending = requireNotNull(runner.dialogueStateSnapshot().pendingInput)
-        val dialog = DialogueDialogBinding { runner }.userInput("answer", pending.generation)
+        val dialog = DialogueDialogBinding { runner }.userInput(pending)
 
         scheduler.runPending()
         Assert.assertTrue(frames.none { it.sakura.text.contains("resumed tail") })

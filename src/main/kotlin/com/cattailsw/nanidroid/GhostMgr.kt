@@ -21,7 +21,6 @@ internal class GhostMgr(
 ) {
     private val context = ctx.applicationContext
     private var ghosts: List<InfoOnlyGhost>? = loadGhosts()
-    private var lastInstallError: String? = null
 
     fun getGhostId(name: String): Int {
         ghosts?.forEachIndexed { index, ghost ->
@@ -29,9 +28,6 @@ internal class GhostMgr(
         }
         return -1
     }
-
-    fun hasSameGhostId(id: String): Boolean =
-        !ghosts.isNullOrEmpty() && getGhostId(id) != -1
 
     fun getGhostPath(id: Int): String = ghosts!![id].getGhostPath()
 
@@ -64,37 +60,11 @@ internal class GhostMgr(
         PrefUtil.setKey(context, PREF_LAST_RUN_GHOST, ghost.getGhostDirName())
     }
 
-    fun installFirstGhost(gid: String, narPath: String): String? =
-        installGhost(gid, narPath, true)
-
-    fun installGhost(gid: String, narPath: String): String? =
-        installGhost(gid, narPath, false)
-
-    fun installGhost(ghostId: String, narPath: String, usegid: Boolean): String? {
-        return when (val result = installGhost(ghostId, narPath, usegid, { false })) {
-            is ArchiveInstallResult.Installed -> result.installedPath
-            is ArchiveInstallResult.Failed -> {
-                lastInstallError = result.message
-                null
-            }
-            ArchiveInstallResult.Cancelled -> {
-                lastInstallError = "The selected ghost archive install was cancelled."
-                null
-            }
-        }
-    }
-
     fun installFirstGhost(
         gid: String,
         narPath: String,
         isCancelled: () -> Boolean,
     ): ArchiveInstallResult = installGhost(gid, narPath, true, isCancelled)
-
-    fun installGhost(
-        ghostId: String,
-        narPath: String,
-        isCancelled: () -> Boolean,
-    ): ArchiveInstallResult = installGhost(ghostId, narPath, false, isCancelled)
 
     fun installGhost(
         ghostId: String,
@@ -130,11 +100,8 @@ internal class GhostMgr(
                 ArchiveInstallFailure.InvalidArchive,
             )
         }
-        lastInstallError = null
         return ArchiveInstallResult.Installed(getGhostPath(id), installed.targetId)
     }
-
-    fun getLastInstallError(): String? = lastInstallError
 
     fun refreshGhost() {
         ghosts = loadGhosts()

@@ -55,26 +55,7 @@ data class InputBoxSpec(
     val supplement: String,
     val extraReferences: List<String>,
     val unknownOptions: List<String>,
-) {
-    constructor(
-        dispatch: InputDispatch,
-        timeoutMillis: Long?,
-        initialText: String,
-        behaviorOptions: Set<InputBehavior>,
-        supplement: String,
-        extraReferences: List<String>,
-        unknownOptions: List<String>,
-    ) : this(
-        dispatch = dispatch,
-        timeoutMillis = timeoutMillis,
-        initialText = initialText,
-        behaviorOptions = behaviorOptions,
-        presentation = InputPresentation(),
-        supplement = supplement,
-        extraReferences = extraReferences,
-        unknownOptions = unknownOptions,
-    )
-}
+)
 
 sealed interface DialogueSegment {
     data class Text(val value: String) : DialogueSegment

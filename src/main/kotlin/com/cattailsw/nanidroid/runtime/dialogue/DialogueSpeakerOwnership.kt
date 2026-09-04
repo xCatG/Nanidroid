@@ -20,9 +20,6 @@ class DialogueSpeakerOwnership private constructor(
     fun pendingChoices(speaker: GhostSpeaker): List<DialogueAction> =
         pendingChoices.filter { action -> choiceOwner(action) == speaker }
 
-    fun currentChoiceOrNull(action: DialogueAction): DialogueAction? =
-        pendingChoices.firstOrNull { candidate -> candidate === action }
-
     fun pendingInput(speaker: GhostSpeaker): PendingInputState? =
         pendingInputState?.takeIf { pendingInputOwner == speaker }
 

@@ -14,7 +14,7 @@ class GhostShioriTrafficTest {
     @Test
     fun structuredAndRawRequestsPreserveExactProtocolAndParsedResponses() {
         val shiori = RecordingShiori()
-        val ghost = RecordingGhost().apply { setShioriForTesting(shiori) }
+        val ghost = RecordingGhost(shiori)
 
         val raw = ghost.requestRaw(ShioriMethod.GET, "OnMouseClick", listOf("1", "2"))
         val structured = ghost.doShioriEvent("OnTest", arrayOf("R1", "R2"))
@@ -32,7 +32,11 @@ class GhostShioriTrafficTest {
         assertEquals("ok", structured.getKey("Value"))
     }
 
-    private class RecordingGhost : Ghost("traffic-ghost") {
+    private class RecordingGhost(recordingShiori: Shiori) : Ghost("traffic-ghost") {
+        init {
+            shiori = recordingShiori
+        }
+
         override fun loadGhostInfo() {
             mgr = null
             shellDesc = emptyMap()

@@ -2,7 +2,6 @@ package com.cattailsw.nanidroid.runtime.dialogue
 
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Test
 
@@ -38,7 +37,7 @@ class DialogueSpeakerOwnershipTest {
                         listOf(DialogueSegment.NewLine, DialogueSegment.Text("second")),
                     ),
                 ),
-                pendingChoices = listOf(keroAction),
+                pendingChoices = listOf(keroAction, equalStaleCopy),
                 pendingInput = PendingInputState(7L, inputSpec, Long.MAX_VALUE),
             ),
         )
@@ -52,10 +51,10 @@ class DialogueSpeakerOwnershipTest {
             ),
             ownership.content(GhostSpeaker.SAKURA).segments,
         )
-        assertEquals(listOf(keroAction), ownership.pendingChoices(GhostSpeaker.KERO))
+        val keroChoices = ownership.pendingChoices(GhostSpeaker.KERO)
+        assertEquals(listOf(keroAction), keroChoices)
+        assertSame(keroAction, keroChoices.single())
         assertEquals(emptyList<DialogueAction>(), ownership.pendingChoices(GhostSpeaker.SAKURA))
-        assertSame(keroAction, ownership.currentChoiceOrNull(keroAction))
-        assertNull(ownership.currentChoiceOrNull(equalStaleCopy))
         assertEquals(GhostSpeaker.KERO, ownership.pendingInputOwner)
         assertSame(inputSpec, ownership.pendingInput(GhostSpeaker.KERO)?.spec)
     }
