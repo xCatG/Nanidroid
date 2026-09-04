@@ -1,5 +1,8 @@
 package com.cattailsw.nanidroid.runtime
 
+/** The speaker currently selected by Sakura Script commands. */
+enum class GhostSpeaker { SAKURA, KERO }
+
 /**
  * UI-technology-neutral result of one Sakura Script render pass.
  *

@@ -1,31 +1,23 @@
-# PR F3: Kotlin Sakura Script presentation state
+# PR F3: Kotlin Sakura Script presentation state (retired)
 
-## Purpose
+## Status
 
-`SakuraScriptPresentationReducer` turns the presentation fields still owned by
-the Java runner into immutable, UI-free Kotlin transitions. It models:
+This document records an abandoned migration prototype. Phase 3 removed
+`SakuraScriptPresentationReducer` and its focused tests because production
+presentation already flows from `SScriptRunner` through
+`GhostPresentationFrame` into `KotlinGhostPresentationRuntime`. Do not recreate
+the reducer or use it as a future migration boundary.
 
-* active Sakura/Kero speaker and synchronized text;
-* text append and active-speaker clearing;
-* surfaces, explicit balloon ids, and Kero's implicit text balloon;
-* queued one-shot animations and their explicit post-render consumption;
-* next-script reset, which clears transient presentation but preserves surfaces.
+## Historical scope
 
-The reducer emits the existing `GhostPresentationState` contract. It has no
-Android, view, native, or parser dependencies.
+The prototype modeled active-speaker text, surfaces, balloon visibility,
+one-shot animations, and next-script reset as immutable Kotlin transitions. It
+was never wired into the production runtime.
 
-## Migration sequence
+## Retirement rationale
 
-The Java runner and Java `LegacyGhostPresentationRenderer` remain the
-compatibility path while Ant is frozen. The next runtime slice will have the
-Kotlin script parser apply these exact transitions and emit this state to a
-renderer. Once that parity path is proven, the Java mutable fields and legacy
-frame can be removed from the Gradle/Compose path.
-
-## Validation
-
-* Focused Gradle JVM tests cover reset, surface retention, synchronized text,
-  balloon visibility, and one-shot animation consumption.
-* Repository characterization-contract tests pass.
-* Hosted CI remains responsible for the complete legacy native, API-37
-  APK/AAB, and artifact pipeline.
+Keeping a second presentation reducer would duplicate the active runner and
+renderer contract without owning any production behavior. The Phase 3
+prototype-retirement slice deleted that unused path and its tests; retained
+runner, renderer, lifecycle, and screenshot tests validate the authoritative
+path.
