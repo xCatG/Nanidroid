@@ -101,7 +101,6 @@ class DialogueDialogBindingTest {
             requests += request
             return "SHIORI/3.0 204 No Content\r\n\r\n"
         }
-        override fun terminate() = Unit
         override fun unloadShiori() = Unit
     }
 

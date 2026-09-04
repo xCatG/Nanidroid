@@ -20,7 +20,7 @@ class KotlinShioriFactoryContractTest(unittest.TestCase):
         source = (root / "src/main/kotlin/com/cattailsw/nanidroid/ShioriFactory.kt").read_text(
             encoding="utf-8"
         )
-        self.assertIn('"Nanidroid" -> NanidroidShiori(ctx, path)', source)
+        self.assertIn('"Nanidroid" -> NanidroidShiori(path, ctx != null)', source)
         self.assertIn('"satori.dll" -> SatoriShiori(path, ctx)', source)
         self.assertIn('"shiori.dll" -> checkShioriByPath(path, ctx)', source)
         self.assertIn('"yaya.dll" -> YayaShiori(path, ctx)', source)

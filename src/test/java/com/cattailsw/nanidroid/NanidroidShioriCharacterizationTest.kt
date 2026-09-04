@@ -125,6 +125,23 @@ class NanidroidShioriCharacterizationTest {
             ThrowingRunnable { shiori.request("GET SHIORI/3.0\r\n\r\n") })
     }
 
+    @Test
+    @Throws(Exception::class)
+    fun nullContextFactoryUsesEchoFallbackEvenWhenContentExists() {
+        Locale.setDefault(Locale.forLanguageTag("zz"))
+        writeContent("ja", "OnBoot,content response\n")
+        val shiori = ShioriFactory.getInstance().getShiori(
+            root!!.path,
+            mapOf("shiori" to "Nanidroid"),
+            null,
+        )
+
+        Assert.assertEquals(
+            "SHIORI/3.0 200 OK\r\nSender: EchoShiori\r\nValue: OnBoot\\e",
+            shiori.request(request("OnBoot")),
+        )
+    }
+
     @Throws(Exception::class)
     private fun writeContent(language: String, contents: String) {
         val directory = File(root, language)

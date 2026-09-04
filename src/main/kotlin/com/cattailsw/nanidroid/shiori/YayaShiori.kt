@@ -17,8 +17,6 @@ class YayaShiori(path: String, context: Context?) : Shiori {
         return response.toString(transportCharset())
     }
 
-    override fun terminate() = nativeUnload()
-
     override fun unloadShiori() = nativeUnload()
 
     private external fun nativeLoad(path: String, cacheDirectory: String)

@@ -9,9 +9,6 @@ open class EchoShiori : Shiori {
     private val ignoredIds = hashSetOf(*IGNORE_IDS)
 
     @JvmField
-    protected var header: String? = null
-
-    @JvmField
     protected var reqTable: Hashtable<String, String>? = null
 
     override fun getModuleName(): String = "EchoShiori"
@@ -34,13 +31,11 @@ open class EchoShiori : Shiori {
         }
     }
 
-    override fun terminate() = Unit
-
     private fun matchIgnoreId(value: String?): Boolean = ignoredIds.contains(value)
 
     private fun parseRequest(request: String) {
         val reader = BufferedReader(StringReader(request))
-        header = try {
+        try {
             reader.readLine()
         } catch (_: Exception) {
             return

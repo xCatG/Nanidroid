@@ -1,6 +1,5 @@
 package com.cattailsw.nanidroid.shiori
 
-import android.content.Context
 import com.cattailsw.nanidroid.LegacyPlatform
 import java.io.BufferedReader
 import java.io.File
@@ -11,22 +10,13 @@ import java.nio.charset.Charset
 import java.util.Hashtable
 import java.util.Locale
 
-open class NanidroidShiori() : EchoShiori() {
+open class NanidroidShiori internal constructor(
+    path: String,
+    private val contentResponsesEnabled: Boolean,
+) : EchoShiori() {
     private var evtTable: Hashtable<String, String>? = null
-    private var mCtx: Context? = null
-    private var rootpath: String? = null
-    private var contentResponsesEnabled = false
 
-    constructor(ctx: Context?, path: String) : this() {
-        mCtx = ctx
-        rootpath = path
-        contentResponsesEnabled = ctx != null
-        loadContent(path)
-    }
-
-    internal constructor(path: String, contentFixture: Boolean) : this() {
-        rootpath = path
-        contentResponsesEnabled = contentFixture
+    init {
         loadContent(path)
     }
 
@@ -37,7 +27,7 @@ open class NanidroidShiori() : EchoShiori() {
         LegacyPlatform.debug(TAG, "loc dir=${locDir.absolutePath}")
         if (!locDir.exists()) {
             LegacyPlatform.debug(TAG, "loc dir=${locDir.absolutePath} not found")
-            locDir = File(rootpath, "ja")
+            locDir = File(path, "ja")
         }
 
         try {
@@ -66,8 +56,6 @@ open class NanidroidShiori() : EchoShiori() {
             }
         }
     }
-
-    override fun terminate() = Unit
 
     override fun getModuleName(): String = "NanidroidShiori"
 

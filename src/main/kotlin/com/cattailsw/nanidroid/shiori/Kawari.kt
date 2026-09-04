@@ -16,8 +16,6 @@ class Kawari(private val path: String) : Shiori {
 
     override fun unloadShiori() = unload()
 
-    override fun terminate() = unload()
-
     private external fun load(path: String)
     private external fun unload()
     private external fun requestFromJNI(req: ByteArray): ByteArray

@@ -4,35 +4,25 @@ import java.io.BufferedReader
 import java.util.Hashtable
 
 class ShioriResponse {
-    @JvmField
-    var header: String?
-
-    @JvmField
-    var resp: Hashtable<String, String>
-
-    @JvmField
-    var _ver: ShioriProtocolVersion? = null
-
-    @JvmField
-    var stat_code: Int = 500
+    private val response: Hashtable<String, String>
+    private var statusCode: Int = 500
 
     constructor(header: String?) : this(header, Hashtable())
 
     constructor(header: String?, response: Hashtable<String, String>) {
-        this.header = header
-        resp = response
-        parseHeader()
+        this.response = response
+        parseHeader(header)
     }
 
     constructor(reader: BufferedReader) {
-        header = try {
+        val header = try {
             reader.readLine()
         } catch (_: Exception) {
             null
         }
-        parseHeader()
+        parseHeader(header)
 
-        resp = Hashtable()
+        response = Hashtable()
         while (true) {
             val line = try {
                 reader.readLine()
@@ -48,44 +38,26 @@ class ShioriResponse {
             val valueStart = (separator + 1).let { start ->
                 if (line.getOrNull(start) == ' ') start + 1 else start
             }
-            resp[line.substring(0, separator)] = line.substring(valueStart)
+            response[line.substring(0, separator)] = line.substring(valueStart)
         }
     }
 
-    fun getProtocolVersion(): ShioriProtocolVersion? = _ver
-
-    private fun parseHeader() {
+    private fun parseHeader(header: String?) {
         val matcher = PatternHolders.shiori_res_header_ptrn.matcher(header ?: return)
         if (!matcher.matches()) return
 
         try {
-            stat_code = matcher.group(4)!!.toInt()
-            _ver = ShioriProtocolVersion(
-                matcher.group(1)!!,
-                matcher.group(2)!!.toInt(),
-                matcher.group(3)!!.toInt(),
-            )
+            statusCode = matcher.group(4)!!.toInt()
         } catch (_: Exception) {
             // Preserve the legacy parser's default 500 response on malformed headers.
         }
     }
 
-    fun getHeader(): String? = header
+    fun getStatusCode(): Int = statusCode
 
-    fun getStatusCode(): Int = stat_code
+    fun getKey(key: String): String? = response[key]
 
-    fun getResponse(): Hashtable<String, String> = resp
-
-    fun getKey(key: String): String? = resp[key]
-
-    fun getKeyIgnoreCase(key: String): String? = resp.entries.firstOrNull {
+    fun getKeyIgnoreCase(key: String): String? = response.entries.firstOrNull {
         it.key.equals(key, ignoreCase = true)
     }?.value
-
-    override fun toString(): String = buildString {
-        append("Response:").append(_ver).append(' ').append(stat_code).append('\n')
-        for (key in resp.keys) {
-            append(key).append(": ").append(resp[key]).append('\n')
-        }
-    }
 }

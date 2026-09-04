@@ -1012,8 +1012,6 @@ class SScriptRunnerPresentationTest {
             return if (cannedResponses.isEmpty()) "SHIORI/3.0 204 No Content\r\n\r\n" else cannedResponses.removeFirst()
         }
 
-        override fun terminate() = Unit
-
         override fun unloadShiori() = Unit
     }
 

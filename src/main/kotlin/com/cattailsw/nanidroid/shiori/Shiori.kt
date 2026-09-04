@@ -5,7 +5,5 @@ interface Shiori {
 
     fun request(request: String): String
 
-    fun terminate()
-
     fun unloadShiori()
 }
