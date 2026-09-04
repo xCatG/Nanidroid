@@ -358,6 +358,7 @@ internal class RecordingShioriTrace {
     val requestFailure = AtomicReference<Throwable?>(null)
     val requestHandler = AtomicReference<((String) -> String)?>(null)
     val requestObserver = AtomicReference<((RecordedShioriRequest) -> Unit)?>(null)
+    val unloadObserver = AtomicReference<(() -> Unit)?>(null)
     val response = AtomicReference("SHIORI/3.0 204 No Content\r\n\r\n")
 }
 
@@ -396,6 +397,7 @@ internal class RecordingShiori(
 
     override
     fun unloadShiori(): ShioriUnloadResult {
+        trace.unloadObserver.get()?.invoke()
         trace.unloadCount.incrementAndGet()
         trace.lifecycleEvents += "unload:$ownerGhostId"
         trace.commandThreadNames += Thread.currentThread().name

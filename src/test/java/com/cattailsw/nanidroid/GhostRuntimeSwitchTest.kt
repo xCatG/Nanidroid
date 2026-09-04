@@ -23,6 +23,27 @@ class GhostRuntimeSwitchTest {
     val androidStubs = HostAndroidStubRule()
 
     @Test
+    fun claimedSwitchContinuesWhenOutgoingGenerationWasAlreadyRetired() = runBlocking {
+        val outgoingRoot = root("already-retired-switch-outgoing")
+        val targetRoot = root("already-retired-switch-target")
+        val trace = RecordingShioriTrace()
+        val runtime = testRuntime(scriptedPreparer(), trace)
+
+        runtime.use {
+            val outgoing = start(runtime, outgoingRoot)
+            val switchId = begin(runtime, outgoing, targetRoot)
+            assertIs<RuntimeResult.Success<Unit>>(runtime.unload(outgoing.generation))
+
+            val replacement = assertIs<RuntimeResult.Success<GhostHandle>>(
+                runtime.completeSwitchPlayback(outgoing.generation, switchId),
+            ).value
+
+            assertEquals(targetRoot.name, replacement.ghost.id)
+            assertEquals(1, trace.unloadCount.get())
+        }
+    }
+
+    @Test
     fun postUnloadSwitchGapRejectsIndependentStartup() = runBlocking {
         val outgoingRoot = root("gap-outgoing")
         val targetRoot = root("gap-target")
@@ -76,6 +97,66 @@ class GhostRuntimeSwitchTest {
     }
 
     @Test
+    fun switchRequiresAttachedOutgoingAndDoesNotReplayAttachment() = runBlocking {
+        val outgoingRoot = root("attachment-gated-outgoing")
+        val targetRoot = root("attachment-gated-target")
+        val trace = RecordingShioriTrace()
+        val persistence = InMemoryGhostRuntimePersistence()
+        val admissionStarted = CountDownLatch(1)
+        val releaseAdmission = CountDownLatch(1)
+        val admissionCount = AtomicInteger()
+        val runtime = testRuntime(
+            scriptedPreparer(),
+            trace,
+            persistence,
+            AttachmentAdmission { _, _, _ ->
+                admissionCount.incrementAndGet()
+                admissionStarted.countDown()
+                assertTrue(releaseAdmission.await(5, TimeUnit.SECONDS))
+                RuntimeResult.Success(Unit)
+            },
+        )
+
+        runtime.use {
+            val outgoing = startUnattached(runtime, outgoingRoot)
+            assertIs<RuntimeFailure.Busy>(
+                assertIs<RuntimeResult.Failure>(
+                    runtime.beginSwitch(outgoing.generation, targetRoot.name, targetRoot),
+                ).failure,
+            )
+
+            val firstAttachment = async(start = CoroutineStart.UNDISPATCHED) {
+                runtime.attachHost(outgoing.generation)
+            }
+            assertTrue(admissionStarted.await(5, TimeUnit.SECONDS))
+            assertIs<RuntimeFailure.Busy>(
+                assertIs<RuntimeResult.Failure>(
+                    runtime.beginSwitch(outgoing.generation, targetRoot.name, targetRoot),
+                ).failure,
+            )
+            val joinedAttachment = async(start = CoroutineStart.UNDISPATCHED) {
+                runtime.attachHost(outgoing.generation)
+            }
+            releaseAdmission.countDown()
+            val firstReceipt = assertIs<AttachmentReceipt.NewlyAttached>(
+                assertIs<RuntimeResult.Success<AttachmentReceipt>>(firstAttachment.await()).value,
+            )
+            val joinedReceipt = assertIs<AttachmentReceipt.NewlyAttached>(
+                assertIs<RuntimeResult.Success<AttachmentReceipt>>(joinedAttachment.await()).value,
+            )
+            assertEquals(firstReceipt.operationId, joinedReceipt.operationId)
+            assertIs<RuntimeResult.Success<Long>>(
+                runtime.beginSwitch(outgoing.generation, targetRoot.name, targetRoot),
+            )
+
+            assertEquals(1, admissionCount.get())
+            assertEquals(1, persistence.activationWrites.size)
+            assertEquals(1, trace.requests.count { "ID: OnFirstBoot\r\n" in it })
+            assertEquals(GhostRuntimePhase.SwitchPlayback, runtime.identity().phase)
+        }
+    }
+
+    @Test
     fun beginAndPreUnloadFailureAreOperationTaggedAndKeepOutgoingActive() = runBlocking {
         val outgoingRoot = root("pre-unload-outgoing")
         val targetRoot = root("pre-unload-target")
@@ -111,7 +192,7 @@ class GhostRuntimeSwitchTest {
                 ).cause,
             )
             assertEquals(
-                GhostRuntimeIdentity(outgoing, null, GhostRuntimePhase.Unattached),
+                GhostRuntimeIdentity(outgoing, null, GhostRuntimePhase.Attached),
                 runtime.identity(),
             )
             assertEquals(0, trace.unloadCount.get())
@@ -208,6 +289,7 @@ class GhostRuntimeSwitchTest {
                 ),
             ).value
             trace.requests.clear()
+            persistence.activationWrites.clear()
 
             assertIs<RuntimeResult.Success<AttachmentReceipt>>(runtime.attachHost(target.generation))
             assertEquals(
@@ -537,10 +619,17 @@ class GhostRuntimeSwitchTest {
         assertEquals(2, trace.unloadCount.get())
     }
 
-    private suspend fun start(runtime: GhostRuntime, root: File): GhostHandle =
+    private suspend fun startUnattached(runtime: GhostRuntime, root: File): GhostHandle =
         assertIs<RuntimeResult.Success<GhostHandle>>(
             runtime.startOrJoin(root.name, root),
         ).value
+
+    private suspend fun start(runtime: GhostRuntime, root: File): GhostHandle =
+        startUnattached(runtime, root).also { handle ->
+            assertIs<RuntimeResult.Success<AttachmentReceipt>>(
+                runtime.attachHost(handle.generation),
+            )
+        }
 
     private fun begin(runtime: GhostRuntime, outgoing: GhostHandle, targetRoot: File): Long =
         assertIs<RuntimeResult.Success<Long>>(

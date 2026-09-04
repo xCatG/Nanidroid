@@ -149,6 +149,8 @@ internal data class GhostRuntimeTestHooks(
     val onActivationCommitted: (Long) -> Unit = {},
     val onBootAttempted: (Long, String) -> Unit = { _, _ -> },
     val onOutgoingUnloaded: (Long) -> Unit = {},
+    val afterSwitchRunnerRetired: (Long) -> Unit = {},
+    val afterExitSessionRetiredBeforeRunnerCompletion: (Long) -> Unit = {},
 )
 
 internal data class NativeLifecycleProbeTrace(
@@ -404,6 +406,34 @@ internal class GhostRuntime private constructor(
     }
 
     internal fun unload(expectedGeneration: Long): RuntimeResult<Unit> {
+        val result = unloadSession(expectedGeneration)
+        if (result is RuntimeResult.Success) runner.retireGeneration(expectedGeneration)
+        return result
+    }
+
+    internal fun unloadForExit(expectedGeneration: Long, exitOperationId: Long) {
+        preparationScope.launch {
+            val result = unloadSession(expectedGeneration)
+            runCatching {
+                hooks.get()?.afterExitSessionRetiredBeforeRunnerCompletion?.invoke(exitOperationId)
+            }
+            runner.completeExitUnload(
+                expectedGeneration,
+                exitOperationId,
+                result,
+            )
+        }
+    }
+
+    internal fun unloadForExitImmediately(expectedGeneration: Long, exitOperationId: Long) {
+        runner.completeExitUnloadImmediately(
+            expectedGeneration,
+            exitOperationId,
+            unloadSession(expectedGeneration),
+        )
+    }
+
+    private fun unloadSession(expectedGeneration: Long): RuntimeResult<Unit> {
         val result = submitNativeResult<Unit> {
             val active = synchronized(stateLock) {
                 when {
@@ -431,7 +461,6 @@ internal class GhostRuntime private constructor(
                 }
             }
         }
-        if (result is RuntimeResult.Success) runner.retireGeneration(expectedGeneration)
         return result
     }
 
@@ -509,6 +538,9 @@ internal class GhostRuntime private constructor(
                 active?.handle?.generation != expectedGeneration -> {
                     RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
                 }
+                active.attachment !is AttachmentState.Attached -> {
+                    RuntimeResult.Failure(RuntimeFailure.Busy)
+                }
                 switchIntent != null || inFlight != null || active.ghost.canonicalRoot == root -> {
                     RuntimeResult.Failure(RuntimeFailure.Busy)
                 }
@@ -536,6 +568,8 @@ internal class GhostRuntime private constructor(
         var retired: SwitchIntent? = null
         val intent = synchronized(stateLock) {
             val candidate = switchIntent
+            val outgoingOwned = session?.handle?.generation == expectedGeneration ||
+                (session == null && isKnownRetiredGenerationLocked(expectedGeneration))
             when {
                 poison != null -> {
                     immediate = fatalResult(requireNotNull(poison))
@@ -559,7 +593,7 @@ internal class GhostRuntime private constructor(
                 candidate == null ||
                     candidate.operationId != switchOperationId ||
                     candidate.outgoingGeneration != expectedGeneration ||
-                    session?.handle?.generation != expectedGeneration ||
+                    !outgoingOwned ||
                     candidate.completionClaimed -> {
                     immediate = RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
                     null
@@ -874,13 +908,20 @@ internal class GhostRuntime private constructor(
         val unloadResult = submitNativeResult<Unit> {
             val active = synchronized(stateLock) {
                 poison?.let { return@submitNativeResult fatalResult(it) }
-                if (
-                    switchIntent !== intent ||
-                    session?.handle?.generation != intent.outgoingGeneration
-                ) {
+                if (switchIntent !== intent) {
                     return@submitNativeResult RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
                 }
-                requireNotNull(session)
+                val current = session
+                if (
+                    current == null &&
+                    isKnownRetiredGenerationLocked(intent.outgoingGeneration)
+                ) {
+                    return@submitNativeResult RuntimeResult.Success(Unit)
+                }
+                if (current?.handle?.generation != intent.outgoingGeneration) {
+                    return@submitNativeResult RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
+                }
+                requireNotNull(current)
             }
             when (val result = active.adapter.unloadShiori()) {
                 ShioriUnloadResult.Unloaded -> {
@@ -900,7 +941,8 @@ internal class GhostRuntime private constructor(
             intent.completion.complete(RuntimeResult.Failure(unloadResult.failure))
             return
         }
-        runner.retireGeneration(intent.outgoingGeneration)
+        runner.retireGenerationForSwitch(intent.outgoingGeneration)
+        runCatching { hooks.get()?.afterSwitchRunnerRetired?.invoke(intent.operationId) }
         val operation = synchronized(stateLock) {
             if (closed || poison != null || switchIntent !== intent || session != null) {
                 null
@@ -995,6 +1037,7 @@ internal class GhostRuntime private constructor(
                         RuntimeResult.Failure(RuntimeFailure.StaleGeneration)
                     },
                 )
+                if (committed) runner.resumeExitAfterAttachment(operation.handle.generation)
             }
         }
     }

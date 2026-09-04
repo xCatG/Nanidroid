@@ -276,15 +276,26 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     private lateinit var ghostRuntime: GhostRuntime
     private var runner: SScriptRunner? = null
-    private val dialogueDialogBinding = DialogueDialogBinding { runner }
+    private val runnerHostToken = SScriptRunner.HostToken()
+    private val dialogueDialogBinding = DialogueDialogBinding {
+        runner.takeIf { ownsTopRuntimeHost() }
+    }
     private val composeStage = ComposeGhostStageHost(
-        SurfaceInteractionPort { effect -> runner?.dispatchSurfaceInteraction(effect) },
+        SurfaceInteractionPort { effect ->
+            if (ownsTopRuntimeHost()) runner?.dispatchSurfaceInteraction(effect) else false
+        },
     )
     private var gm: GhostMgr? = null
     private val ghostMgrReady = CompletableDeferred<GhostMgr>()
     private var currentGhost: Ghost? = null
     private var currentRunCount = -1L
     private var initComplete = false
+    private var resumeActivationEpoch = 0L
+    private var hostResumed = false
+    private var hostTopResumed = false
+    private val initialRuntimeReady = CompletableDeferred<Unit>()
+    private var lastStartedAdoptionEpoch = -1L
+    private var lastStartedAdoptionGeneration = -1L
     private val foregroundNarImport by lazy {
         ForegroundNarImportCoordinator.get(applicationContext)
     }
@@ -341,23 +352,33 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             }
             if (isDestroyed || isFinishing) return@launch
 
+            val adoptionLease = currentRuntimeAdoptionLease()
+            if (adoptionLease != null) {
+                bindRuntimeHost()
+                if (isDestroyed || isFinishing) {
+                    initialRuntimeReady.complete(Unit)
+                    return@launch
+                }
+            }
             val identity = ghostRuntime.identity()
             if (identity.pending != null && identity.activeHandle != null) {
                 // A recreated host renders the still-active outgoing generation while
                 // independently joining the runtime-owned replacement operation.
-                bindRuntimeHandle(identity.activeHandle)
-                runner!!.setCallback(mscb)
+                adoptionLease?.let { lease ->
+                    adoptRuntimeHandle(lease, identity.activeHandle, startRuntime = true)
+                }
                 if (switchProgressVisibleFor(identity.phase)) showProgress() else hideProgress()
             }
             val handle = resolveRuntimeHandle(manager)
-            if (handle == null || !attachAndBindRuntimeHandle(handle)) {
-                showNoGhostAvailable()
+            val attached = handle?.let { attachRuntimeHandle(it) }
+            if (attached == null) {
+                initialRuntimeReady.complete(Unit)
+                if (runner?.hasPendingExit() != true && !isFinishing) showNoGhostAvailable()
                 return@launch
             }
             hideProgress()
             initComplete = true
-            runner!!.startClock()
-            runner!!.run()
+            initialRuntimeReady.complete(Unit)
         }
     }
 
@@ -392,6 +413,7 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             }
             identity.activeHandle?.let { return it }
             if (identity.phase != GhostRuntimePhase.Idle) return null
+            if (runner?.hasPendingExit() == true) return null
 
             val candidates = manager.launchCandidates(
                 ghostRuntime.preferredGhostId() ?: "nanidroid",
@@ -417,24 +439,152 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         }
     }
 
-    private suspend fun attachAndBindRuntimeHandle(handle: GhostHandle): Boolean {
+    private suspend fun attachRuntimeHandle(handle: GhostHandle): GhostHandle? {
         return when (ghostRuntime.attachHost(handle.generation)) {
             is RuntimeResult.Success -> {
-                if (isDestroyed || isFinishing) return false
-                bindRuntimeHandle(handle)
-                true
+                val identity = ghostRuntime.identity()
+                val current = identity.activeHandle ?: return null
+                val compatiblePhase = identity.phase == GhostRuntimePhase.Attached ||
+                    identity.phase == GhostRuntimePhase.SwitchPlayback
+                if (
+                    !compatiblePhase ||
+                    current.generation != handle.generation
+                ) {
+                    return null
+                }
+                current
             }
-            is RuntimeResult.Failure -> false
+            is RuntimeResult.Failure -> null
         }
     }
 
     private fun bindRuntimeHandle(handle: GhostHandle) {
         val ghost = handle.ghost
         composeStage.setSurfaceCatalog(ghost.surfaces, ghost.id)
-        runner!!.setPresentationRenderer(composeStage.renderer)
-        runner!!.setDialogueStateObserver(composeStage::updateDialogueState)
-        runner!!.setUICallback(this@Nanidroid)
+        bindRuntimeHost()
         currentGhost = ghost
+    }
+
+    private fun bindRuntimeHost() {
+        runner!!.bindHost(
+            runnerHostToken,
+            composeStage.renderer,
+            composeStage::updateDialogueState,
+            this@Nanidroid,
+            mscb,
+        )
+    }
+
+    private data class RuntimeAdoptionLease(val epoch: Long)
+
+    private fun currentRuntimeAdoptionLease(): RuntimeAdoptionLease? {
+        if (
+            isDestroyed ||
+            isFinishing ||
+            !hostResumed ||
+            !hostTopResumed
+        ) {
+            return null
+        }
+        return RuntimeAdoptionLease(resumeActivationEpoch)
+    }
+
+    private fun adoptionLeaseIsCurrent(
+        lease: RuntimeAdoptionLease,
+        handle: GhostHandle,
+    ): Boolean {
+        if (
+            resumeActivationEpoch != lease.epoch ||
+            isDestroyed ||
+            isFinishing ||
+            !hostResumed ||
+            !hostTopResumed
+        ) {
+            return false
+        }
+        val identity = ghostRuntime.identity()
+        val current = identity.activeHandle ?: return false
+        val compatiblePhase = identity.phase == GhostRuntimePhase.Attached ||
+            identity.phase == GhostRuntimePhase.SwitchPlayback
+        return compatiblePhase && current.generation == handle.generation
+    }
+
+    private fun adoptRuntimeHandle(
+        lease: RuntimeAdoptionLease,
+        handle: GhostHandle,
+        startRuntime: Boolean,
+    ): Boolean {
+        if (!adoptionLeaseIsCurrent(lease, handle)) return false
+        val shouldStart = startRuntime &&
+            ghostRuntime.identity().phase != GhostRuntimePhase.SwitchPlayback
+        if (
+            shouldStart &&
+            lastStartedAdoptionEpoch == lease.epoch &&
+            lastStartedAdoptionGeneration == handle.generation
+        ) {
+            return true
+        }
+        bindRuntimeHandle(handle)
+        if (!adoptionLeaseIsCurrent(lease, handle)) {
+            runner?.unbindHost(runnerHostToken)
+            return false
+        }
+        if (shouldStart) {
+            val activeRunner = runner ?: return false
+            if (!activeRunner.startClock(runnerHostToken)) return false
+            activeRunner.run()
+            lastStartedAdoptionEpoch = lease.epoch
+            lastStartedAdoptionGeneration = handle.generation
+        }
+        return true
+    }
+
+    private suspend fun resumeRuntimeForLease(lease: RuntimeAdoptionLease) {
+        val identity = ghostRuntime.identity()
+        val ready = when (identity.phase) {
+            GhostRuntimePhase.Starting,
+            GhostRuntimePhase.Replacing,
+            -> {
+                val pending = identity.pending ?: return
+                ghostRuntime.startOrJoin(pending.ghostId, pending.canonicalRoot)
+                resumeReadyHandleAfterRuntimeSettles()
+            }
+            GhostRuntimePhase.Unattached,
+            GhostRuntimePhase.Attaching,
+            -> identity.activeHandle?.let { attachRuntimeHandle(it) }
+            GhostRuntimePhase.Attached,
+            GhostRuntimePhase.SwitchPlayback,
+            -> identity.activeHandle
+            else -> null
+        } ?: return
+        adoptRuntimeHandle(
+            lease,
+            ready,
+            startRuntime = ghostRuntime.identity().phase != GhostRuntimePhase.SwitchPlayback,
+        )
+    }
+
+    private suspend fun resumeReadyHandleAfterRuntimeSettles(): GhostHandle? {
+        val settled = ghostRuntime.identity()
+        val handle = settled.activeHandle ?: return null
+        return when (settled.phase) {
+            GhostRuntimePhase.Unattached,
+            GhostRuntimePhase.Attaching,
+            -> attachRuntimeHandle(handle)
+            GhostRuntimePhase.Attached,
+            GhostRuntimePhase.SwitchPlayback,
+            -> handle
+            else -> null
+        }
+    }
+
+    private suspend fun awaitSwitchReplacementForLease(
+        lease: RuntimeAdoptionLease,
+        pending: PendingGhostIdentity,
+    ) {
+        ghostRuntime.startOrJoin(pending.ghostId, pending.canonicalRoot)
+        val ready = resumeReadyHandleAfterRuntimeSettles() ?: return
+        adoptRuntimeHandle(lease, ready, startRuntime = true)
     }
 
     private fun showNoGhostAvailable() {
@@ -477,8 +627,12 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                             blockingInput = ::isStageInputBlocked,
                             blockingInputEpoch = { stageInputEpoch },
                             onSurfaceTap = ::frameClick,
-                            onDialogueChoice = { action -> runner?.activateChoice(action) },
-                            onDialogueAnchor = { action -> runner?.activateAnchor(action) },
+                            onDialogueChoice = { action ->
+                                if (ownsTopRuntimeHost()) runner?.activateChoice(action)
+                            },
+                            onDialogueAnchor = { action ->
+                                if (ownsTopRuntimeHost()) runner?.activateAnchor(action)
+                            },
                             onDialogueExternalUrl = ::openDialogueExternalUrl,
                             onDialogueInput = ::openDialogueInput,
                         )
@@ -524,7 +678,25 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             var line = br.readLine(); while (line != null) { if (line.isNotEmpty() && !line.startsWith("#")) runner!!.addMsgToQueue(arrayOf(line)); line = br.readLine() }
         }
     } catch (_: Exception) { runner!!.addMsgToQueue(arrayOf("\\0Oops, something wrong with first run script!\\e")) }
-    override fun onPause() { super.onPause(); runner?.stopClock() }
+
+    private fun ownsTopRuntimeHost(): Boolean =
+        hostResumed && hostTopResumed && runner?.isHostOwner(runnerHostToken) == true
+
+    private fun stopRuntimeForHost(): Boolean {
+        val activeRunner = runner ?: return false
+        if (!activeRunner.stopClock(runnerHostToken)) return false
+        lastStartedAdoptionEpoch = -1L
+        lastStartedAdoptionGeneration = -1L
+        return true
+    }
+
+    override fun onPause() {
+        resumeActivationEpoch++
+        hostResumed = false
+        hostTopResumed = false
+        stopRuntimeForHost()
+        super.onPause()
+    }
     override fun onSaveInstanceState(outState: Bundle) {
         saveSimpleDialog(outState)
         transientUiSnapshotToSave(
@@ -543,27 +715,76 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             isChangingConfigurations = isChangingConfigurations,
             abandon = foregroundNarImport::abandonPicker,
         )
-        runner?.setPresentationRenderer(null)
-        runner?.setDialogueStateObserver(null)
-        runner?.setUICallback(null)
-        runner?.setCallback(null)
+        runner?.unbindHost(runnerHostToken)
         super.onDestroy()
     }
     override fun onResume() {
         super.onResume()
-        if (initComplete) {
-            runner?.startClock()
-            runner?.run()
+        hostResumed = true
+        resumeActivationEpoch++
+        if (hostTopResumed) activateTopResumedHost()
+    }
+
+    override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
+        super.onTopResumedActivityChanged(isTopResumedActivity)
+        if (hostTopResumed == isTopResumedActivity) return
+        hostTopResumed = isTopResumedActivity
+        resumeActivationEpoch++
+        if (isTopResumedActivity) {
+            activateTopResumedHost()
+        } else {
+            stopRuntimeForHost()
+        }
+    }
+
+    private fun activateTopResumedHost() {
+        val lease = currentRuntimeAdoptionLease() ?: return
+        bindRuntimeHost()
+        if (isFinishing) return
+        if (!initComplete) {
+            lifecycleScope.launch {
+                resumeRuntimeForLease(lease)
+                initialRuntimeReady.await()
+                if (initComplete) resumeRuntimeForLease(lease)
+            }
+            return
+        }
+        val identity = ghostRuntime.identity()
+        when (identity.phase) {
+            GhostRuntimePhase.Starting,
+            GhostRuntimePhase.Replacing,
+            GhostRuntimePhase.Unattached,
+            GhostRuntimePhase.Attaching,
+            -> lifecycleScope.launch {
+                resumeRuntimeForLease(lease)
+            }
+            GhostRuntimePhase.Attached,
+            -> {
+                val handle = identity.activeHandle ?: return
+                adoptRuntimeHandle(lease, handle, startRuntime = true)
+            }
+            GhostRuntimePhase.SwitchPlayback -> {
+                val handle = identity.activeHandle ?: return
+                adoptRuntimeHandle(lease, handle, startRuntime = false)
+                val pending = identity.pending ?: return
+                lifecycleScope.launch {
+                    awaitSwitchReplacementForLease(lease, pending)
+                }
+            }
+            else -> Unit
         }
     }
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
-            if (!allowsUserAction()) return
+            if (!hostResumed || !hostTopResumed) return
             val activeRunner = runner
+            if (activeRunner != null && !ownsTopRuntimeHost()) {
+                finish()
+                return
+            }
+            if (!allowsUserAction()) return
             if (activeRunner != null) {
-                activeRunner.stopClock()
-                activeRunner.setCallback(mscb)
-                activeRunner.stop()
+                if (!stopRuntimeForHost()) return
                 activeRunner.doExit()
             } else {
                 isEnabled = false
@@ -574,7 +795,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
     }
     private val mscb = object : SScriptRunner.StatusCallback {
         override fun stop() = Unit
-        override fun canExit() { runner!!.setCallback(null); finish() }
+        override fun canExit(expectedGeneration: Long?) {
+            finish()
+        }
         override fun switchPlaybackComplete() {
             runOnUiThread { showProgress() }
         }
@@ -617,7 +840,9 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
         simpleDialog = createNoReadmeDialog(ghostId, gm!!.getGhostDispName(ghostId) ?: ghostId)
     }
     fun switchGhost(nextId: String) {
+        if (!ownsTopRuntimeHost()) return
         if (!allowsUserAction()) return
+        val adoptionLease = currentRuntimeAdoptionLease() ?: return
         val target = gm?.findGhost(nextId) ?: run {
             Log.d(TAG, "invalid next ghost id")
             return
@@ -637,19 +862,27 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
             getString(R.string.load_g),
             target.name ?: target.id,
         )
-        runner!!.stopClock()
+        if (!stopRuntimeForHost()) {
+            ghostRuntime.failSwitchBeforeUnload(
+                active.generation,
+                operationId,
+                IllegalStateException("Switch owner lost before playback could stop"),
+            )
+            return
+        }
         runner!!.clearMsgQueue()
-        runner!!.setCallback(mscb)
         lifecycleScope.launch {
             when (val joined = ghostRuntime.startOrJoin(target.id, target.canonicalRoot)) {
                 is RuntimeResult.Success -> {
-                    if (attachAndBindRuntimeHandle(joined.value)) {
+                    val attached = attachRuntimeHandle(joined.value)
+                    if (
+                        attached != null &&
+                        adoptRuntimeHandle(adoptionLease, attached, startRuntime = true)
+                    ) {
                         hideProgress()
-                        runner!!.setCallback(null)
-                        runner!!.startClock()
-                        runner!!.run()
+                    } else if (attached != null) {
+                        hideProgress()
                     } else {
-                        runner!!.setCallback(null)
                         showNoGhostAvailable()
                     }
                 }
@@ -657,31 +890,23 @@ class Nanidroid : ComponentActivity(), SScriptRunner.UICallback {
                     val identity = ghostRuntime.identity()
                     val retained = identity.activeHandle
                     if (retained != null && identity.phase != GhostRuntimePhase.Poisoned) {
-                        bindRuntimeHandle(retained)
+                        adoptRuntimeHandle(adoptionLease, retained, startRuntime = true)
                         hideProgress()
-                        runner!!.setCallback(null)
-                        runner!!.startClock()
-                        runner!!.run()
                     } else {
-                        runner!!.setCallback(null)
                         showNoGhostAvailable()
                     }
                 }
             }
         }
-        if (
-            !runner!!.doGhostChanging(
-                operationId,
-                target.sakuraName ?: target.name ?: target.id,
-                "manual",
-                target.canonicalRoot.path,
-            )
-        ) {
-            runner!!.setCallback(null)
-        }
+        runner!!.doGhostChanging(
+            operationId,
+            target.sakuraName ?: target.name ?: target.id,
+            "manual",
+            target.canonicalRoot.path,
+        )
     }
     fun onListGhost() {
-        if (!allowsUserAction()) return
+        if (!ownsTopRuntimeHost() || !allowsUserAction()) return
         val manager = gm ?: return
         simpleDialog = createGhostListDialog(
             manager.getGDispNames()?.map { it ?: "" }.orEmpty(),

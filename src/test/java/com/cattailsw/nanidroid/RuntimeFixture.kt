@@ -18,6 +18,9 @@ internal class RuntimeFixture(
     bootstrapResponse: ((String) -> String)? = null,
     preparedFactory: (Long, String, File) -> PreparedGhost = ::preparedGhost,
     runnerConfiguration: SScriptRunnerConfiguration? = null,
+    responseSchedulerFactory: () -> SScriptResponseScheduler = {
+        SScriptResponseScheduler { action -> action() }
+    },
     autoStart: Boolean = true,
     autoAttach: Boolean = autoStart,
 ) : AutoCloseable {
@@ -26,7 +29,9 @@ internal class RuntimeFixture(
         preparer = GhostPreparer(preparedFactory),
         adapterFactory = { prepared -> RecordingShiori(trace, prepared.id) },
         persistence = persistence,
-        runnerConfiguration = runnerConfiguration,
+        runnerConfiguration = (runnerConfiguration ?: SScriptRunnerConfiguration()).copy(
+            responseSchedulerFactory = responseSchedulerFactory,
+        ),
     )
     val runner: SScriptRunner = runtime.runner
     var handle: GhostHandle? = null
@@ -79,6 +84,9 @@ class RuntimeFixtureRegistry : TestRule {
         bootstrapResponse: ((String) -> String)? = null,
         preparedFactory: (Long, String, File) -> PreparedGhost = ::preparedGhost,
         runnerConfiguration: SScriptRunnerConfiguration? = null,
+        responseSchedulerFactory: () -> SScriptResponseScheduler = {
+            SScriptResponseScheduler { action -> action() }
+        },
         autoStart: Boolean = true,
         autoAttach: Boolean = autoStart,
     ): RuntimeFixture = RuntimeFixture(
@@ -90,6 +98,7 @@ class RuntimeFixtureRegistry : TestRule {
         bootstrapResponse = bootstrapResponse,
         preparedFactory = preparedFactory,
         runnerConfiguration = runnerConfiguration,
+        responseSchedulerFactory = responseSchedulerFactory,
         autoStart = autoStart,
         autoAttach = autoAttach,
     ).also(fixtures::add)
