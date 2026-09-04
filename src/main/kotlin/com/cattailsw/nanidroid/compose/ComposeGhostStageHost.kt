@@ -15,7 +15,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import android.os.SystemClock
 import com.cattailsw.nanidroid.SurfaceManager
 import com.cattailsw.nanidroid.toSurfaceDefinition
-import com.cattailsw.nanidroid.runtime.GhostPresentationRuntimeState
 import com.cattailsw.nanidroid.runtime.GhostSpeaker
 import com.cattailsw.nanidroid.runtime.KotlinGhostPresentationRuntime
 import com.cattailsw.nanidroid.compose.stage.GhostStageMeasureState
@@ -35,24 +34,15 @@ import kotlinx.coroutines.delay
  * from the script runner to the visual stage: it owns immutable surface plans
  * and never creates a SakuraView, KeroView, Balloon, or FrameLayout.
  */
-class ComposeGhostStageHost private constructor(
+class ComposeGhostStageHost internal constructor(
     private val interactionPort: SurfaceInteractionPort,
     private val pixelAssets: SurfacePixelAssets,
-    @Suppress("UNUSED_PARAMETER") constructorMarker: Unit,
 ) {
     constructor(interactionPort: SurfaceInteractionPort) : this(
         interactionPort,
         AndroidSurfacePixelAssets,
-        Unit,
     )
 
-    internal constructor(
-        interactionPort: SurfaceInteractionPort,
-        pixelAssets: SurfacePixelAssets,
-    ) : this(interactionPort, pixelAssets, Unit)
-
-    var runtimeState: GhostPresentationRuntimeState by mutableStateOf(GhostPresentationRuntimeState.Initial)
-        private set
     var dialogueState: DialogueRuntimeState by mutableStateOf(DialogueRuntimeState(), neverEqualPolicy())
         private set
     private var hasDialogueStateSnapshot by mutableStateOf(false)
@@ -77,8 +67,6 @@ class ComposeGhostStageHost private constructor(
     private var activeGhostKey: String by mutableStateOf("")
     private var sakuraFrame: SurfaceRenderFrame? by mutableStateOf(null)
     private var keroFrame: SurfaceRenderFrame? by mutableStateOf(null)
-    private var sakuraActiveAnimationId: String? by mutableStateOf(null)
-    private var keroActiveAnimationId: String? by mutableStateOf(null)
     private var sakuraScheduler: SurfaceAnimationScheduler? = null
     private var keroScheduler: SurfaceAnimationScheduler? = null
     /* A SurfaceManager describes immutable ghost assets. Cache both the parsed
@@ -96,16 +84,14 @@ class ComposeGhostStageHost private constructor(
     private val stageMeasureState = GhostStageMeasureState()
     internal val latestMeasuredSnapshot get() = stageMeasureState.latest
 
-    val renderer = KotlinGhostPresentationRuntime { transition ->
-        runtimeState = transition.state
+    val renderer = KotlinGhostPresentationRuntime { state ->
         val manager = activeSurfaceManager ?: return@KotlinGhostPresentationRuntime
         // The Kotlin runtime owns the legacy shared talk cadence. Passing its
         // gate through directly also keeps activity recreation from resetting it.
-        val talkUpdate = SurfaceTalkCadence.Update(transition.state.talkingAnimationEnabled)
-        schedule(GhostSpeaker.SAKURA, manager.speakerSurface(transition.state.presentation.sakura.surfaceId, true).plan,
-            transition.state.presentation.sakura, talkUpdate)
-        schedule(GhostSpeaker.KERO, manager.speakerSurface(transition.state.presentation.kero.surfaceId, false).plan,
-            transition.state.presentation.kero, talkUpdate)
+        schedule(GhostSpeaker.SAKURA, manager.speakerSurface(state.presentation.sakura.surfaceId, true).plan,
+            state.presentation.sakura, state.talkingAnimationEnabled)
+        schedule(GhostSpeaker.KERO, manager.speakerSurface(state.presentation.kero.surfaceId, false).plan,
+            state.presentation.kero, state.talkingAnimationEnabled)
     }
 
     fun setSurfaceManager(manager: SurfaceManager?, ghostKey: String) {
@@ -115,8 +101,6 @@ class ComposeGhostStageHost private constructor(
             keroScheduler = null
             sakuraFrame = null
             keroFrame = null
-            sakuraActiveAnimationId = null
-            keroActiveAnimationId = null
             schedulerSurfaceIds.clear()
             nextPeriodicTicks.clear()
             speakerSurfaces.clear()
@@ -140,7 +124,7 @@ class ComposeGhostStageHost private constructor(
         collisionOverlaySpeaker: SurfaceSpeaker? = null,
     ) {
         val manager = activeSurfaceManager
-        val state = runtimeState
+        val state = renderer.state
         val plans = remember(manager) { manager?.getSurfaceKeys()
             ?.mapNotNull { id -> manager.getSurface(id)?.toSurfaceDefinition()?.toSurfaceRenderPlan() }
             ?.filter { it.isRenderableSurface() }
@@ -216,8 +200,6 @@ class ComposeGhostStageHost private constructor(
             keroPendingInput = dialogueOwnership.pendingInput(GhostSpeaker.KERO),
             dialogueTalkId = dialogue.talkId,
             dialogueRevision = dialogue.revision,
-            sakuraActiveAnimationId = sakuraActiveAnimationId,
-            keroActiveAnimationId = keroActiveAnimationId,
             onDialogueChoice = onDialogueChoice,
             onDialogueAnchor = onDialogueAnchor,
             onDialogueExternalUrl = onDialogueExternalUrl,
@@ -308,7 +290,7 @@ class ComposeGhostStageHost private constructor(
         speaker: GhostSpeaker,
         plan: SurfaceRenderPlan,
         presentation: com.cattailsw.nanidroid.runtime.GhostSpeakerPresentation,
-        talkUpdate: SurfaceTalkCadence.Update,
+        talkingAnimationEnabled: Boolean,
     ) {
         val scheduler: SurfaceAnimationScheduler = when (speaker) {
             GhostSpeaker.SAKURA -> sakuraScheduler?.takeIf { itPlan(it) == plan.surfaceId }
@@ -316,12 +298,15 @@ class ComposeGhostStageHost private constructor(
             GhostSpeaker.KERO -> keroScheduler?.takeIf { itPlan(it) == plan.surfaceId }
                 ?: newScheduler(plan).also { keroScheduler = it; keroFrame = null }
         }
-        scheduler.presentationUpdated(presentation.balloonVisible, presentation.animationId, talkUpdate)
+        scheduler.presentationUpdated(
+            hasVisibleSpeech = presentation.balloonVisible,
+            oneShotAnimationId = presentation.animationId,
+            talkingAnimationEnabled = talkingAnimationEnabled,
+        )
             .filterIsInstance<SurfaceAnimationScheduleEffect.Frame>()
             .lastOrNull()
             ?.frame
             ?.also { frame -> if (speaker == GhostSpeaker.SAKURA) sakuraFrame = frame else keroFrame = frame }
-        publishActiveAnimationId(speaker, scheduler.activeAnimationId)
     }
 
     /* Scheduler has no plan getter by design; retaining the selected surface id
@@ -344,7 +329,6 @@ class ComposeGhostStageHost private constructor(
     private fun SurfaceAnimationScheduler.tickForHost(speaker: GhostSpeaker, nowMillis: Long) {
         val periodicSelectionDue = nowMillis >= (nextPeriodicTicks[this] ?: Long.MAX_VALUE)
         tick(allowPeriodicSelection = periodicSelectionDue).applyFrames(speaker)
-        publishActiveAnimationId(speaker, activeAnimationId)
         if (periodicSelectionDue) nextPeriodicTicks[this] = nowMillis + PERIODIC_ANIMATION_INTERVAL_MILLIS
     }
     private fun rearmPeriodicTicks() {
@@ -355,10 +339,6 @@ class ComposeGhostStageHost private constructor(
         this?.filterIsInstance<SurfaceAnimationScheduleEffect.Frame>()?.lastOrNull()?.frame?.let {
             if (speaker == GhostSpeaker.SAKURA) sakuraFrame = it else keroFrame = it
         }
-    }
-
-    private fun publishActiveAnimationId(speaker: GhostSpeaker, animationId: String?) {
-        if (speaker == GhostSpeaker.SAKURA) sakuraActiveAnimationId = animationId else keroActiveAnimationId = animationId
     }
 
     private fun SurfaceManager?.speakerSurface(id: String, sakura: Boolean): SpeakerSurface {

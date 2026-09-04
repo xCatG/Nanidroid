@@ -15,13 +15,31 @@ class SurfaceAnimationSchedulerTest {
             entropy = FixedEntropy(),
         )
 
-        assertEquals(listOf(frame("script", 0, 37)), scheduler.requestOneShot("script"))
+        assertEquals(listOf(frame("script", 0, 37)), scheduler.presentationUpdated(false, "script", talkingAnimationEnabled = false))
         clock.nowMillis = 36
         assertTrue(scheduler.tick().isEmpty())
         clock.nowMillis = 37
         assertEquals(listOf(frame("script", 1, 83)), scheduler.tick())
         clock.nowMillis = 120
         assertEquals(listOf(frame("script", 0, 37)), scheduler.tick())
+    }
+
+    @Test
+    fun `presentation replaces one shot when distinct ids render equal reset frames`() {
+        val scheduler = SurfaceAnimationScheduler(
+            plan = plan(animation("7"), animation("8")),
+            clock = FakeClock(),
+            entropy = FixedEntropy(),
+        )
+
+        assertEquals(
+            listOf(frame("7", 0, 1)),
+            scheduler.presentationUpdated(false, "7", talkingAnimationEnabled = false),
+        )
+        assertEquals(
+            listOf(frame("8", 0, 1)),
+            scheduler.presentationUpdated(false, "8", talkingAnimationEnabled = false),
+        )
     }
 
     @Test
@@ -65,7 +83,7 @@ class SurfaceAnimationSchedulerTest {
     }
 
     @Test
-    fun `talking fires every tenth presentation update and explicit script animation wins that update`() {
+    fun `talking follows the runtime gate and explicit script animation wins that update`() {
         val clock = FakeClock()
         val scheduler = SurfaceAnimationScheduler(
             plan = plan(
@@ -75,35 +93,48 @@ class SurfaceAnimationSchedulerTest {
             clock = clock,
             entropy = FixedEntropy(),
         )
-        val talkCadence = SurfaceTalkCadence()
-
-        assertEquals(listOf(frame("script", 0, 1)), scheduler.presentationUpdated(hasVisibleSpeech = true, oneShotAnimationId = "script", talkUpdate = talkCadence.nextPresentationUpdate()))
-        repeat(9) { assertTrue(scheduler.presentationUpdated(hasVisibleSpeech = true, talkUpdate = talkCadence.nextPresentationUpdate()).isEmpty()) }
-        assertEquals(listOf(frame("talk", 0, 1)), scheduler.presentationUpdated(hasVisibleSpeech = true, talkUpdate = talkCadence.nextPresentationUpdate()))
+        assertEquals(
+            listOf(frame("script", 0, 1)),
+            scheduler.presentationUpdated(true, "script", talkingAnimationEnabled = true),
+        )
+        repeat(9) {
+            assertTrue(scheduler.presentationUpdated(true, talkingAnimationEnabled = false).isEmpty())
+        }
+        assertEquals(
+            listOf(frame("talk", 0, 1)),
+            scheduler.presentationUpdated(true, talkingAnimationEnabled = true),
+        )
     }
 
     @Test
-    fun `one shared talk cadence keeps both speakers and a replacement surface on updates one and eleven`() {
+    fun `one shared runtime talk gate keeps both speakers and a replacement surface aligned`() {
         val clock = FakeClock()
-        val cadence = SurfaceTalkCadence()
         val sakura = SurfaceAnimationScheduler(plan(animation("talk", ShellSurface.A_TYPE_TALK)), clock, FixedEntropy())
         val kero = SurfaceAnimationScheduler(plan(animation("talk", ShellSurface.A_TYPE_TALK)), clock, FixedEntropy())
 
-        val firstUpdate = cadence.nextPresentationUpdate()
-        assertEquals(listOf(frame("talk", 0, 1)), sakura.presentationUpdated(true, talkUpdate = firstUpdate))
-        assertEquals(listOf(frame("talk", 0, 1)), kero.presentationUpdated(true, talkUpdate = firstUpdate))
+        assertEquals(
+            listOf(frame("talk", 0, 1)),
+            sakura.presentationUpdated(true, talkingAnimationEnabled = true),
+        )
+        assertEquals(
+            listOf(frame("talk", 0, 1)),
+            kero.presentationUpdated(true, talkingAnimationEnabled = true),
+        )
 
         val replacementSakura = SurfaceAnimationScheduler(plan(animation("talk", ShellSurface.A_TYPE_TALK)), clock, FixedEntropy())
         repeat(9) {
-            val update = cadence.nextPresentationUpdate()
-            assertTrue(replacementSakura.presentationUpdated(true, talkUpdate = update).isEmpty())
-            assertTrue(kero.presentationUpdated(true, talkUpdate = update).isEmpty())
+            assertTrue(replacementSakura.presentationUpdated(true, talkingAnimationEnabled = false).isEmpty())
+            assertTrue(kero.presentationUpdated(true, talkingAnimationEnabled = false).isEmpty())
         }
 
-        val eleventhUpdate = cadence.nextPresentationUpdate()
-        assertEquals(listOf(frame("talk", 0, 1)), replacementSakura.presentationUpdated(true, talkUpdate = eleventhUpdate))
-        assertEquals(listOf(frame("talk", 0, 1)), kero.presentationUpdated(true, talkUpdate = eleventhUpdate))
-        assertEquals(1, cadence.snapshotUpdateCount())
+        assertEquals(
+            listOf(frame("talk", 0, 1)),
+            replacementSakura.presentationUpdated(true, talkingAnimationEnabled = true),
+        )
+        assertEquals(
+            listOf(frame("talk", 0, 1)),
+            kero.presentationUpdated(true, talkingAnimationEnabled = true),
+        )
     }
 
     @Test
@@ -114,13 +145,11 @@ class SurfaceAnimationSchedulerTest {
             clock,
             FixedEntropy(),
         )
-        val cadence = SurfaceTalkCadence()
-
-        assertEquals(listOf(frame("active", 0, 10)), scheduler.requestOneShot("active"))
+        assertEquals(listOf(frame("active", 0, 10)), scheduler.presentationUpdated(false, "active", talkingAnimationEnabled = false))
         clock.nowMillis = 10
         assertEquals(
             listOf(frame("active", 1, 20)),
-            scheduler.presentationUpdated(false, oneShotAnimationId = "missing", talkUpdate = cadence.nextPresentationUpdate()),
+            scheduler.presentationUpdated(false, "missing", talkingAnimationEnabled = false),
         )
         assertTrue(scheduler.tick().isEmpty())
     }
@@ -137,7 +166,7 @@ class SurfaceAnimationSchedulerTest {
             FixedEntropy(0.0, 0.0),
         )
 
-        assertEquals(listOf(frame("active", 0, 10)), scheduler.requestOneShot("active"))
+        assertEquals(listOf(frame("active", 0, 10)), scheduler.presentationUpdated(false, "active", talkingAnimationEnabled = false))
         assertTrue(scheduler.tick().isEmpty())
         clock.nowMillis = 1_000
         assertEquals(listOf(frame("active", 1, 20)), scheduler.tick())
@@ -156,7 +185,7 @@ class SurfaceAnimationSchedulerTest {
             entropy = FixedEntropy(0.9),
         )
 
-        assertEquals(listOf(frame("second", 0, 1)), scheduler.requestOneShot("alternate"))
+        assertEquals(listOf(frame("second", 0, 1)), scheduler.presentationUpdated(false, "alternate", talkingAnimationEnabled = false))
     }
 
     @Test
@@ -173,8 +202,8 @@ class SurfaceAnimationSchedulerTest {
             entropy,
         )
 
-        assertEquals(listOf(frame("second", 0, 1)), scheduler.requestOneShot("alternate"))
-        assertEquals(listOf(frame("second", 0, 1)), scheduler.requestOneShot("alternate"))
+        assertEquals(listOf(frame("second", 0, 1)), scheduler.presentationUpdated(false, "alternate", talkingAnimationEnabled = false))
+        assertEquals(listOf(frame("second", 0, 1)), scheduler.presentationUpdated(false, "alternate", talkingAnimationEnabled = false))
         assertEquals(1, entropy.calls)
     }
 
