@@ -15,12 +15,6 @@ data class ParsedSurfaceEntry(
     val authoredOrder: Long,
 )
 
-data class ParsedSurfaceBlock(
-    val selection: SurfaceSelection,
-    val mode: SurfaceBlockMode,
-    val entries: List<ParsedSurfaceEntry>,
-)
-
 data class SurfaceParseResult(
     val surfaces: Map<Int, List<ParsedSurfaceEntry>>,
     val diagnostics: List<SurfaceParseDiagnostic>,

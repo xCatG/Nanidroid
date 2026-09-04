@@ -1,22 +1,14 @@
 package com.cattailsw.nanidroid
 
-import android.content.res.Resources
-import android.graphics.Rect
-import android.graphics.drawable.Drawable
 import com.cattailsw.nanidroid.surface.ParsedSurfaceEntry
 
 /**
  * Kotlin domain catalog for the shell surfaces installed for one ghost.
  *
- * It deliberately owns catalog and speaker-default selection only. Parsing a
- * shell and composing Android drawables remain separate concerns, so a future
- * Compose renderer can consume surface selection without taking ownership of
- * the legacy parser or ImageView implementation.
+ * It owns catalog and speaker-default selection. Parsed surface data crosses
+ * from the shell parser to the Compose rendering pipeline through this catalog.
  */
 class SurfaceManager(@Suppress("UNUSED_PARAMETER") ghostid: String) {
-    @JvmField
-    var ghostId: String? = null
-
     private val surfaces = linkedMapOf<String, ShellSurface>()
     private val parsedEntries = linkedMapOf<String, List<ParsedSurfaceEntry>>()
 
@@ -53,20 +45,6 @@ class SurfaceManager(@Suppress("UNUSED_PARAMETER") ghostid: String) {
 
     fun getKeroSurface(id: String): ShellSurface =
         surfaces[id] ?: surfaces[KERO_DEFAULT_ID] ?: nullSurface
-
-    fun getSurfaceDrawable(id: String, resources: Resources): Drawable? =
-        try {
-            surfaces[id]?.getSurfaceDrawable(resources)
-        } catch (_: Exception) {
-            null
-        }
-
-    fun getSurfaceRect(id: String, resources: Resources): Rect? =
-        try {
-            surfaces[id]?.getSurfaceDim()
-        } catch (_: Exception) {
-            null
-        }
 
     private companion object {
         const val SAKURA_DEFAULT_ID = "0"

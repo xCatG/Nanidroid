@@ -18,47 +18,31 @@ import java.util.Locale
 import java.util.IdentityHashMap
 
 /** Reads every surface source through the typed parser and publishes one materialized catalog. */
-class SurfaceReader {
+class SurfaceReader(
+    private val manager: SurfaceManager,
+    shellRoot: String,
+    @Suppress("UNUSED_PARAMETER") descriptorPath: String,
+    private val transparencyPolicy: SurfaceTransparencyPolicy =
+        SurfaceTransparencyPolicy.LEGACY_COLOR_KEY,
+) {
     @JvmField
     var error = false
 
     val diagnostics: List<SurfaceParseDiagnostic>
         get() = mutableDiagnostics.toList()
 
-    private var rootPath: String? = null
-    private var manager: SurfaceManager? = null
-    private var parseTime = 0L
-    private var transparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY
     private val mutableDiagnostics = mutableListOf<SurfaceParseDiagnostic>()
     private val diagnosedPngPaths = mutableSetOf<String>()
     private val parsedCollisionCache = IdentityHashMap<ParsedSurfaceEntry, ParsedCollision>()
     private val diagnosedCollisionEntries = java.util.Collections.newSetFromMap(IdentityHashMap<ParsedSurfaceEntry, Boolean>())
 
-    constructor(manager: SurfaceManager) {
-        this.manager = manager
-    }
-
-    constructor()
-
-    constructor(
-        manager: SurfaceManager,
-        shellRoot: String,
-        descriptorPath: String,
-        transparencyPolicy: SurfaceTransparencyPolicy = SurfaceTransparencyPolicy.LEGACY_COLOR_KEY,
-    ) {
-        rootPath = shellRoot
-        this.manager = manager
-        this.transparencyPolicy = transparencyPolicy
+    init {
         loadShell(File(shellRoot))
-    }
-
-    constructor(file: File) {
-        rootPath = file.parent
     }
 
     private fun loadShell(root: File) {
         val started = LegacyPlatform.uptimeMillis()
-        val catalog = manager ?: return
+        val catalog = manager
         val rootDirectory = when {
             root.isDirectory -> root
             root.parentFile?.isDirectory == true -> root.parentFile
@@ -117,7 +101,7 @@ class SurfaceReader {
             catalog.addParsedSurface(id.toString(), surface, entries)
         }
 
-        parseTime = LegacyPlatform.uptimeMillis() - started
+        val parseTime = LegacyPlatform.uptimeMillis() - started
         LegacyPlatform.debug(TAG, "parse time:${parseTime}ms")
     }
 

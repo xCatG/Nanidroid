@@ -70,7 +70,6 @@ class SurfaceRenderPlanTest {
         )
         assertEquals(SurfaceRenderFrame.Base(null, "replacement.png", 40, 50, 101), plan.frames[2])
         assertEquals(SurfaceRenderFrame.Move(11, -13, 149), plan.frames[3])
-        assertTrue((plan.frames[3] as SurfaceRenderFrame.Move).legacyBaseFallback)
     }
 
     @Test

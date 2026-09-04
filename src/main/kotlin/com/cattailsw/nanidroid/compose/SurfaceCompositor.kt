@@ -126,9 +126,6 @@ class SurfaceCompositor(
     private val assets: SurfacePixelAssets,
     private val plans: SurfacePlanRegistry = SurfacePlanRegistry(emptyList()),
 ) {
-    /** Compatibility image facade retained until the Task 11 host cut-over. */
-    fun normal(plan: SurfaceRenderPlan): SurfacePixelImage = composeNormal(plan).image
-
     fun composeNormal(
         plan: SurfaceRenderPlan,
         explicitlyHidden: Boolean = false,
@@ -157,10 +154,6 @@ class SurfaceCompositor(
         }.toImage()
         }
     }
-
-    /** Compatibility image facade retained until the Task 11 host cut-over. */
-    fun frame(plan: SurfaceRenderPlan, frame: SurfaceRenderFrame): SurfacePixelImage =
-        if (frame is SurfaceRenderFrame.Base) renderLegacyBase(frame) else composeFrame(plan, frame).image
 
     fun composeFrame(
         plan: SurfaceRenderPlan,
@@ -215,18 +208,6 @@ class SurfaceCompositor(
             draw(overlay, frame.x, frame.y)
         }.toImage()
     }
-
-    /**
-     * The current host consumes only an image while retaining selected-surface
-     * geometry and collisions. Keep its pre-Task10 BASE behavior until Task 11
-     * switches it to the atomic [ComposedSurface] result.
-     */
-    private fun renderLegacyBase(frame: SurfaceRenderFrame.Base): SurfacePixelImage =
-        frame.imagePath?.let(assets::load)?.colorKeyed()?.let { image ->
-            val width = frame.width.takeIf { it > 0 } ?: image.width
-            val height = frame.height.takeIf { it > 0 } ?: image.height
-            canvas(width, height).apply { draw(image, 0, 0) }.toImage()
-        } ?: SurfacePixelImage.Empty
 
     private fun composed(
         image: SurfacePixelImage,

@@ -58,7 +58,7 @@ object SurfaceSourceDecoder {
         internal fun begin(name: String): Boolean {
             observeName(name)
             if (attemptedFiles >= MAX_ATTEMPTED_FILES || attemptedBytes >= MAX_ATTEMPTED_BYTES) {
-                diagnostics.addBounded(diagnostic(name, name, "source attempt budget exhausted"))
+                diagnostics.addBounded(diagnostic(name, name))
                 return false
             }
             attemptedFiles++
@@ -72,23 +72,23 @@ object SurfaceSourceDecoder {
             val byteCount = input.bytes.size.toLong()
             if (attemptedBytes + byteCount > MAX_ATTEMPTED_BYTES) {
                 attemptedBytes = MAX_ATTEMPTED_BYTES
-                diagnostics.addBounded(diagnostic(input.name, input.name, "attempted source bytes exhausted"))
+                diagnostics.addBounded(diagnostic(input.name, input.name))
                 return null
             }
             attemptedBytes += byteCount
             if (input.bytes.size > MAX_SOURCE_BYTES) {
-                diagnostics.addBounded(diagnostic(input.name, input.name, "surface source exceeds byte limit"))
+                diagnostics.addBounded(diagnostic(input.name, input.name))
                 return null
             }
             if (files.size >= MAX_ACCEPTED_FILES || acceptedBytes + byteCount > MAX_ACCEPTED_BYTES) {
-                diagnostics.addBounded(diagnostic(input.name, input.name, "accepted source budget exhausted"))
+                diagnostics.addBounded(diagnostic(input.name, input.name))
                 return null
             }
 
             val decoded = decodeOne(input, diagnostics) ?: return null
             val shape = scanDecoded(decoded.text)
             if (shape == null || acceptedLines + shape.lineCount > MAX_ACCEPTED_LINES) {
-                diagnostics.addBounded(diagnostic(input.name, input.name, "decoded line budget exhausted"))
+                diagnostics.addBounded(diagnostic(input.name, input.name))
                 return null
             }
             val file = SurfaceSourceFile(
@@ -107,11 +107,11 @@ object SurfaceSourceDecoder {
 
         internal fun rejectStarted(name: String, bytesRead: Int = 0) {
             attemptedBytes = minOf(MAX_ATTEMPTED_BYTES, attemptedBytes + bytesRead)
-            diagnostics.addBounded(diagnostic(name, name, "surface source read failed"))
+            diagnostics.addBounded(diagnostic(name, name))
         }
 
         internal fun rejectOversizedUnopened(name: String) {
-            diagnostics.addBounded(diagnostic(name, name, "surface source exceeds byte limit"))
+            diagnostics.addBounded(diagnostic(name, name))
         }
 
         internal fun result(): SurfaceSourceDecodeResult =
@@ -123,7 +123,7 @@ object SurfaceSourceDecoder {
                 previous.lowercase(Locale.ROOT) == name.lowercase(Locale.ROOT) &&
                 previous != name
             ) {
-                diagnostics.addBounded(diagnostic(name, name, "case-colliding surface source filename"))
+                diagnostics.addBounded(diagnostic(name, name))
             }
             previousName = name
         }
@@ -137,7 +137,7 @@ object SurfaceSourceDecoder {
         diagnostics: MutableList<SurfaceParseDiagnostic>,
     ): DecodedSource? {
         if (!rawLinesWithinLimits(input.bytes)) {
-            diagnostics.addBounded(diagnostic(input.name, input.name, "physical line limit exceeded"))
+            diagnostics.addBounded(diagnostic(input.name, input.name))
             return null
         }
         val hasUtf8Bom = input.bytes.startsWith(UTF8_BOM)
@@ -147,11 +147,11 @@ object SurfaceSourceDecoder {
         val declared = declaredName?.let(::supportedCharset)
 
         if (declaredName != null && declared == null) {
-            diagnostics.addBounded(diagnostic(input.name, declarationText, "unsupported charset declaration"))
+            diagnostics.addBounded(diagnostic(input.name, declarationText))
             return null
         }
         if (hasUtf8Bom && declared != null && declared != utf8) {
-            diagnostics.addBounded(diagnostic(input.name, declarationText, "BOM and charset declaration conflict"))
+            diagnostics.addBounded(diagnostic(input.name, declarationText))
             return null
         }
 
@@ -164,14 +164,12 @@ object SurfaceSourceDecoder {
         for (charset in candidates) {
             val decoded = strictDecode(bytes, charset) ?: continue
             if (declared == windows31j && charset == utf8) {
-                diagnostics.addBounded(
-                    diagnostic(input.name, declarationText, "legacy declaration contains strict UTF-8"),
-                )
+                diagnostics.addBounded(diagnostic(input.name, declarationText))
             }
             return DecodedSource(charset, decoded)
         }
 
-        diagnostics.addBounded(diagnostic(input.name, declarationText, "source is not valid in its allowed charset"))
+        diagnostics.addBounded(diagnostic(input.name, declarationText))
         return null
     }
 
@@ -230,7 +228,7 @@ object SurfaceSourceDecoder {
             .removeSuffix("\r")
     }
 
-    private fun diagnostic(file: String, source: String, @Suppress("UNUSED_PARAMETER") detail: String) =
+    private fun diagnostic(file: String, source: String) =
         SurfaceParseDiagnostic(file, 1, source, SurfaceDiagnosticReason.DECODE)
 
     private fun MutableList<SurfaceParseDiagnostic>.addBounded(value: SurfaceParseDiagnostic) {

@@ -45,7 +45,9 @@ class SurfaceCompositorTest {
             height = 2,
             pixels = intArrayOf(RED, BLUE, RED, GREEN),
         )
-        val output = SurfaceCompositor(assets = assets("base.png" to image)).normal(plan(layers = listOf(layer("base.png", 1, 1, 2, 2))))
+        val output = SurfaceCompositor(assets = assets("base.png" to image))
+            .composeNormal(plan(layers = listOf(layer("base.png", 1, 1, 2, 2))))
+            .image
 
         assertEquals(4, output.width)
         assertEquals(4, output.height)
@@ -87,9 +89,9 @@ class SurfaceCompositorTest {
 
     @Test
     fun `canvas output owns its completed pixels without exposing a public alias`() {
-        val output = SurfaceCompositor(assets("base.png" to solid(BLUE))).normal(
+        val output = SurfaceCompositor(assets("base.png" to solid(BLUE))).composeNormal(
             plan(layers = listOf(layer("base.png", 0, 0, 2, 1))),
-        )
+        ).image
 
         val exportedPixels = output.copyPixels()
         exportedPixels[1] = GREEN
@@ -103,14 +105,14 @@ class SurfaceCompositorTest {
         val compositor = SurfaceCompositor(loader)
         val missingDimensions = plan(layers = listOf(layer("base.png", 0, 0, 2, 1))).copy(width = 0)
 
-        assertSame(SurfacePixelImage.Empty, compositor.normal(missingDimensions))
-        assertSame(SurfacePixelImage.Empty, compositor.frame(missingDimensions, SurfaceRenderFrame.Reset(1)))
+        assertSame(SurfacePixelImage.Empty, compositor.composeNormal(missingDimensions).image)
+        assertSame(SurfacePixelImage.Empty, compositor.composeFrame(missingDimensions, SurfaceRenderFrame.Reset(1)).image)
         assertTrue(loader.requests.isEmpty())
 
-        val replacement = compositor.frame(
+        val replacement = compositor.composeFrame(
             missingDimensions,
             SurfaceRenderFrame.Base(null, "replacement.png", 2, 1, 1),
-        )
+        ).image
         assertEquals(GREEN, replacement.pixelAt(1, 0))
         assertEquals(listOf("replacement.png"), loader.requests)
     }
@@ -123,10 +125,10 @@ class SurfaceCompositorTest {
             "source.png" to solid(GREEN),
             "fallback.png" to solid(RED),
         ))
-        val output = SurfaceCompositor(loader, SurfacePlanRegistry(listOf(source))).frame(
+        val output = SurfaceCompositor(loader, SurfacePlanRegistry(listOf(source))).composeFrame(
             plan(layers = listOf(layer("base.png", 0, 0, 2, 2))),
             SurfaceRenderFrame.Overlay("12", "fallback.png", 1, 1, 1, 1, 1),
-        )
+        ).image
 
         assertEquals(GREEN, output.pixelAt(2, 1))
         assertFalse(loader.requests.contains("fallback.png"))
@@ -135,23 +137,29 @@ class SurfaceCompositorTest {
     @Test
     fun `missing source surface falls back to the declared overlay image`() {
         val loader = RecordingAssets(mapOf("base.png" to solid(BLUE), "fallback.png" to solid(GREEN)))
-        val output = SurfaceCompositor(loader).frame(
+        val output = SurfaceCompositor(loader).composeFrame(
             plan(layers = listOf(layer("base.png", 0, 0, 2, 2))),
             SurfaceRenderFrame.Overlay("12", "fallback.png", 1, 1, 1, 1, 1),
-        )
+        ).image
 
         assertEquals(GREEN, output.pixelAt(2, 1))
         assertTrue(loader.requests.contains("fallback.png"))
     }
 
     @Test
-    fun `base replacement is color keyed while reset and legacy move retain normal pixels`() {
+    fun `base replacement is color keyed while reset and move retain normal pixels`() {
         val compositor = SurfaceCompositor(assets("base.png" to solid(BLUE), "replacement.png" to solid(RED)))
         val renderPlan = plan(layers = listOf(layer("base.png", 0, 0, 2, 2)))
 
-        assertEquals(BLUE, compositor.frame(renderPlan, SurfaceRenderFrame.Reset(1)).pixelAt(1, 0))
-        assertEquals(BLUE, compositor.frame(renderPlan, SurfaceRenderFrame.Move(8, -2, 1)).pixelAt(1, 0))
-        assertEquals(TRANSPARENT, compositor.frame(renderPlan, SurfaceRenderFrame.Base(null, "replacement.png", 2, 2, 1)).pixelAt(0, 0))
+        assertEquals(BLUE, compositor.composeFrame(renderPlan, SurfaceRenderFrame.Reset(1)).image.pixelAt(1, 0))
+        assertEquals(BLUE, compositor.composeFrame(renderPlan, SurfaceRenderFrame.Move(8, -2, 1)).image.pixelAt(1, 0))
+        assertEquals(
+            TRANSPARENT,
+            compositor.composeFrame(
+                renderPlan,
+                SurfaceRenderFrame.Base(null, "replacement.png", 2, 2, 1),
+            ).image.pixelAt(0, 0),
+        )
     }
 
     @Test
@@ -190,44 +198,20 @@ class SurfaceCompositorTest {
     }
 
     @Test
-    fun `compatibility frame keeps source-only BASE blank until atomic host cutover`() {
-        val selected = plan(
-            surfaceId = 0,
-            layers = listOf(layer("selected.png", 0, 0, 4, 4)),
-        )
-        val source = plan(
-            surfaceId = 3031,
-            layers = listOf(layer("source.png", 0, 0, 2, 1)),
-            width = 3,
-            height = 2,
-        )
-        val loader = assets("selected.png" to solid(BLUE), "source.png" to solid(GREEN))
-        val compositor = SurfaceCompositor(loader, SurfacePlanRegistry(listOf(selected, source)))
-
-        val legacyImage = compositor.frame(
-            selected,
-            SurfaceRenderFrame.Base("3031", null, 0, 0, 100),
-        )
-
-        assertSame(SurfacePixelImage.Empty, legacyImage)
-        assertFalse(loader.requests.contains("source.png"))
-    }
-
-    @Test
-    fun `compatibility image-path BASE keeps legacy color key under authored alpha plan`() {
+    fun `image-path BASE honors authored alpha plan`() {
         val replacement = SurfacePixelImage.of(2, 1, intArrayOf(RED, GREEN))
         val selected = plan(
             layers = listOf(layer("selected.png", 0, 0, 2, 1)),
             transparencyPolicy = SurfaceTransparencyPolicy.AUTHORED_ALPHA,
         )
 
-        val legacyImage = SurfaceCompositor(assets("replacement.png" to replacement)).frame(
+        val image = SurfaceCompositor(assets("replacement.png" to replacement)).composeFrame(
             selected,
             SurfaceRenderFrame.Base(null, "replacement.png", 2, 1, 100),
-        )
+        ).image
 
-        assertEquals(TRANSPARENT, legacyImage.pixelAt(0, 0))
-        assertEquals(GREEN, legacyImage.pixelAt(1, 0))
+        assertEquals(RED, image.pixelAt(0, 0))
+        assertEquals(GREEN, image.pixelAt(1, 0))
     }
 
     @Test
@@ -282,9 +266,9 @@ class SurfaceCompositorTest {
         val faintBlue = SurfacePixelImage.of(2, 1, intArrayOf(TRANSPARENT, argb(1, 0, 0, 255)))
         val faintRed = SurfacePixelImage.of(2, 1, intArrayOf(TRANSPARENT, argb(1, 255, 0, 0)))
 
-        val output = SurfaceCompositor(assets("blue.png" to faintBlue, "red.png" to faintRed)).normal(
+        val output = SurfaceCompositor(assets("blue.png" to faintBlue, "red.png" to faintRed)).composeNormal(
             plan(layers = listOf(layer("blue.png", 0, 0, 2, 1), layer("red.png", 0, 0, 2, 1))),
-        )
+        ).image
 
         // Alpha is rounded only after high-precision premultiplied blending:
         // source red ~= 128, destination blue ~= 127, and no channel spills.
@@ -299,11 +283,11 @@ class SurfaceCompositorTest {
 
         assertEquals(
             "surface pixel count 4294967294 exceeds supported limit 1048576",
-            assertThrows(IllegalArgumentException::class.java) { compositor.normal(overflow) }.message,
+            assertThrows(IllegalArgumentException::class.java) { compositor.composeNormal(overflow) }.message,
         )
         assertEquals(
             "surface pixel count 1049600 exceeds supported limit 1048576",
-            assertThrows(IllegalArgumentException::class.java) { compositor.normal(oversized) }.message,
+            assertThrows(IllegalArgumentException::class.java) { compositor.composeNormal(oversized) }.message,
         )
     }
 

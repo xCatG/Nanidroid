@@ -1,51 +1,11 @@
 package com.cattailsw.nanidroid
 
 import java.io.File
-import java.io.FileNotFoundException
-import java.io.InputStream
 import java.nio.charset.Charset
 import java.util.Hashtable
 
 /** Parses a ghost descriptor using its declared character set. */
-class DescReader {
-    @JvmField
-    var infilePath: String? = null
-
-    @JvmField
-    var dbgOutput: Boolean = false
-
-    private var table: MutableMap<String, String>? = null
-    private var parseTime: Long = 0
-
-    constructor()
-
-    constructor(infile: String) {
-        infilePath = infile
-    }
-
-    constructor(file: File) {
-        try {
-            file.inputStream().use(::parse)
-        } catch (_: FileNotFoundException) {
-            // Preserve the legacy constructor's absent-file behavior.
-        } catch (exception: Exception) {
-            exception.printStackTrace()
-        }
-    }
-
-    constructor(input: InputStream) {
-        try {
-            dbgOutput = true
-            parse(input)
-        } catch (exception: Exception) {
-            LegacyPlatform.debug(TAG, "parsing inputstream error")
-            exception.printStackTrace()
-        }
-    }
-
-    fun setDbgOutput(debug: Boolean) {
-        dbgOutput = debug
-    }
+class DescReader(private val path: String) {
 
     private fun charsetForFirstLine(firstLine: String?): Charset {
         if (firstLine == null) throw NullPointerException()
@@ -62,11 +22,6 @@ class DescReader {
         }
     }
 
-    private fun parse(input: InputStream) {
-        if (table == null) table = Hashtable()
-        parseBytes(input.readBytes(), table!!)
-    }
-
     private fun parseBytes(bytes: ByteArray, destination: MutableMap<String, String>) {
         if (bytes.isEmpty()) throw NullPointerException()
         val defaultLines = bytes.toString(DEFAULT_CHARSET).lineSequence().toList()
@@ -74,25 +29,17 @@ class DescReader {
         bytes.toString(charset).lineSequence().forEach { line ->
             val pair = line.split(",".toRegex())
             if (pair.size != 2) return@forEach
-            if (dbgOutput) LegacyPlatform.debug(TAG, "putting [${pair[0]},${pair[1]}]")
             destination[pair[0]] = pair[1]
         }
     }
 
     fun parse(): MutableMap<String, String> {
-        parseTime = LegacyPlatform.uptimeMillis()
+        val started = LegacyPlatform.uptimeMillis()
         val result = Hashtable<String, String>()
-        val path = infilePath ?: throw NullPointerException()
         File(path).inputStream().use { input -> parseBytes(input.readBytes(), result) }
-        parseTime = LegacyPlatform.uptimeMillis() - parseTime
-        LegacyPlatform.debug(TAG, "parsing took:${parseTime}ms")
+        val elapsed = LegacyPlatform.uptimeMillis() - started
+        LegacyPlatform.debug(TAG, "parsing took:${elapsed}ms")
         return result
-    }
-
-    fun getTable(): MutableMap<String, String>? = table
-
-    fun setTable(table: MutableMap<String, String>?) {
-        this.table = table
     }
 
     private companion object {

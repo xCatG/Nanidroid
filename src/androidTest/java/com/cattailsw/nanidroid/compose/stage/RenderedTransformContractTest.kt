@@ -1006,8 +1006,6 @@ class RenderedTransformContractTest {
         surfaceType = ShellSurface.S_TYPE_BASE
         origW = width
         origH = height
-        targetW = width
-        targetH = height
         selfFilename = path
         transparencyPolicy = SurfaceTransparencyPolicy.AUTHORED_ALPHA
         setCanonicalCollisions(

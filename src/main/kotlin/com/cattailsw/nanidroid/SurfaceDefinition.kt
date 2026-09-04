@@ -4,7 +4,7 @@ package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.surface.CollisionShape
 
-/** Platform-neutral shell surface semantics, suitable for a Compose renderer. */
+/** Platform-neutral shell surface semantics passed from parsing to Compose rendering. */
 data class SurfaceDefinition(
     val id: Int,
     val type: Int,
@@ -38,14 +38,7 @@ data class SurfaceCollision(
     val identifier: String,
     val shape: CollisionShape,
     val authoredOrder: Int,
-) {
-    /** Legacy observation fields retained for compatibility callers. */
-    val name: String get() = identifier
-    val x: Int get() = shape.bounds.left
-    val y: Int get() = shape.bounds.top
-    val width: Int get() = shape.bounds.width
-    val height: Int get() = shape.bounds.height
-}
+)
 
 data class SurfaceAnimation(
     val id: String,
@@ -77,9 +70,8 @@ data class SurfaceElement(
 )
 
 /**
- * Captures the legacy parser's semantic output without decoding bitmaps or
- * constructing Android Drawables. The legacy compositor remains the runtime
- * authority until Compose consumes this snapshot in a subsequent slice.
+ * Captures parser output for the Compose rendering boundary without decoding
+ * bitmaps or constructing Android Drawables.
  */
 fun ShellSurface.toSurfaceDefinition(): SurfaceDefinition = SurfaceDefinition(
     id = surfaceId,
