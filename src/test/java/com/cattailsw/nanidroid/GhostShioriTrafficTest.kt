@@ -1,8 +1,12 @@
 package com.cattailsw.nanidroid
 
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
+import com.cattailsw.nanidroid.shiori.LoadFailureState
 import com.cattailsw.nanidroid.shiori.Shiori
+import com.cattailsw.nanidroid.shiori.ShioriLoadResult
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Rule
 import org.junit.Test
 
@@ -32,6 +36,35 @@ class GhostShioriTrafficTest {
         assertEquals("ok", structured.getKey("Value"))
     }
 
+    @Test
+    fun loadedShioriIsUnloadedWhenPostLoadInitializationFails() {
+        val shiori = RecordingShiori()
+        val failure = IllegalStateException("post-load initialization failed")
+
+        val thrown = assertThrows(IllegalStateException::class.java) {
+            initializeLoadedShiori(shiori) { throw failure }
+        }
+
+        assertSame(failure, thrown)
+        assertEquals(1, shiori.unloadCount)
+    }
+
+    @Test
+    fun cleanupRequiredLoadFailureUnloadsBeforePropagating() {
+        val shiori = RecordingShiori()
+        val failure = IllegalStateException("native load ownership is uncertain")
+
+        val thrown = assertThrows(IllegalStateException::class.java) {
+            throwShioriLoadFailure(
+                shiori,
+                ShioriLoadResult.Failed(failure, LoadFailureState.CleanupRequired),
+            )
+        }
+
+        assertSame(failure, thrown)
+        assertEquals(1, shiori.unloadCount)
+    }
+
     private class RecordingGhost(recordingShiori: Shiori) : Ghost("traffic-ghost") {
         init {
             shiori = recordingShiori
@@ -48,13 +81,18 @@ class GhostShioriTrafficTest {
 
     private class RecordingShiori : Shiori {
         val requests = mutableListOf<String>()
+        var unloadCount = 0
 
         override fun getModuleName(): String = "test"
         override fun request(request: String): String {
             requests += request
             return RESPONSE
         }
-        override fun unloadShiori() = Unit
+        override fun load() = com.cattailsw.nanidroid.shiori.ShioriLoadResult.Loaded
+        override fun unloadShiori(): com.cattailsw.nanidroid.shiori.ShioriUnloadResult {
+            unloadCount++
+            return com.cattailsw.nanidroid.shiori.ShioriUnloadResult.Unloaded
+        }
 
         companion object {
             const val RESPONSE = "SHIORI/3.0 200 OK\r\nSender: test\r\nValue: ok\r\n\r\n"

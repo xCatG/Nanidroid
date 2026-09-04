@@ -1,7 +1,11 @@
 package com.cattailsw.nanidroid
 
 import android.content.Context
+import com.cattailsw.nanidroid.shiori.LoadFailureState
 import com.cattailsw.nanidroid.shiori.Shiori
+import com.cattailsw.nanidroid.shiori.ShioriLoadResult
+import com.cattailsw.nanidroid.shiori.ShioriRequestException
+import com.cattailsw.nanidroid.shiori.ShioriUnloadResult
 import com.cattailsw.nanidroid.runtime.dialogue.GhostEventCapabilityDiscovery
 import com.cattailsw.nanidroid.runtime.dialogue.PointerEventCapabilities
 import com.cattailsw.nanidroid.runtime.dialogue.ShioriMethod
@@ -74,13 +78,27 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
             SurfaceTransparencyPolicy.fromShellDescriptor(shellDesc),
         )
         if (!error) error = surfaceReader.error
-        shiori = ShioriFactory.getInstance().getShiori(masterGhost, ghostDesc, mCtx)
-        refreshPointerEventCapabilities()
+        val selectedShiori = ShioriFactory.getInstance().getShiori(masterGhost, ghostDesc, mCtx)
+        when (val result = selectedShiori.load()) {
+            ShioriLoadResult.Loaded -> {
+                shiori = selectedShiori
+                try {
+                    initializeLoadedShiori(selectedShiori, ::refreshPointerEventCapabilities)
+                } catch (failure: Throwable) {
+                    shiori = null
+                    throw failure
+                }
+            }
+            is ShioriLoadResult.Failed -> throwShioriLoadFailure(selectedShiori, result)
+        }
     }
 
     open fun unload() {
         try {
-            shiori!!.unloadShiori()
+            when (val result = shiori!!.unloadShiori()) {
+                ShioriUnloadResult.Unloaded -> Unit
+                is ShioriUnloadResult.Failed -> throw result.cause
+            }
         } finally {
             eventCapabilities = PointerEventCapabilities()
         }
@@ -143,13 +161,58 @@ open class Ghost @JvmOverloads constructor(ghostPath: String, ctx: Context? = nu
 
     private fun refreshPointerEventCapabilities() {
         eventCapabilities = PointerEventCapabilities()
-        eventCapabilities = runCatching {
+        eventCapabilities = try {
             GhostEventCapabilityDiscovery.discover(::requestRaw)
-        }.getOrDefault(PointerEventCapabilities())
+        } catch (failure: ShioriRequestException) {
+            if (!failure.ownershipCertain) throw failure
+            PointerEventCapabilities()
+        } catch (_: Throwable) {
+            PointerEventCapabilities()
+        }
     }
 
     private companion object {
         const val TAG = "Ghost"
         const val KEY_CREATE_COUNT_PREFIX = "createcount_ghost"
     }
+}
+
+internal fun initializeLoadedShiori(selectedShiori: Shiori, initialize: () -> Unit): Shiori {
+    try {
+        initialize()
+        return selectedShiori
+    } catch (failure: Throwable) {
+        val cleanupFailure = try {
+            when (val result = selectedShiori.unloadShiori()) {
+                ShioriUnloadResult.Unloaded -> null
+                is ShioriUnloadResult.Failed -> result.cause
+            }
+        } catch (cleanupFailure: Throwable) {
+            cleanupFailure
+        }
+        if (cleanupFailure != null && cleanupFailure !== failure) {
+            failure.addSuppressed(cleanupFailure)
+        }
+        throw failure
+    }
+}
+
+internal fun throwShioriLoadFailure(
+    selectedShiori: Shiori,
+    failure: ShioriLoadResult.Failed,
+): Nothing {
+    if (failure.state == LoadFailureState.CleanupRequired) {
+        val cleanupFailure = try {
+            when (val result = selectedShiori.unloadShiori()) {
+                ShioriUnloadResult.Unloaded -> null
+                is ShioriUnloadResult.Failed -> result.cause
+            }
+        } catch (cleanupFailure: Throwable) {
+            cleanupFailure
+        }
+        if (cleanupFailure != null && cleanupFailure !== failure.cause) {
+            failure.cause.addSuppressed(cleanupFailure)
+        }
+    }
+    throw failure.cause
 }

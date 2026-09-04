@@ -15,6 +15,12 @@ per-run run-id rooted at `/data/local/tmp/nanidroid-corpus/<run-id>`. It copies 
 archive under one constant filename, applies mode `0644`, and removes all per-run
 device copies in `finally` blocks.
 
+Each installed ghost's SHIORI audit runs through one closeable `GhostRuntime`.
+The corpus fixture retains only the immutable ghost handle and generation,
+submits tagged requests through the runtime's single native command thread, and
+performs typed runtime unload before closing. Instrumentation never constructs,
+receives, or retains a SHIORI adapter.
+
 ## Inputs
 
 - `-DeviceSerial`: connected emulator serial. Omit with `-DryRun`.

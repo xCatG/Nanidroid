@@ -1,6 +1,8 @@
 package com.cattailsw.nanidroid.shiori
 
+import android.content.Context
 import com.cattailsw.nanidroid.LegacyPlatform
+import com.cattailsw.nanidroid.NanidroidContentPresence
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
@@ -10,15 +12,31 @@ import java.nio.charset.Charset
 import java.util.Hashtable
 import java.util.Locale
 
-open class NanidroidShiori internal constructor(
-    path: String,
+open class NanidroidShiori private constructor(
     private val contentResponsesEnabled: Boolean,
 ) : EchoShiori() {
     private var evtTable: Hashtable<String, String>? = null
 
-    init {
+    internal constructor(path: String, contentResponsesEnabled: Boolean) : this(contentResponsesEnabled) {
         loadContent(path)
     }
+
+    internal constructor(
+        ctx: Context?,
+        preparedContent: Map<String, String>,
+        contentFilePresent: Boolean,
+    ) : this(ctx != null) {
+        loadPreparedContent(preparedContent, contentFilePresent)
+    }
+
+    internal constructor(
+        ctx: Context?,
+        preparedContent: Map<String, String>,
+    ) : this(
+        ctx,
+        preparedContent,
+        (preparedContent as? NanidroidContentPresence)?.contentFilePresent ?: true,
+    )
 
     private fun loadContent(path: String) {
 
@@ -36,6 +54,17 @@ open class NanidroidShiori internal constructor(
             // Legacy behavior intentionally ignores unreadable content files.
         } catch (exception: Exception) {
             exception.printStackTrace()
+        }
+    }
+
+    private fun loadPreparedContent(
+        preparedContent: Map<String, String>,
+        contentFilePresent: Boolean,
+    ) {
+        evtTable = if (contentFilePresent) {
+            Hashtable<String, String>().apply { putAll(preparedContent) }
+        } else {
+            null
         }
     }
 
@@ -118,5 +147,21 @@ open class NanidroidShiori internal constructor(
         @JvmName("createContentFixture")
         internal fun createContentFixture(path: String): NanidroidShiori =
             NanidroidShiori(path, true)
+
+        @JvmStatic
+        internal fun createPreparedContentFixture(
+            preparedContent: Map<String, String>,
+            contentFilePresent: Boolean,
+        ): NanidroidShiori = NanidroidShiori(contentResponsesEnabled = true).apply {
+            loadPreparedContent(preparedContent, contentFilePresent)
+        }
+
+        @JvmStatic
+        internal fun createPreparedContentFixture(
+            preparedContent: Map<String, String>,
+        ): NanidroidShiori = createPreparedContentFixture(
+            preparedContent,
+            (preparedContent as? NanidroidContentPresence)?.contentFilePresent ?: true,
+        )
     }
 }

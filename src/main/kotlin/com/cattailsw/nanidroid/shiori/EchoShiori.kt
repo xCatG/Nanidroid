@@ -7,13 +7,31 @@ import java.util.Hashtable
 
 open class EchoShiori : Shiori {
     private val ignoredIds = hashSetOf(*IGNORE_IDS)
+    private var loaded = false
 
     @JvmField
     protected var reqTable: Hashtable<String, String>? = null
 
     override fun getModuleName(): String = "EchoShiori"
 
+    override fun load(): ShioriLoadResult {
+        if (loaded) {
+            return ShioriLoadResult.Failed(
+                IllegalStateException("${getModuleName()} is already loaded"),
+                LoadFailureState.OwnerAlreadyPresent,
+            )
+        }
+        loaded = true
+        return ShioriLoadResult.Loaded
+    }
+
     override fun request(request: String): String {
+        if (!loaded) {
+            throw ShioriRequestException(
+                "${getModuleName()} is not loaded",
+                ownershipCertain = true,
+            )
+        }
         parseRequest(request)
         return genResponse()
     }
@@ -57,7 +75,10 @@ open class EchoShiori : Shiori {
         }
     }
 
-    override fun unloadShiori() = Unit
+    override fun unloadShiori(): ShioriUnloadResult {
+        loaded = false
+        return ShioriUnloadResult.Unloaded
+    }
 
     private companion object {
         const val TAG = "EchoShiori"

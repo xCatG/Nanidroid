@@ -133,20 +133,20 @@
       "sha256": "fd4352956fbe352253e2c154d340479fb8164a43d60a9b1418258aa5b6a7b4a6"
     },
     "satori_jni.cpp": {
-      "literal_count": 20,
-      "sha256": "71e1e88d9035c7a939f70975e230ab285a72bf45f3d04fd65b474166e7dcf5d1"
+      "literal_count": 17,
+      "sha256": "825c11d0cba48212d0107861f9151a87a5c2695b8e738120bcbc3abe215b1958"
     },
     "satori_load_dict.cpp": {
-      "literal_count": 49,
-      "sha256": "f8fbbdb54a3e7e1002001170e45719f97ff6923c5ad2ba0a71b8aa9bda5e0f2b"
+      "literal_count": 50,
+      "sha256": "808a917bb2248b33924913905e9053f000a0e1878043eee47b3ed9fd5caa2bb0"
     },
     "satori_load_dict.h": {
       "literal_count": 20,
       "sha256": "769fb77302c87a1250cfee63c105d0ddd4a8289c93a93cfef18cc7d056b33cbc"
     },
     "satori_load_unload.cpp": {
-      "literal_count": 94,
-      "sha256": "39ab9c9e051cf166b2c0b676727928686498d145edd029a168e7706fcf891f0b"
+      "literal_count": 95,
+      "sha256": "fdb509d6ff4c245e608faa697797b4eb090a9ec4295283bcbfb36d7ea674fb42"
     },
     "satori_sentence.cpp": {
       "literal_count": 156,

@@ -177,7 +177,9 @@ class SScriptRunnerDialogueObserverTest {
 
         override fun request(request: String): String = "SHIORI/3.0 204 No Content\r\n\r\n"
 
-        override fun unloadShiori() = Unit
+        override fun load() = com.cattailsw.nanidroid.shiori.ShioriLoadResult.Loaded
+
+        override fun unloadShiori() = com.cattailsw.nanidroid.shiori.ShioriUnloadResult.Unloaded
     }
 
     private class RecordingGhost(recordingShiori: Shiori, path: String = "recording") : Ghost(path) {

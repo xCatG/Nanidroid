@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.runtime.dialogue
 
 import com.cattailsw.nanidroid.ShioriResponse
+import com.cattailsw.nanidroid.shiori.ShioriRequestException
 
 enum class Support { SUPPORTED, UNSUPPORTED, UNKNOWN }
 
@@ -20,9 +21,9 @@ object GhostEventCapabilityDiscovery {
     private val supportedEventName = Regex("""[A-Za-z_][A-Za-z0-9_.-]*""")
 
     fun discover(request: (ShioriMethod, String, List<String>) -> ShioriResponse): PointerEventCapabilities {
-        runCatching {
+        optionalProbe {
             request(ShioriMethod.GET, GET_SUPPORTED_EVENTS, emptyList())
-        }.getOrNull()?.let(::fromSupportedEvents)?.let { return it }
+        }?.let(::fromSupportedEvents)?.let { return it }
         return PointerEventCapabilities(
             click = probeHasEvent(request, "OnMouseClick"),
             doubleClick = probeHasEvent(request, "OnMouseDoubleClick"),
@@ -32,9 +33,18 @@ object GhostEventCapabilityDiscovery {
     private fun probeHasEvent(
         request: (ShioriMethod, String, List<String>) -> ShioriResponse,
         eventId: String,
-    ): Support = runCatching {
+    ): Support = optionalProbe {
         fromHasEvent(request(ShioriMethod.GET, HAS_EVENT, listOf(eventId)))
-    }.getOrDefault(Support.UNKNOWN)
+    } ?: Support.UNKNOWN
+
+    private inline fun <T> optionalProbe(block: () -> T): T? = try {
+        block()
+    } catch (failure: ShioriRequestException) {
+        if (!failure.ownershipCertain) throw failure
+        null
+    } catch (_: Throwable) {
+        null
+    }
 
     /** Returns null when the resource is unavailable or malformed, so callers can use Has_Event. */
     fun fromSupportedEvents(response: ShioriResponse): PointerEventCapabilities? {
