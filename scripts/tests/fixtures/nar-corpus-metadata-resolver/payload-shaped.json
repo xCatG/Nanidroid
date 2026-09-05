@@ -1,0 +1,24 @@
+{
+  "rows": [
+    {
+      "snapshotId": "unsafe-fixture",
+      "sourceRowOrdinal": 1,
+      "title": "Payload-shaped Ghost",
+      "author": "Fixture Author",
+      "updatedAt": "2026-08-01T00:00:00Z",
+      "landingUrl": "https://example.test/payload-shaped",
+      "manifest": true,
+      "archivePath": "fixture.nar",
+      "evidence": {
+        "url": "https://example.test/payload-shaped",
+        "observedAt": "2026-08-02T00:00:00Z",
+        "httpMethod": "GET",
+        "httpStatus": 200,
+        "redirectChain": [],
+        "robotsAllowed": true,
+        "termsAllowed": true,
+        "titleSpecificInitialNarLink": true
+      }
+    }
+  ]
+}
