@@ -14,7 +14,7 @@ History bundle: `.integration-artifacts/replacement-2026-10-03/recreation-histor
 
 The retained candidate uses read-only absolute alternates to the retained target and standalone source object stores. It is not independent of those stores. Before either store is retired, require an authorized verified self-contained candidate bundle or dissociation; preserving only the recreation bundle does not preserve the candidate parent history. The recovery checkout is retained at .integration-artifacts/replacement-2026-10-03/recovery. Original ignored build-directory copies are also retained.
 
-The bundle freezes the source tip above, including all product history and the fresh README/CI/template. This manifest is a later documentation-only commit, transferred as a supplemental committed blob; it is intentionally outside that bundle. The later retention/key-status documentation commit also supplies an explicit supplemental README override, replacing only the frozen README entry below; its commit/blob/hash identity is recorded in candidate-result.json. Its source commit/blob ID is recorded in candidate-result.json and the Task 3 report after commit. The manifest cannot contain its own commit/hash or the commit that embeds it; these are independently derivable from the recorded candidate. Later audit commits do not alter the frozen product/source or bundle identity.
+The bundle freezes the source tip above, including all product history and the fresh README/CI/template. This manifest is a later documentation-only commit, transferred as a supplemental committed blob; it is intentionally outside that bundle. The later retention/key-status documentation commit also supplies an explicit supplemental README override, replacing only the frozen README entry below. The README override's source commit/blob/hash identity and the manifest's source commit/blob/hash identity are recorded separately in candidate-result.json and the Task 3 report after commit. The manifest cannot contain its own commit/hash or the commit that embeds it; these are independently derivable from the recorded candidate. Later audit commits do not alter the frozen product/source or bundle identity.
 
 ## Preservation and administration
 
@@ -744,7 +744,7 @@ Git blob IDs below identify deleted/preserved target contents without reading le
 
 ## Complete committed source transfers
 
-All 505 selected frozen-source blobs transfer with their Git mode and raw-byte SHA-256. Supplemental manifest and fresh candidate instructions are listed separately below.
+The final candidate transfers 504 frozen-source blobs plus one explicitly documented committed README override. The 505-entry table below preserves the historical frozen-source modes, blob IDs and raw-byte SHA-256 values; its README entry is superseded by that override. Supplemental manifest and fresh candidate instructions are listed separately below.
 
 | Path | Disposition | Mode | Source blob | SHA-256 |
 | --- | --- | --- | --- | --- |
