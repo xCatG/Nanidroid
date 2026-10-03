@@ -57,12 +57,14 @@ the frozen recreation history, target base, explicit path dispositions and check
 Historical evidence retains its source/APK/device provenance; ignored raw logs
 and private fixtures are not included and are not current passing results.
 
-Version code 1/name 1.0, published version history, signing identity, Play enrollment
-and store eligibility remain unverified release prerequisites. A differently signed
+The author reports the original signing key was recovered; its certificate identity
+and use have not been verified. Version code 1/name 1.0, published version history,
+signing identity, Play enrollment and store eligibility remain unverified release
+prerequisites. A differently signed
 build cannot update an old installed copy. A fresh installation may require
 uninstalling that copy, which can remove app-owned data; leaving old external
-files untouched is not an uninstall-preservation guarantee. Recovering the original
-signing identity or a valid Play App Signing/upload-key route is the author's
+files untouched is not an uninstall-preservation guarantee. Verifying the recovered
+signing identity and any Play App Signing/upload-key requirements is the author's
 separate release work. No push, merge or release is implied by this local candidate.
 
 ## Attribution and licenses

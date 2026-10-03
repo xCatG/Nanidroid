@@ -7,7 +7,7 @@ docs/superpowers/plans/2026-10-02-replacement-integration.md. User instructions 
 ## Workspace and separation
 
 - Approved isolated-workspace exception: integration and verification may operate
-  in `C:/work/src/nanidroid-recreation/app/build/replacement-integration/candidate`.
+  in `C:/work/src/nanidroid-recreation/.integration-artifacts/replacement-2026-10-03/candidate`.
   The standalone source workspace remains `C:/work/src/nanidroid-recreation`.
   Workers report their workspace and loaded AGENTS.md paths first.
 - Do not read, copy or use superseded application source, tests, build scripts,
