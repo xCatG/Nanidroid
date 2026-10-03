@@ -1,5 +1,8 @@
 package com.cattailsw.nanidroid.engine
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.runBlocking
@@ -15,6 +18,8 @@ import org.junit.Test
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.CoroutineContext
 
 class NativeShioriHostTest {
     private val directory = File(".")
@@ -405,22 +410,56 @@ class NativeShioriHostTest {
 
     @Test fun cancellationWhileSuccessfulLoadReturnIsQueuedStillCleansOwner() = runBlocking {
         for (unloadSuccess in listOf(true, false)) {
+            val entered = CountDownLatch(1)
+            val releaseLoad = CountDownLatch(1)
+            val returnQueued = CountDownLatch(1)
             val fake = FakeBinding(unloadSuccess = unloadSuccess)
+            fake.onLoad = {
+                entered.countDown()
+                check(releaseLoad.await(5, TimeUnit.SECONDS))
+            }
             val host = NativeShioriHost.forTest { fake }
             val scheduler = TestCoroutineScheduler()
-            val callerScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(scheduler))
-            val loading = callerScope.async { host.load(NativeKind.SATORI, directory, "satori.dll") }
-            scheduler.runCurrent()
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-            while (host.availability.value != NativeAvailability.Occupied && System.nanoTime() < deadline) Thread.sleep(1)
-            assertEquals(NativeAvailability.Occupied, host.availability.value)
-            // The native thread has completed, but the caller dispatcher has not delivered Loaded.
-            loading.cancel()
-            scheduler.runCurrent()
-            while (fake.unloads == 0 && System.nanoTime() < deadline) Thread.sleep(1)
-            assertEquals(1, fake.unloads)
-            assertEquals(if (unloadSuccess) NativeAvailability.Available else NativeAvailability.Quarantined,
-                host.availability.value)
+            val delegate = StandardTestDispatcher(scheduler)
+            val dispatches = AtomicInteger()
+            val callerDispatcher = object : CoroutineDispatcher() {
+                override fun dispatch(context: CoroutineContext, block: Runnable) {
+                    delegate.dispatch(context, block)
+                    if (dispatches.incrementAndGet() == 2) returnQueued.countDown()
+                }
+            }
+            val callerScope = CoroutineScope(SupervisorJob() + callerDispatcher)
+            try {
+                val loading = callerScope.async { host.load(NativeKind.SATORI, directory, "satori.dll") }
+                // Hold JNI so runCurrent cannot also deliver its return on a fast native lane.
+                scheduler.runCurrent()
+                assertTrue(entered.await(5, TimeUnit.SECONDS))
+                releaseLoad.countDown()
+                assertTrue("Loaded return must be queued on the paused caller", returnQueued.await(5, TimeUnit.SECONDS))
+                assertEquals(NativeAvailability.Occupied, host.availability.value)
+                assertFalse(loading.isCompleted)
+                loading.cancel()
+                scheduler.runCurrent()
+                withTimeout(5_000) { loading.join() }
+                assertTrue(loading.isCancelled)
+                val expected = if (unloadSuccess) NativeAvailability.Available else NativeAvailability.Quarantined
+                // StateFlow publishes cleanup's writes; the next load is also a native-lane barrier.
+                assertEquals(expected, withTimeout(5_000) { host.availability.first { it != NativeAvailability.Occupied } })
+                val next = host.load(NativeKind.SATORI, directory, "satori.dll")
+                assertEquals(1, fake.unloads)
+                if (unloadSuccess) {
+                    assertTrue(next is NativeLoadResult.Loaded)
+                    assertEquals(NativeUnloadResult.Unloaded, host.unload((next as NativeLoadResult.Loaded).lease))
+                    assertEquals(2, fake.unloads)
+                } else {
+                    assertTrue(next is NativeLoadResult.Unresolved)
+                    assertEquals(1, fake.loads)
+                }
+            } finally {
+                releaseLoad.countDown()
+                callerScope.cancel()
+                scheduler.runCurrent()
+            }
         }
     }
 
