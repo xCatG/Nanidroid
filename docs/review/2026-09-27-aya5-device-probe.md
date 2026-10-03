@@ -1,0 +1,28 @@
+# AYA5 Snake and Otacon device probe — 2026-09-27
+
+## Scope and setup
+
+Current recreation checkout `9ef3c9e51f3eb7c6c20c28fe3dd618ed15e06b29` on `codex/walking-skeleton`. No reference repository was opened. The source NARs were read only from `C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/Snake and Otacon`. Each row used a fresh copy, with a worker-observed original/copy hash match, staged under disposable `aya5probe`. The extracted copies were removed; neither archive nor extracted ghost content was changed or added to Git. The first four archives have a root-only `\` ZIP directory entry. After .NET `ExtractToDirectory` rejected them, extraction skipped that directory entry and checked output-path containment. Those extraction checks were worker-observed, not logged. This is a runtime probe through an already installed directory, **not** an import acceptance test.
+
+Emulator `emulator-5554` was API 31 and boot-complete in worker checks. Post-hoc APK hashes are `7AF2E201EDCDC60D5DC70F24281D7561D2704FCB281C2AF52700CBDF82DE1561` for the unchanged debug app and `A42F48B6F2DA114C3F2789BD24C9870F0F98E3E6F2332640FC7AFC05806F35AA` for the **temporary diagnostic androidTest build**. A temporary `NativeTalkProbeTest.kt` extension recorded the descriptor, engine selection, native load result, runtime `StageState`, and native ownership; it was removed from source after the probe. The retained androidTest APK therefore does not match the current test source.
+
+## Results
+
+| NAR | Original SHA-256 (post-hoc) | Config / module diagnosis | Runtime native result | Observed `StageState` |
+| --- | --- | --- | --- | --- |
+| `Snake and Otacon V1.0.0.nar` | `526B7721103031FB3F28B22FFFC54B71FD0B1E279168934A06D8076E20A1CBCC` | `shiori=aya5.dll`; `aya5.txt` and `aya5.dll` present; no `yaya.txt`/`yaya.dll`; selected `YAYA` | `Failed(status=0)`; availability `Available` | `Ready`, ghost `Nanidroid`, `activationError="Native load failed: 0"`, no native lease |
+| `Snake and Otacon V1.0.1.nar` | `6F44DD039C17093D3F91E47BB9C474E128EB34FA4BFEB5EF3148625BBD613764` | same AYA5 files and `YAYA` selection | `Failed(status=0)`; `Available` | same bundled fallback and error; no lease |
+| `Snake And Otacon V1.1.1.nar` | `21253507C17E90073974229DDF8B0D39E36EFCAE968A27C2569FE5C46C201E4B` | same AYA5 files and `YAYA` selection | `Failed(status=0)`; `Available` | same bundled fallback and error; no lease |
+| `Snake_Otacon_1.1.1b.nar` | `EF1590F766964B1932020ABF6E93AA229BE12FBC6BA9238A4E5CDA90939F4D70` | same AYA5 files and `YAYA` selection | `Failed(status=0)`; `Available` | same bundled fallback and error; no lease |
+| `Snake_Otacon_1.2.1b.nar` | `4C925DC0B8A61B41CC91C72589E30E4ECE7E6B0B92DCC44EEC993B71605AED45` | same AYA5 files and `YAYA` selection | `Failed(status=0)`; `Available` | same bundled fallback and error; no lease |
+| **YAYA control:** `Snake and Otacon V1.3.2.nar` | `1C62CE50CA0DACA3A9E14E6D870B02D4DF9511DD5B586A7F4DA49B402D56CBD5` | `shiori=yaya.dll`; `yaya.txt` and `yaya.dll` present; no AYA5 pair; selected `YAYA` | `Loaded`; availability `Occupied` until close, then `Available` | `Ready`, ghost `Snake and Otacon`, no activation error, native lease present |
+
+The repository's selector maps `aya5.txt` to `EngineKind.YAYA`, and `NativeShioriHost` invokes the pinned YAYA JNI binding for that kind. The retained markers establish `Failed(status=0)` in this dispatch path; they do not prove the exact native parser failure or establish AYA5 compatibility. Current `GhostStage` source renders `StageState.Ready.activationError` as the `ghost-error` text. That is a source-based UI inference; this probe did not capture or assert rendered UI pixels.
+
+## Commands and retained evidence
+
+- **Retained device results:** `control2-*`, `v100-*`, `v101-*`, `v111-*`, `v111b-*`, and `v121b-*` instrumentation and `System.out` marker logs under ignored `.superpowers/sdd/2026-09-27-aya5-device-probe/`. All six instrument logs say `OK (1 test)`; markers contain the table's config, load, `StageState`, and after-close availability. `*-push.log` and `*-stderr.log` are retained. Direct `am instrument` produced no JUnit XML.
+- **Retained post-hoc checks:** `posthoc-readonly-checks.log` records fresh hashes of the six **original** NARs and both APKs, and the emulator's current boot/API and absence of the two disposable device paths. It cannot prove earlier copy hashes or per-row cleanup.
+- **Worker-observed operations without retained command logs:** `Get-FileHash` original/copy comparisons; contained extraction from fresh copies; local-cache Gradle build success; `adb install -r`; each `adb shell am instrument -w -e class com.cattailsw.nanidroid.ui.NativeTalkProbeTest#aya5CorpusDiagnostic com.cattailsw.nanidroid.test/androidx.test.runner.AndroidJUnitRunner` host-process exit with a 90-second external timeout and no observed timeout; per-row force-stop, cleanup and boot checks. The retained instrument `OK` lines are separate evidence from the unretained host process exit/timeout observation. The Android CLI executable returned access denied, so device commands used `C:\tools\android.sdk\platform-tools\adb.exe`.
+
+The initial control's retained `control-instrument.log` shows a close-wait timeout. Its earlier native `Loaded` result and runtime state were seen only in transient logcat output, so they are not used as evidence; the corrected control markers contain those results. Calling `runtime.close()` twice fixed the harness. Initial all-entry extraction of four archives failed before valid device rows because of the root-only `\` entry. Those extraction errors were observed in command output but not saved as separate logs; the corrected rows above are the reported native results.

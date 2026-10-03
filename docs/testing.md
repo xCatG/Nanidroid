@@ -1,420 +1,74 @@
-# Testing Nanidroid
+# Testing and toolchain
 
-Run all commands from the repository root with the Gradle wrapper on Windows.
+## Milestone 5 final-source gate (2026-09-29; acceptance open)
 
-## Local JVM and coverage
+Source `06a82ec0cacf94d78901bb55c1c43d1060c50e7d` produced debug APK SHA-256 `bf56e2ed8cb1e6d410001e4e061e1fe78043c3bb36500d888b1658e881f2eed9`, test APK `6ddb9561f9a81cf06519e4aff6f4c6219ae0a626cfa4717eee8e0a61cbca7a1f`, and unsigned release APK `08a23b3b9ce07ad227cf712b02bb23978af7d18c0f1bba48674d1729021a561b`. Source manifest hash is `da03c17b43797623dfe6fb75eb4d5491a22328974fc95fbf748fd20751f7c14d`. The final offline five-task gate passed **373 JVM tests, four skips, zero failures/errors**, lint with zero errors/13 warnings/one hint, and debug/test/release assembly. See [final raw build log](../app/build/task7-evidence/final-api31-06a82ec/offline-gate-escalated.raw.log) and [Milestone 5 evidence](milestone-5-evidence.md#task-7-final-source-synthesis-2026-09-29) for per-archive compatibility and limits.
 
-```powershell
-.\gradlew.bat testDebugUnitTest jacocoTestReport
-```
+The explicitly serial API 31 x86_64 instrumentation gate selected 147 methods: **111 passed, 36 fixture/host assumption skips, zero failures**. Seven host-argument methods were excluded from that broad run and separately staged where applicable; [method results](../app/build/task7-evidence/final-api31-06a82ec/api31-method-results.json) and [exclusion list](../app/build/task7-evidence/final-api31-06a82ec/api31-suite-exclusions-current.txt) are retained. The literal `:app:connectedDebugAndroidTest` Gradle task was not run because it could select the attached Pixel. API 37 x86_64 post-layout UI passed **37/37**, and true-landscape 640×360 dp/font 2.0 and portrait 360×640 dp/font 2.0 each passed **1/1** with captures. The current APK also passed an API 31 Earthquake smoke/native interaction and AYA5/YAYA selected-shell UI reruns. The earlier product APK passed 23 corpus rows (18 structural smokes, five expected rejections), eight Snake UI rows, 26 distinct deep/native methods and nine persistence cohorts; only affected visual rows were rerun after the layout-only product change. Pixel 7 API 37 arm64 accepted `install -r` without data clear and showed the bundled stage, Ghosts, About, and return. A later [Pixel native-corpus follow-up](../app/build/task7-evidence/pixel-native-corpus/README.md) used that same app APK and real system-picker imports of unchanged 2elf/Satori, Earthquake/YAYA and LOBO/Kawari NARs, each loaded and switched away twice with own-stage captures and no data clear. Retained logcat confirms Satori and YAYA arm64 library loads; LOBO has visible authored text but no retained Kawari loader line. Direct lease, numeric reply and broad parity remain unverified. The author approved deferring human spoken TalkBack traversal; semantics/focus evidence is retained, and no spoken pass is claimed. The [acceptance reconciliation](milestone-5-evidence.md#task-7-acceptance-reconciliation-2026-09-29) maps all 36 skips and seven exclusions to targeted evidence or remaining gaps. Final adversarial and quality reviews, plus independent read-only Pixel evidence review, passed their bounded scopes. The literal Gradle connected command, prior-APK versus final-APK corpus coverage, unexplained historical API 31 draft loss and physical-shade PAUSE scenario still need author disposition. Keep earlier failed/red logs separate from final passes; milestone 5 remains open.
 
-The JaCoCo HTML report is written to `build/reports/jacoco/testDebugUnitTestCoverage/`.
+## Milestone 4 integrated gate, 2026-09-26
 
-## Connected Android tests
-
-Use an API 31–37 emulator or device, then run:
+Run the approved offline tasks, then the full connected task sequentially on one healthy API 31+ emulator:
 
 ```powershell
-.\gradlew.bat connectedDebugAndroidTest
+.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease --offline --console=plain
+.\gradlew.bat :app:connectedDebugAndroidTest --offline --console=plain
 ```
 
-The suite uses the standard `androidx.test.runner.AndroidJUnitRunner` and the
-real `CatTailApplication`.
+The Task 7 raw root is ignored `app/build/task7-20260926/`; [Milestone 4 evidence](milestone-4-evidence.md) maps the baseline requirements to JVM, bitmap, device, and unchanged native-corpus observations. The focused `Milestone4CorpusSurfaceTest` uses verified disposable LOBO and Earthquake trees staged privately and the instrumentation class filter. Its API 31 run passed 2/2: LOBO 0/10 and Earthquake static composition have bitmap checks; Earthquake `move` is checked as authored animator offsets only, without a rendered dynamic-frame assertion. Broad connected runs deliberately skip tests lacking their private fixture, so use the focused corpus run and `tools/test-native-persistence.ps1` for those claims. The host persistence gate completed separately with fresh hash-verified 2elf, LOBO, and Earthquake copies; retain its failed and corrected raw runs when diagnosing test synchronization.
 
-## Host-side architecture contracts
+The first full Task 7 connected attempt ended with a `GhostActivityRecreationTest` timeout and then a launcher ANR/system watchdog. Its partial XML, Gradle output, and logcat are retained under that root. After one clean emulator restart without a wipe, the focused recreation test passed and a full connected rerun passed 126 XML cases: 100 passed, 26 fixture/host skips, zero failures/errors. After Task 7 test-only additions, the first pre-review full run had one ActivityScenario teardown timeout (128 cases, 26 skips, one failure); the method passed 1/1 in isolation, and one same-emulator full retry passed **128 XML cases, 28 fixture/host skips, zero failures/errors**. Preserve all three full-run logs and diagnostics. The pre-review offline gate passed 332 JVM tests with 4 skips and no failures/errors, lint, debug app/test and release assembly.
 
-Build the generated artifacts before running the merged-manifest contract:
+An actual post-renderer import check then installed the pre-review debug APK fresh, used Android OpenDocument to select a SHA-verified disposable Earthquake Duo NAR from device Download, showed the readme/explicit switch prompt, and rendered the composed duo with native dialogue after confirmation. The prompt/render captures and hashes are in [Milestone 4 evidence](milestone-4-evidence.md). This is separate from the synthetic imported built-in ghost instrumentation test and from the historical duplicate refusal hash proof. API 31 x86_64 is the executed device; arm64 packaging is not execution. Release minification remains disabled.
+
+**Post-review correction status:** `GhostInputDialog.submit` now rejects runtime-invalid input before consuming the request. Focused API31 red/green was 10 tests with 2 expected failures, then 10/10 passing; the focused console runs were not separately teed. The first post-fix full connected XML retained at `build/reports/verification/m4-input-reject-full-first-failed.xml` has **130 tests, 28 skips, one failure** in an existing Activity recreation link wait after one input event. A focused rerun on unchanged code aborted with `INSTRUMENTATION_ABORTED: System has crashed` (`build/reports/verification/m4-input-reject-activity-focused.log`), so device work stopped. The synthetic link fixture then gained `\_w[10000]` before `\e` to address its one-second completion window. The final five-task offline gate after that edit passed **332 JVM tests, 4 skips, zero failures/errors**, lint, and debug/test/release builds (`build/reports/verification/m4-task7-final-offline-after-fixture.log`).
+
+The user authorized a separate fresh `Nanidroid_M4_Fresh_API31` AVD using the installed API31 x86_64 image. After stopping the damaged old AVD without wiping it, only the fresh `emulator-5556` was attached. The **single** full post-fix connected gate on committed `2566ec4` passed **130 XML tests, 28 skips, zero failures/errors** in 3 min 25 sec. Raw `build/reports/verification/m4-task7-fresh-api31-connected.log` and copied `m4-task7-fresh-api31-connected.xml` are retained. The new androidTest APK was executed there; its SHA-256 and post-gate health are in [Milestone 4 evidence](milestone-4-evidence.md). The earlier failed run and system crash remain separate evidence. API31 x86_64 is the executed ABI; the outstanding native animation/2elf limits remain.
+
+To close the rendered-scene evidence gap without changing production code, `Milestone4CorpusDynamicUiTest` uses a hash-verified disposable Earthquake shell, the authored `surface1` always-move frames, `SurfaceAnimator`, and a test-supplied `StageState.Ready` through real Compose `GhostStage`. Run it on an isolated healthy device after staging that shell privately, using `'-Pandroid.testInstrumentationRunnerArguments.class=com.cattailsw.nanidroid.ui.Milestone4CorpusDynamicUiTest'`. The final focused API31 XML passed **1/1**, zero skips/failures/errors (`build/reports/verification/m4-task7-dynamic-focused-final.xml`), and retained root PNGs and a raw device clip under the same verification directory. The first passing 1/1 run lost its app-external PNGs during Gradle test cleanup, so the test harness was narrowed to save via MediaStore Downloads and focused rerun once. Authored offset 0→10 moved the rendered Sakura Canvas 254→260 screen px; the full-root captures differ by 60,697 pixels, including runonce overlay changes. Exact hashes, paths, and inspection limits are in [Milestone 4 evidence](milestone-4-evidence.md). This proves `SurfaceAnimator` plus Compose rendering with a synthetic driver, not native event-driven animation; the full 130-case gate was not repeated for this test-only addition.
+
+## Milestone 3 import gate, 2026-09-25
+
+Build and lint first, then run the connected suite on a healthy API 31+ emulator:
 
 ```powershell
-.\gradlew.bat assembleDebug lint
-python -m unittest tools.test_kotlin_legacy_archive_runtime_absence tools.test_kotlin_foreground_nar_import_contract tools.test_ghost_runtime_composition_root tools.test_update_entrypoint_artifacts
+.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain
+.\gradlew.bat :app:connectedDebugAndroidTest --offline --console=plain
 ```
 
-The production merged manifest must contain no WorkManager services, receivers,
-initializer metadata, or WorkManager-derived permissions. Dependency-provided
-components unrelated to WorkManager, such as the profile-installer receiver,
-may remain.
+The test-only `GhostImportInstrumentationTest` uses `GhostImportTestProvider` in the androidTest APK for content URI input with unknown size, slow reads and read failure. Five focused API 37 provider cases passed after the IO-close fix, including cancellation during an active provider read. At `6a64751`, the offline gate passed JVM **219 total, 4 skipped, zero failures/errors**, lint and debug/androidTest/release APK builds; raw output is ignored `.superpowers/sdd/2026-09-24-ghost-import/task5/gradle-final-6a64751.log`. The Gradle connected task still hits a Windows lock on its prior crash-report output. A wiped healthy API 37 emulator passed direct `adb shell am instrument` at `51f42e8`: **78 total, 52 passed, 26 fixture/host skips, zero failures**; see ignored `task5/final-connected/clean-recovery/adb-full-raw.log`. Later test-only additions passed focused device runs; no full direct suite rerun was made. An earlier damaged-emulator run had watchdog/system_server crash and ActivityScenario teardown failures (`task5/final-connected/post-host-skip/adb-instrumentation-raw.log` and `crash-diagnosis.txt`); a separate prior run failed three tests (`task5/final-connected/adb-instrumentation-raw.log`). The direct result does not make the Gradle wrapper gate green. Fixture skips do not prove native persistence.
 
-## Compose screenshot tests
+The actual document picker was exercised with a SHA-verified disposable copy of Earthquake Duo, including readme/explicit switch, native YAYA save restoration from that UI-imported tree after a fresh process, and duplicate plus case-only refusal with 112 hashes unchanged. The original corpus archive remains read only. API 31 x86_64 passed the provider cases and an actual tiny OpenDocument import/switch-prompt smoke (`task5/api31/result-summary.txt`). A broad connected run does not stage private native fixtures; `tools/test-native-persistence.ps1` passed separately after the ticker fix (`task5/native-persistence-after-ticker-fix/`). The earlier Activity/orientation timeout and diagnosis remain in the Task 5 evidence. Active-copy rotation and physical Home/POWER cancellation scenarios passed. Focused API 37 tests then passed extraction rotation with partially staged payload and one eventual completion/prompt (`task5/extraction-rotation/committed-08e4468-run.log`), PAUSE without STOP during a blocked provider read (`task5/pause-only/second-run.log`), and repeated picker launch/callback admission with ordered Begin/Complete through a recording ShioriEngine (`task5/repeated-callback/summary.txt`). The physical notification shade remained RESUMED and its case was assumption-skipped; the final focused cleanup run had five passes and one such skip (`task5/cleanup-settle/prompt-aware-focused.log`). See [milestone 3 evidence](milestone-3-evidence.md) for process-death boundary logs, raw-path root, and scoped Task 5 acceptance. JNI native event count was not directly asserted. Release minification is disabled; arm64 is packaged but not device-executed.
 
-Screenshot previews live in `src/screenshotTest/`; committed references live in
-`src/screenshotTestDebug/reference/`.
+## Native persistence checkpoint, 2026-09-23
+
+Run `tools/test-native-persistence.ps1` on a disposable API 31+ emulator with the three verified NARs at the paths in [the fixture table](testing/native-persistence-fixtures.md). The script hashes each archive, stages unique app-private copies, runs real engine and Activity scenarios, orchestrates a live-process force-stop, and retains raw logs outside Git. See [native persistence evidence](native-persistence-evidence.md) for the observed values, device, APK hashes, and limits. Run the full wrapper gate separately:
 
 ```powershell
-.\gradlew.bat updateDebugScreenshotTest
-.\gradlew.bat validateDebugScreenshotTest
+.\gradlew.bat :app:testDebugUnitTest --offline --console=plain
+.\gradlew.bat :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain
+.\gradlew.bat :app:connectedDebugAndroidTest --offline --console=plain
 ```
 
-Inspect every changed/generated reference PNG before committing it. CI validates
-existing references only; updating a baseline requires human image-diff review.
-After a screenshot-plugin upgrade, regenerate and review every golden. The
-HTML comparison report is `build/reports/screenshotTest/preview/debug/index.html`.
+Fixture tests deliberately skip in a broad connected run without `fixtureId`; a green broad suite alone does not prove persistence. The host script must complete its targeted tests and live-PID kill sequence.
 
-The adaptive ghost-stage suite contains exactly 31 named cases: nine window-size
-grid cases, 16 product-state cases, and six pairwise theme/direction/font/density
-cases. Its deterministic Layoutlib fixtures exercise the production shell,
-stage, bubbles, compositor, collision overlay, and foreground-import
-content without reading files, using the network, or depending on a clock. The
-foreground-import previews exercise installing and failed modal presentation;
-they do not replace connected tests of the real platform modal surfaces.
+## Task 1, 2026-09-23
 
-## NAR corpus (introduced in Task 17)
+- Run local behavior tests: `./gradlew.bat :app:testDebugUnitTest`.
+- Build the debug APK: `./gradlew.bat :app:assembleDebug`.
+- Verified result after independent review fixes: 14 local tests passed; debug APK assembled. This is a template plus bundled ghost loader and built-in engine, not a completed walking skeleton.
+- Bundled test resource `app/src/test/resources/nanidroid.zip` matches the approved asset SHA-256 `2ebf24a2be8255011c5e004459a58dd1317eb7b12a55adcbe6b8b2977c89dc2d`.
 
-With the dedicated disposable emulator running, use:
+Toolchain: Android Gradle Plugin 9.1.1; Gradle 9.3.1; Kotlin/Compose compiler 2.3.20; Compose BOM 2026.03.01; JDK 17 (Zulu 17.0.20.1); compile/target SDK 37; min SDK 31. Android CLI 1.0.16261425 reports SDK at `C:/Users/yenchi/AppData/Local/Android/Sdk`. The CLI lists six existing emulators, including `Nanidroid_API_37`; no emulator was started or modified for Task 1. The CLI's documented SDK/emulator checks succeeded after a sandbox escalation.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run-nar-corpus-audit.ps1 -DeviceSerial emulator-5554
-```
+The generated AGP 9.0.1 supports only API 36.1. [Android's AGP 9.1.1 notes](https://developer.android.com/build/releases/agp-9-1-0-release-notes) state support for API 37 and minimum Gradle 9.3.1/JDK 17. [Gradle's checksum list](https://gradle.org/release-checksums/) provides the pinned 9.3.1 distribution hash. Dependency versions are pinned in `gradle/libs.versions.toml`; the original scaffold already included Compose, lifecycle runtime/ViewModel Compose, JUnit 4, coroutines-test, AndroidX test, and Compose test dependencies. No extra dependency version was guessed. Navigation 3 dependencies remain solely because the generated Activity/Navigation scaffold still uses them; Task 3 will remove that scaffold and those dependencies.
 
-Run a host-only preflight check:
+The temporary manifest launcher points to the generated `com.example.nanidroid.MainActivity` while the namespace and application ID are `com.cattailsw.nanidroid`. Task 3 will replace the Activity and launcher declaration together. The merged debug manifest was checked for that full launcher class name.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run-nar-corpus-audit.ps1 -DryRun
-```
+The untouched template build was completed during setup and is recorded in [scaffold-verification.md](scaffold-verification.md). Device and UI tests remain for Tasks 3 and 4.
 
-For explicit roots that include file inputs (for example `.\\2elf-2.46.nar`) and directories, pass
-`-CorpusRoots` explicitly:
+## Milestone 1 device proof, 2026-09-23
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run-nar-corpus-audit.ps1 -DryRun -CorpusRoots .\2elf-2.46.nar, .\build\ui-audit
-```
+From the repository root, run `./gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest` followed by `./gradlew.bat :app:connectedDebugAndroidTest` with an API 31+ emulator. The connected suite includes Compose stage tests and `WalkingSkeletonInstrumentationTest`. Its test-only composition uses `ActivityScenario`, a retained ViewModel, the production runtime and bundled archive, and an event-recording engine decorator. It checks one first-boot dispatch after loading recreation, dialogue progress after recreation and orientation change, and no duplicate boot event.
 
-If `apksigner` is not in `PATH`, pass it explicitly:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/run-nar-corpus-audit.ps1 -DeviceSerial emulator-5554 -ApkSignerPath "C:\path\to\apksigner.bat"
-```
-
-The corpus runner and its manifest are added in Task 17; do not place local
-archives or generated corpus reports under version control.
-
-- `docs/testing/nar-corpus-manifest.json` contains manifest labels, versions, expected
-  package kinds, required evidence, allowed classification, and canonical hashes.
-- `docs/testing/nar-corpus.md` defines script behavior and per-run output.
-
-```powershell
-.\gradlew.bat assembleDebug assembleDebugAndroidTest
-powershell -ExecutionPolicy Bypass -File scripts/run-nar-corpus-audit.ps1 -DeviceSerial emulator-5554
-```
-
-Expected outputs:
-
-- `build/reports/nar-corpus/summary.json`
-- `build/reports/nar-corpus/summary.md`
-- `build/reports/nar-corpus/screenshots/<label>.png`
-- `build/reports/nar-corpus/<label>/result.json`
-- `build/reports/nar-corpus/failures/<label>.txt` (on failures)
-
-The report run intentionally refuses:
-
-- missing required arguments
-- non-emulator devices
-- API outside 31–37
-- unsupported ABI
-- pre-existing target or test package installation/data
-- pre-existing app-owned storage
-- missing manifest hash matches
-- missing results or timeouts
-
-The five-minute per-archive timeout belongs only to this disposable host harness.
-It does not change Nanidroid's runtime hang policy: the app never cancels a ghost
-automatically and exposes the explicit Stop action after 30 seconds. A device-side
-adb timeout produces a partial report and stops the corpus run without attempting
-more commands through the unresponsive transport.
-
-Expected incompatible and unsupported archives count as passing audit rows only
-when their structured classification and diagnostics match the manifest. The sole
-accepted native-crash path additionally requires the exact known Kawari target,
-`SIGSEGV`, and `libkawari8` evidence contract. Summary sentinels verify all 23 rows,
-host/device cleanup, representative parser and dialogue behavior, authored collision
-geometry, optical bounds, asymmetric stages, and unsupported non-ghost packages.
-
-## Real-engine runtime audit
-
-The real-engine harness reuses the canonical 23-row corpus manifest and the same
-root/hash acceptance boundary as the corpus audit. It never promotes an
-unmanifested archive to execution input. Supply directories, individual NARs, or
-explicit absolute paths; discovery records every resolved and missing root before
-classifying the package root, `install.txt`, `ghost/master/descript.txt`, and exact
-Satori, YAYA, or Kawari 8 markers.
-
-Run host-only discovery and classification without touching adb:
-
-```powershell
-.\scripts\run-cross-engine-runtime-audit.ps1 `
-  -DeviceSerial unavailable-dry-run `
-  -CorpusRoots C:\path\to\canonical-corpus, C:\path\to\one-archive.nar `
-  -DryRun
-```
-
-`-DeviceSerial` remains required so the same invocation can be promoted to the
-connected gate; dry-run records it but does not inspect a device. A dry-run with
-missing canonical hashes, extra files, rejected layouts, or incomplete engine
-coverage persists status `unavailable` and does not claim execution.
-Missing optional roots are recorded but do not make an otherwise complete
-resolved corpus unavailable. If no root resolves, the harness fails closed.
-
-Run the focused host parser/ownership regression oracle without corpus or adb:
-
-```powershell
-.\scripts\run-cross-engine-runtime-audit.ps1 `
-  -DeviceSerial host-only `
-  -HostOnlySelfTest
-```
-
-This covers ordinary ZIP and ZIP64 central directories, excessive-entry and
-multi-disk declarations, the 544 MiB pre-hash cutoff, optional-root availability,
-the exact push/chmod/private-copy sequence, package cleanup ownership decisions,
-and selected archive reporting.
-
-With a clean connected target and the exact canonical payload set, run:
-
-```powershell
-.\scripts\run-cross-engine-runtime-audit.ps1 `
-  -DeviceSerial emulator-5554 `
-  -CorpusRoots C:\path\to\canonical-corpus
-```
-
-The connected gate accepts API 31–37 and only the exact reported ABI
-`x86_64` or `arm64-v8a`; it never treats `x86` as arm64 evidence. It builds and
-installs fresh debug/test APKs, creates run-owned app-private inputs, and proves
-the three engine ownership/lifecycle contracts plus the exact
-Satori → YAYA → Kawari 8 → Satori transition. Instrumentation receives only
-private archive paths and hashes and retains handles, typed results, and
-data-only traces—never an adapter. The harness makes each pushed temporary
-archive mode `0644` before `run-as cp`. It records the initial absence probe,
-install attempt, and confirmed install for each package separately. In `finally`,
-force-stop and private cleanup require run-owned state; an ambiguous failed
-install is probed and uninstalled only when that package was absent before the
-run and may have been installed by it.
-
-Generated evidence is ignored under:
-
-- `build/reports/cross-engine-runtime/summary.json`
-- `build/reports/cross-engine-runtime/summary.md`
-- `build/reports/cross-engine-runtime/lifecycle-trace.json`
-- `build/reports/cross-engine-runtime/transition-trace.json`
-
-If no Android target is connected, run the host/source/JVM/compile gates and
-record the connected lifecycle, corpus, and cross-engine executions as
-unavailable. Do not substitute an automatically unrequested emulator or claim
-arm64 runtime coverage from packaged libraries; physical arm64 execution may be
-deferred explicitly.
-
-## Phase 1 shipped-state audit
-
-This section records a historical shipped-state audit; it does not describe the
-current application architecture.
-
-The compatibility decision for removing the unshipped durable workflows is
-recorded in `docs/modernization/phase1-shipped-state-ledger.json`. Verify its
-Path-A-only schema, exact audited head, Git ancestry, writer epochs, application
-identity, exact audit/observation dates and GitHub limitation, exact required
-evidence, closed schema-v1 object keys, persistent-resource contracts, and
-owner-attestation requirement offline. Unrelated generic-valid evidence remains
-the explicit extension point:
-
-```powershell
-python -m unittest tools.test_verify_phase1_shipped_state_audit
-python tools/verify_phase1_shipped_state_audit.py
-```
-
-The verifier requires full Git history for the three effective writer commits.
-It makes no network, device, APK, WorkManager, DownloadManager, URI-grant, or
-filesystem-cleanup calls. Refreshing dated GitHub observations requires an
-explicit schema revision and is not part of routine verification.
-
-## Full verification
-
-```powershell
-.\gradlew.bat testDebugUnitTest connectedDebugAndroidTest
-.\gradlew.bat validateDebugScreenshotTest jacocoTestReport
-```
-
-## Adaptive UI visual audit (Task 18)
-
-The final hands-on audit is driven by `scripts/run-ui-visual-audit.ps1`. It is
-an emulator-only, fail-closed workflow: it starts its own `Nanidroid_API_37`
-instance from an existing immutable snapshot, refuses a running/reused device or
-pre-existing Nanidroid data, captures the original display configuration before
-any mutation, and restores and verifies that configuration in `finally`.
-PowerShell 7 or newer is required; invoke the runner with `pwsh`, not Windows
-PowerShell 5.1 (`powershell.exe`).
-
-Provision a clean `default_boot` snapshot for `Nanidroid_API_37` before running
-the audit. The runner loads that snapshot with `-no-snapshot-save` and
-`-read-only`; it never creates, overwrites, or deletes an AVD snapshot. The
-snapshot must contain no installed `com.cattailsw.nanidroid` or
-`com.cattailsw.nanidroid.test` package and no retained app data. Stop any running
-instance of the AVD first because the runner will not take ownership of an
-existing emulator.
-
-Run the host-only contract checks first. Dry-run performs no build, device,
-emulator, report-directory, or snapshot mutation:
-
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-ui-visual-audit.ps1 -DryRun `
-  -CorpusRoots C:\work\src\Nanidroid\2elf-2.46.nar, `
-    C:\work\src\Nanidroid\build\ui-audit\ghosts, `
-    C:\work\src\Nanidroid\build\ui-audit\pcPets
-```
-
-Run the complete capture workflow with the same corpus roots:
-
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-ui-visual-audit.ps1 `
-  -DeviceSerial emulator-5554 `
-  -AvdName Nanidroid_API_37 `
-  -SnapshotName default_boot `
-  -CorpusRoots C:\work\src\Nanidroid\2elf-2.46.nar, `
-    C:\work\src\Nanidroid\build\ui-audit\ghosts, `
-    C:\work\src\Nanidroid\build\ui-audit\pcPets
-```
-
-The runner records and restores the physical/override `wm size` and `wm
-density`, automatic and user rotation, display rotation, `font_scale` (including
-an originally absent setting), theme, locale, and network state. The 160 dpi
-overrides are used only inside the reversible workflow. Native-density phone and
-tablet passes retain the physical density. Each profile must settle across two
-`wm` readings, match the requested logical size from `dumpsys window displays`,
-retain the intended orientation lock, and match the root UIAutomator bounds;
-physical display dimensions are not treated as logical orientation evidence.
-Locale evidence uses `persist.sys.locale`, falling back when blank to
-`ro.product.locale` and then the activity configuration locale.
-
-A transport deadline aborts the run, writes partial host evidence, and disables
-every later ADB command. Native-command timeouts terminate the exact owned
-process tree, wait for it, drain its redirected streams, and dispose it. The
-emulator is launched only with `-read-only` and `-no-snapshot-save`. Immediately
-after launch, a hidden, non-redirected watchdog binds the audit host PID/start
-time and emulator PID/start time. If the host disappears, the watchdog kills
-only that exact emulator tree; it never matches a process name or command-line
-pattern. Normal `finally` cleanup stops the watchdog first, restores device
-state, asks the owned emulator to exit, and then enforces exact-tree cleanup.
-Failure to establish the watchdog handshake aborts the audit.
-
-The versioned, deterministic manifest contains 64 automated cases plus 2
-required fresh live interaction artifacts. The automated cases combine three
-authoritative sources (12 live profiles, 31 fixtures, and 21 NAR
-representative/profile cases):
-
-- live production `CatTailApplication` captures through Android CLI at the eight
-  required dp sizes, font scales 1.0/1.5/2.0, and native-density passes;
-- all 31 current Compose screenshot fixtures after
-  `validateDebugScreenshotTest`; and
-- Task 17 production-stage probes for exactly `2elf-2.46`, `Snake and Otacon
-  V1.3.2`, `Nanika Atsume 1.0.1`, `Watchdog Bancho`, `Big Red Button`,
-  `Earthquake Rescue Duo`, and `tewire-sen`, captured in portrait,
-  compact-landscape, and tablet profiles.
-
-The live path uses Android CLI `run`, `layout --pretty`, `screen capture`, and
-annotated `screen capture -a`. For every live case it also runs `uiautomator
-dump` and retains the pulled XML beside the Android CLI layout as
-`<case>.layout.uiautomator.xml`. UiAutomator XML must contain exactly one
-`ghost-safe-stage`, whose exact bounds become the measured stage. Independently,
-the Android CLI JSON and UiAutomator XML must each contain exactly one
-`list-ghost`; the CLI integer center must equal the floor center of the XML
-bounds. Normal live profiles apply the same independent center/bounds check to
-exactly one `surface-kero` and `surface-sakura` and require both verified centers
-inside the safe stage. The 480x230 and 230x400 tiny fallback profiles explicitly
-require both surface nodes to be absent from both sources while retaining the
-toolbar-anchor cross-check. A missing or duplicate required node, wrong tiny-mode
-presence, mismatched center, out-of-stage surface center, empty capture, or root
-bounds that disagree with the settled logical display is a failure. NAR cases use the
-Task 17 probe's measured layout and screenshot evidence and do not claim an
-Android CLI annotation that was never produced. Each Task 17 invocation has a
-180-minute parent budget so it exceeds the build plus all 23 five-minute child
-deadlines. The runner retains the validated Task 17 summary independently for
-each profile at `nar/<profile>/task17-summary.json` before the next profile can
-replace `build/reports/nar-corpus/summary.json`. Fixture cases are clearly
-labeled as validated Layoutlib renders rather than production-window captures.
-
-Generated evidence is under `build/reports/ui-audit/` and must not be committed:
-
-- `case-manifest.json` and its SHA-256 in `summary.json`;
-- `live/`, `fixtures/`, and `nar/<profile>/` screenshots, annotations, layouts,
-  retained Task 17 summaries, and per-representative result evidence;
-- `interaction/extracted-choice-surface.png` and
-  `interaction/snake-otacon-input-ime-visible.png`, captured manually after the
-  automated run at the exact manifest-declared paths;
-- `summary.json` and `summary.md`; and
-- `manual-inspection.md`.
-
-### Live interaction checkpoint
-
-The capture command does **not** exit before the two interaction PNGs are made.
-After the automated and NAR profiles finish, it installs the audited APK, starts
-the owned emulator session, prints `Capture the two required interaction PNGs
-from this owned emulator session, then press Enter.`, and blocks at that prompt.
-Leave that terminal running. In a second terminal, interact with that same owned
-`emulator-5554` session and create these files before returning to the prompt:
-
-```powershell
-android screen capture --device=emulator-5554 -o build\reports\ui-audit\interaction\extracted-choice-surface.png
-android screen capture --device=emulator-5554 -o build\reports\ui-audit\interaction\snake-otacon-input-ime-visible.png
-```
-
-The first image must show the extracted choice surface; the second must show the
-Snake/Otacon input and IME. Do not copy older artifacts or capture a different
-emulator. Press Enter only after both paths exist: the runner immediately
-rehashes them, records `interaction-capture.json`, and cleans up its owned
-session.
-
-### Snake/Otacon checkpoint setup
-
-Task 17 deliberately removes every corpus archive and app install after each
-profile. The UI-audit runner then installs only the audited APK before this
-checkpoint, so stage the pinned Snake/Otacon archive from the same corpus roots
-in the second terminal before taking the input/IME screenshot. Select the
-archive whose SHA-256 is
-`1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5`:
-
-```powershell
-$snakeNar = Get-ChildItem C:\work\src\Nanidroid\2elf-2.46.nar, C:\work\src\Nanidroid\build\ui-audit\ghosts, C:\work\src\Nanidroid\build\ui-audit\pcPets -Recurse -File -Include *.nar |
-  Where-Object { (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant() -eq '1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5' } |
-  Select-Object -First 1
-if ($null -eq $snakeNar) { throw 'Pinned Snake and Otacon V1.3.2 archive was not found in the supplied corpus roots.' }
-adb -s emulator-5554 push $snakeNar.FullName /sdcard/Download/snake-and-otacon-v1.3.2.nar
-```
-
-On that owned emulator, in Nanidroid choose **List Ghosts** → **More Ghost** →
-**Install from SD card**, select
-`Download/snake-and-otacon-v1.3.2.nar`, and wait for the local install to finish.
-Open **List Ghosts** again, select Snake and Otacon, and confirm its switch. Start
-the dialogue and take the first choice to open its `OnNameTeach` input; leave its
-IME visible for `snake-otacon-input-ime-visible.png`. These steps use the app's
-normal local-import and ghost-switch flow while the audit process remains paused;
-they do not rerun the corpus harness or replace the audited APK.
-
-The capture command exits after writing `captured-awaiting-manual-inspection`;
-that status is not a passing audit. The executing reviewer owns
-`manual-inspection.md`. Open every fresh PNG at its original resolution and fill
-one result row per automated manifest case, including the exact screenshot
-SHA-256 and the requested/measured window and stage evidence. An automated row
-marked `pass` must have an empty Defect cell. Capture the two
-required interaction PNGs from the current build, then fill their exact manifest
-identity, path, SHA-256, invariant text, explicit `pass`, and empty Defect cell
-in the separate interaction-evidence table. Set `Audit status: complete` only
-after all 64 automated rows and both interaction rows are explicit passes. Then complete the
-interaction checklist for touch, mouse single/double click, keyboard and D-pad,
-bubble scrolling/actions, collision-overlay alignment, rotation/recreation, input IME,
-the passive stall prompt, TalkBack plus Switch Access or Voice Access, collision
-custom actions, focus recovery, and exact SHIORI event identity and diagnostics. The audit fails on
-case-count mismatch or any unresolved visual/interaction result; automated pixel
-comparison is supporting evidence, not a substitute for this inspection.
-
-Capture and completion both require a clean tracked worktree. The capture summary
-records the exact git HEAD, resolved debug APK path and SHA-256, and capture start
-time. Before report initialization, capture preflights both required interaction
-paths; an accidental rerun with either artifact already present aborts without
-rewriting the prior summary in `finally`. Finish with the fail-closed verifier. It requires the same current HEAD and
-APK, rehashes the exact current report PNG set (64 screenshots, 12 annotations,
-and 2 fresh interaction artifacts), rejects extra or stale PNGs, checks all 64
-automated rows, both interaction-evidence rows, and all 12 exact checklist labels,
-and refuses any blank, stale, duplicate, unchecked, defect-bearing, or non-pass
-result. It is the only mode that changes the summary status to `complete`:
-
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run-ui-visual-audit.ps1 `
-  -VerifyManualInspection
-```
+Manual APK checks and exact evidence are in [milestone-1-evidence.md](milestone-1-evidence.md). Generated screenshots, layout dumps, reports, and APKs stay under `app/build` and are excluded from Git.

@@ -1,0 +1,1196 @@
+{
+  "schemaVersion": 1,
+  "referenceRevision": "afc6a3a350fd10da35d085d9889c407ac5429a2b",
+  "permittedTree": "jni/**",
+  "fileCount": 297,
+  "files": [
+    {
+      "path": "jni/_/calc_float.cpp",
+      "sha256": "71e71ffd221126638e5d91183788bee1af36cb0b6e8cf3b591ff1e6af279bf41"
+    },
+    {
+      "path": "jni/_/calc.cpp",
+      "sha256": "6f5cad4e9f28cac2e3fc7798894775fbbe6d5fe30bf139194021d1c0d75d6ad7"
+    },
+    {
+      "path": "jni/_/Dialog.cpp",
+      "sha256": "0ad9ecf5ce47771c2095eef5c4b13081b5e9f6c5e56e14694f24d1f1a8f05bfb"
+    },
+    {
+      "path": "jni/_/Dialog.h",
+      "sha256": "6db83f996cb17ef1c176b3b4e0e0d3c1c07bc67d7daccb4bc66d3167f3393148"
+    },
+    {
+      "path": "jni/_/FMO.h",
+      "sha256": "059edbc1ae23dfeacff3d46fa703998d2af8ca986b805850406a7aa2df4fdad2"
+    },
+    {
+      "path": "jni/_/Font.cpp",
+      "sha256": "2068a7a80a2a3616d6441627676fcc59a85696237febbfa40c9c69d5387acd78"
+    },
+    {
+      "path": "jni/_/Font.h",
+      "sha256": "a88340e826716581bce245bb1783af97798a942e3b18b76e44d5253a51e86d80"
+    },
+    {
+      "path": "jni/_/Sender.cpp",
+      "sha256": "b7b410d2407e00d006dfd7f86b25975c2186f394767829eb4d38c6ce62de1807"
+    },
+    {
+      "path": "jni/_/Sender.h",
+      "sha256": "072506b31b18f8e2bd8ae729b3ab4fde9531bd06836c725e90cfc44cc3085f47"
+    },
+    {
+      "path": "jni/_/simple_stack.h",
+      "sha256": "f27be71f6b80fee474b94b86fd8fb27a86bf098aecc039da9803f3e262b03608"
+    },
+    {
+      "path": "jni/_/source-literal-manifest.json",
+      "sha256": "fe0f52663b82012fc5528969904e953d8e1b10ddae75a514df4e47135e500c60"
+    },
+    {
+      "path": "jni/_/stltool.cpp",
+      "sha256": "328f9f6d2f26938c777952d80e77f0c4f03941a90b4770cb94665f6c1a4ddb89"
+    },
+    {
+      "path": "jni/_/stltool.h",
+      "sha256": "dfd3cf2c8ad980916ad7f559c2bab42ba5ba2e0b6622c8b46f8afaf7e944ba62"
+    },
+    {
+      "path": "jni/_/Thread.cpp",
+      "sha256": "f15001ff5a27656d3106eee13bcecfae0acfa5162961a39b3ed05c5abfbda23a"
+    },
+    {
+      "path": "jni/_/Thread.h",
+      "sha256": "5fc819ed69ab9ca56b076d22d6d99cfef3801b34a2990ea8d24c1ebed3698774"
+    },
+    {
+      "path": "jni/_/Utilities.cpp",
+      "sha256": "844fc5f9c581b49f88409068892c9e735817b57374b5ace74d0e8b8d69df2aa3"
+    },
+    {
+      "path": "jni/_/Utilities.h",
+      "sha256": "4821eebdbf1622e01118b5b416c6269ff42dc322b4ea7a134299cbc55984bf10"
+    },
+    {
+      "path": "jni/_/Win32.cpp",
+      "sha256": "fe0afc46ca6b580c264e6eb3c454e431c4fe3b56a45e3e972a9fe6c76de4daa1"
+    },
+    {
+      "path": "jni/_/Win32.h",
+      "sha256": "30dd3def1dfc51dca79f08796d37edb61f20d6d62e115d0099b12beab12dd3fe"
+    },
+    {
+      "path": "jni/_/Window.cpp",
+      "sha256": "cbde2f063bac67fcdc1e53952284dd35978b6c22febdbc56fdebad4bb6e6df98"
+    },
+    {
+      "path": "jni/_/Window.h",
+      "sha256": "5486ac0db219f5d480f2c290807ed249ce26a2c9639c70589e84cc906cc62fcd"
+    },
+    {
+      "path": "jni/CMakeLists.txt",
+      "sha256": "1eeb1bfbbe22e00d1af8124d0581f12bb36c9623b7821c5e5c0e24bc5e39811f"
+    },
+    {
+      "path": "jni/kawari8/Android.mk",
+      "sha256": "58ed7c4091bf7451ea796913d6d82ab632c13606d73413bd59800407f4f8e0ca"
+    },
+    {
+      "path": "jni/kawari8/bcc.mak",
+      "sha256": "9e9568f517ba6d146fdda288180e75a04dfd51162c0ac7f02d236947775d39d6"
+    },
+    {
+      "path": "jni/kawari8/config.h",
+      "sha256": "db5ad9851a7588960a13e2fc79e952b3b15b37467a59605dd6d43e25cb573908"
+    },
+    {
+      "path": "jni/kawari8/depend.mak",
+      "sha256": "3affe08248336e36d9aa111b3785da783db4d1b5e78e97d1e9d476f8a93fa50c"
+    },
+    {
+      "path": "jni/kawari8/files.mak",
+      "sha256": "ee349e8dec4eaf82c6dc74facda98da2cb37efc7ea85abf83e9bfd65acfc1152"
+    },
+    {
+      "path": "jni/kawari8/gcc-mach.mak",
+      "sha256": "5a4cf7a872f6778dfe771323c958d34f202cfd5de2ae28197b8c98089a70af30"
+    },
+    {
+      "path": "jni/kawari8/gcc.mak",
+      "sha256": "9a304038702ac72a8d72be7442e0fd4e077d4b59f8bfcf8b606977464c3ecd5e"
+    },
+    {
+      "path": "jni/kawari8/include/old/shiori_posix.h",
+      "sha256": "b6bdce6fadd7cd44836ca6ca53d5ca4ce7353bc4c26017373e6387df0c391fcf"
+    },
+    {
+      "path": "jni/kawari8/include/shiori_object.h",
+      "sha256": "9e33ff02fbffeee4940ad3f8a65a8722967375e8b34614cc96ac3cf5945c5663"
+    },
+    {
+      "path": "jni/kawari8/include/shiori.h",
+      "sha256": "7a1a2e4ad7935039deb864f65da76c72b960d708f7e032f501b42dbdd53cce7a"
+    },
+    {
+      "path": "jni/kawari8/kawari_jni.cpp",
+      "sha256": "1234140368a3800726b4283ae45c1ea979423d2772c96f80801e862033ce0563"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_base.h",
+      "sha256": "7c6c4f70321a875360ed920fb2da54991d3c1de6f4a25361536e77c40d7ced51"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_communicate.cpp",
+      "sha256": "ffe53d06ac538d87eb319352708713492e1bda9e07735d2bd6f8a0ad197c3292"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_communicate.h",
+      "sha256": "429123cc8f7d9ef4ce435bf37bca35defbca16f7edbbd9f5434ff587f92a769d"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_config.h",
+      "sha256": "d26cae0280e9f9398660b60a1f23b2bd3a0dcf572335740d7b88f67910dee757"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_counter.cpp",
+      "sha256": "faec9a5cd35ad20535a7aa2b9fad0c1e8004b2924b46ad5a3b7caf23506a2f05"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_counter.h",
+      "sha256": "c4112bbf3b8020c342223002d71c0f8dde7a1e42b06f661f896800efa63ec6bf"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_date.cpp",
+      "sha256": "ee6bb12599cc7634b999de3709000f64639f60534a462f3f1d243c8b79438dbe"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_date.h",
+      "sha256": "9e915191cda56d9ed951219c0449d7ced71e2a6381761cb8baa8ccd62a3ddbda"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_dict.cpp",
+      "sha256": "8eff9805d89a7d31a57e05735c32989c22b3c3c33735b1c0d44bccbabc2e829a"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_dict.h",
+      "sha256": "ad674a7315d9ae1354c3db7a6dafd41e16c57a1b5885dd61fbe0cdcfb7935bbd"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_echo.cpp",
+      "sha256": "807b8b20fcd705cac1d6ad557332af374c5be5e4663504cff265d07e2ffb06e4"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_echo.h",
+      "sha256": "aea0c80644db47e512c7156d3dce1a49d80c3a463728ee4f8aef03f92ea3eb01"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_escape.cpp",
+      "sha256": "47f0557e3cfcecfc4ff6cb255bddd30cff64b8fe820c9e8789cf62e44326e0ff"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_escape.h",
+      "sha256": "2f4b6f9b7076e2854b936086433e019f87be530892268c6e8e98625210411f58"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_file.cpp",
+      "sha256": "ac52d3c575bbe29ba6b3b71dcdf7cb4301be7afee55ebd67f95f2cf7db461ea4"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_file.h",
+      "sha256": "05c39375d294665b4bb0493dccebb6b8d7a2c0b6ce1f98f4ceb08a7094bf8e2f"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_help.cpp",
+      "sha256": "2107e57a34d4be9c4f4d384ae4089f037469b9b0ea62ce6034dc154a90911bc7"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_help.h",
+      "sha256": "33582fcac6ada1c0d4023e1ae5c6e1e0a18da1d064c03954367d56f3fa4f4ff6"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_math.h",
+      "sha256": "d25426504327a5da732ff701aab0704198148ce38360c43d33f41686fd2cd6d6"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_saori.cpp",
+      "sha256": "a18f2e0bf11f4b2e8d067beb0c242395616a1d2eec5320e533db4d90eea9da0a"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_saori.h",
+      "sha256": "d6278c85789aaf0cabcbf1e700baae7a8af21e4cab4d4add6f38994127fbbf31"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_split.cpp",
+      "sha256": "8b5dfd4d7f1a7a2380006b0ad04c60c74b31516c9f2c51ef773866fdc2a890be"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_split.h",
+      "sha256": "cc7bfccb9b75ba6d86da485bcc078b11ba5ebb9da17bc995e281aa7722712f35"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_string.cpp",
+      "sha256": "42fea50b72f1a02870d72ca62e22159c3ad99c16c44d46e731afb69d2643d6e7"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_string.h",
+      "sha256": "8ca4428a00c7e372cbbb16b5d1beb3f0cbfa9bf1982cbce293c5d09556c64a72"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_substitute.cpp",
+      "sha256": "ccc0f60d69eb90a1e010a2a8268a5309136668ffbe3a64511b055f4e6c812a0a"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_substitute.h",
+      "sha256": "91726b152d70d9d98b143aca298c2744f5d054b812dd247e14d2648624fed51c"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_system.cpp",
+      "sha256": "1c323ae1248dbda175f682ea2b03fc46a7f382d1aaa3550ae9ff21be70bef35e"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_system.h",
+      "sha256": "b2e1d5eb708cfe49d727c057e967bf68361f67a3aebe3c3359a5a41e802d338e"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_urllist.cpp",
+      "sha256": "b0ba63c13ed335c19d80fb121a7cae93d4f05b2d86d3411721435d0314059c2a"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_urllist.h",
+      "sha256": "e15dd5f2198e520c68b9d6a03249c443d353f2d6be287dc053b38f030d901dbe"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_xargs.cpp",
+      "sha256": "321a3482d644937219000bc5c255ced80e83c12dd28dd061d366c71d1d8df349"
+    },
+    {
+      "path": "jni/kawari8/kis/kis_xargs.h",
+      "sha256": "3a5ba6f7109259f8464100bed08b38dfb286e9e3bd5ec560439b93df82425aff"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_code.cpp",
+      "sha256": "ac6dfa0cd15d0490f74d7789e6335be481c33f208eb970d0c4824a7e7b972709"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_code.h",
+      "sha256": "e203cbc22e227a5aab42fc577a553ad2b22dd9ef8b15f5b506c102e4c729cd12"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_codeexpr.cpp",
+      "sha256": "92c813b3478de8fad56054ece38fcb37dab5028414e9276c0d41acc20d899f0b"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_codeexpr.h",
+      "sha256": "4a36af75799596146268283523f6980862af5ff59ab3c06baa430d73dcbb1714"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_codekis.cpp",
+      "sha256": "2726fb22e02f2154965cb7223478100e61e937803b5ae1e8c3a2d476aceb09e8"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_codekis.h",
+      "sha256": "94069e95d2b02a9609794aa9e6eb46dd0ce6080641aa8158d8d9a21e5dc3e24e"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_codeset.cpp",
+      "sha256": "9456e2fd6c08211407cff042e35b7f675b67fa7fb6e7300cc4533fe53b3af469"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_codeset.h",
+      "sha256": "cde45b81bbd1cd60a6f76d3a932600546c5d0dc71b11ad31869a1318ebd6abd5"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_compiler.cpp",
+      "sha256": "28ead6accd063d6cb803c99c168f12291a04a3bcc6ca9e076aa406f44c002417"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_compiler.h",
+      "sha256": "bc5f12cdc9550a73853b7a8120c3f01ad7c82fb244ed2cae938bde8a6b7fdf16"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_crypt.cpp",
+      "sha256": "edf0085fafd9e1a2ecea757a5cc8e57af38e76a4fc0d38d1665c9e4703b30f57"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_crypt.h",
+      "sha256": "ca429b868d56b800441c60bc89e93a27d4c3595cfbb5b4df5a3a426a9ad336be"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_dict.cpp",
+      "sha256": "395962b49aed86fd94b53a8b25f9d28fc12483e3daf655c9c4ac48415023fe3e"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_dict.h",
+      "sha256": "90c0deb59ccc86273c6691634d622eb7ac11746e50e503e3b5f1375021330c23"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_engine.cpp",
+      "sha256": "dcb8b4ed34292e4a6cf2cf3dd8bbcab36e6068dd375badd83ca6b1ca7b268568"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_engine.h",
+      "sha256": "4a9620b69315e6a69f8a3a76b9aef68f53a14efa5c03d7035a87bbce6032375f"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_lexer.cpp",
+      "sha256": "b373226db926e943b4acc72a7ac010053abe53a1dcdd6f4890b01f66e0124f09"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_lexer.h",
+      "sha256": "5889dbf82ba1a47eaef6c47d6546c96cf043465a5f9eef90b185680701b05c12"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_log.cpp",
+      "sha256": "28ad97790380e0798461782db056cdf5a938296f46cb65ee70870b138054dd98"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_log.h",
+      "sha256": "e86cf061becb00abc7245ca08f783748b29cf9cc194fcf49ae6af99ffcc2dba9"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_ns.cpp",
+      "sha256": "274f64cb184c921ce1518651256d24987e3b2a6cb0ca882b53f923eb26bf49ee"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_ns.h",
+      "sha256": "22ebd8202f206e27e3f332d32518a8f24ad61579ea57a32c6c2f10b449ddc48a"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_rc_sjis_encoded.h",
+      "sha256": "a9d52998b79927b2709135b5d3b0258d17a5a7b397ac425aa4fddecca3e94427"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_rc.cpp",
+      "sha256": "25a5c712986685450742a43db8e00aa35854298dc528a56e4e445941a624b831"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_rc.h",
+      "sha256": "44cb0dea99b31af9140608111349f92bd18b4616de745210cc8652be938e7c07"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_rc.sjis",
+      "sha256": "315333035a7c3717fda29fa89f5490f6c2bbdfb56bff2147f2391309ec717cee"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_version.h",
+      "sha256": "9b83318b987eaecb5268be9077e8c5523f8f9edbf2d256fbc7feda0dd040823b"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_vm.cpp",
+      "sha256": "6bbb3cefdcbf9880477380d0fc6b246a8c131149933cbfd931bc385bd88df9b4"
+    },
+    {
+      "path": "jni/kawari8/libkawari/kawari_vm.h",
+      "sha256": "b68934c85a3d4d7d9d43c3674366170f05723d921eb89c73e391ddd735e6340b"
+    },
+    {
+      "path": "jni/kawari8/libkawari/wordcollection.h",
+      "sha256": "f088a79ccec6ba59ef114b10eff10e6bfa5f934458f3a1ff952090f3158aeacf"
+    },
+    {
+      "path": "jni/kawari8/makedepend.rb",
+      "sha256": "3d69a190d1b7fde5e06704f7a7f4e88644586f40f108e8190693144856dcbf3a"
+    },
+    {
+      "path": "jni/kawari8/misc/_dirent.cpp",
+      "sha256": "8de6aa4fe5590ae003f8a142d931d786d781fda4fcb3287622b599eba3090a55"
+    },
+    {
+      "path": "jni/kawari8/misc/_dirent.h",
+      "sha256": "661e775712dcd55e4ee1b17921a3045c6e9b07a216e58930616d9e5589708617"
+    },
+    {
+      "path": "jni/kawari8/misc/base64.cpp",
+      "sha256": "aa1099ca83c26d9be3884410b74803be1ea2a569a663e865c8cec999917bd0f1"
+    },
+    {
+      "path": "jni/kawari8/misc/base64.h",
+      "sha256": "7d3c176267a4c58c0e6d5f23c10ef2bc921462b019ac22d8a02172d05299f68c"
+    },
+    {
+      "path": "jni/kawari8/misc/l10n.cpp",
+      "sha256": "b13240a3144e6a23321b7cbe8546e1bcf47229a285b365f9a8fdbb5df34b9923"
+    },
+    {
+      "path": "jni/kawari8/misc/l10n.h",
+      "sha256": "23dddcc52093656e0ca38be3a06675da9ad4fb525ebee4a08cfcd4a34d70826a"
+    },
+    {
+      "path": "jni/kawari8/misc/misc.cpp",
+      "sha256": "7df894c99d1607124d8d054c495323595a41ae7fa827adf800f53bf8e4df571f"
+    },
+    {
+      "path": "jni/kawari8/misc/misc.h",
+      "sha256": "a3b1fdedc66bd5b56f164440f28be621634cf45afc0cc9debc7e80bc39f7aeaa"
+    },
+    {
+      "path": "jni/kawari8/misc/mmap.h",
+      "sha256": "1b01226667f2b7688809d8efe06098c81c2307152142d5c94bed26afaba02577"
+    },
+    {
+      "path": "jni/kawari8/misc/mt19937ar.cpp",
+      "sha256": "97276628d8f392971f40e2ed662ff807c57fbe7a901721036a334296f2537b94"
+    },
+    {
+      "path": "jni/kawari8/misc/mt19937ar.h",
+      "sha256": "216c9b9b657c29eb7a43b437c12f06fd72182ba86d0c38d28f473a4ab5aae098"
+    },
+    {
+      "path": "jni/kawari8/misc/phttp.cpp",
+      "sha256": "412eeea3066a0d3f904059f89f2e8823113ac618eddc9860046c834e3c050e69"
+    },
+    {
+      "path": "jni/kawari8/misc/phttp.h",
+      "sha256": "a66d00ca23ad439ad38405c8235715070f4328280748dcc760a3c7b0050a730d"
+    },
+    {
+      "path": "jni/kawari8/saori/old/saori_libdl.cpp",
+      "sha256": "3e7ef2642b947fa9f1e2fa5374cb3cc968f59fc7dad5ffa671ea5236cfe8ca49"
+    },
+    {
+      "path": "jni/kawari8/saori/old/saori_libdl.h",
+      "sha256": "04b6d0d3e87dc60d2c3b8ac0f3cc5d913f61a29c9c555e513511fd98cae1ac9a"
+    },
+    {
+      "path": "jni/kawari8/saori/old/saori_win32.h",
+      "sha256": "7e3dbf80f5207edbb991b69f1127e993600ef11c4ce0dc5aa039086ac2a89c7c"
+    },
+    {
+      "path": "jni/kawari8/saori/saori_java.cpp",
+      "sha256": "aa3d112b8377c49fc8fedd6a1c6a2786029cdfebffb0af7c6f15b6226e132393"
+    },
+    {
+      "path": "jni/kawari8/saori/saori_java.h",
+      "sha256": "220bedd9279cd3d2dba306d558926c3f2690c7fac8362027ded24cba3966c84c"
+    },
+    {
+      "path": "jni/kawari8/saori/saori_module.cpp",
+      "sha256": "9dba310321023e3f68b517927de86158b2d178de69a6a247d051ec941e50a307"
+    },
+    {
+      "path": "jni/kawari8/saori/saori_module.h",
+      "sha256": "899fe636e465dc6bdf064fc49ea5c52a598094c4c0671aaf265edd22f9c71ca2"
+    },
+    {
+      "path": "jni/kawari8/saori/saori_native.cpp",
+      "sha256": "e776a862a4fdba1d5efd806fd7e05a8c54edc13ec0f376cf541df673a9100f83"
+    },
+    {
+      "path": "jni/kawari8/saori/saori_native.h",
+      "sha256": "f9b6698461ae23ca2c8e4dcde8dac607a914d369df470f5b89b417d1097e71d6"
+    },
+    {
+      "path": "jni/kawari8/saori/saori_python.cpp",
+      "sha256": "c1986be347082c57703a28d64b4bf2d9d6cfc4dd69283e569ca916f42a983a5e"
+    },
+    {
+      "path": "jni/kawari8/saori/saori_python.h",
+      "sha256": "6605df114399de3d78d6697210173871b5cc269d611610f670e0dd03455da057"
+    },
+    {
+      "path": "jni/kawari8/saori/saori_unique.cpp",
+      "sha256": "0a122c507a845ac8f565fc14275663e223e9c5bba9adbe60845e3ba3ee1fcb49"
+    },
+    {
+      "path": "jni/kawari8/saori/saori_unique.h",
+      "sha256": "565a69e8144889a5d120d4448170b33e318644a9803af7a1644ff62a6a562869"
+    },
+    {
+      "path": "jni/kawari8/saori/saori.cpp",
+      "sha256": "e3c4550ef9cb414a2640835cd760c3a1ce37aee0dcc24746048d58ef51428f95"
+    },
+    {
+      "path": "jni/kawari8/saori/saori.h",
+      "sha256": "5b8473b97ea5f4dabfff85dd570c605ba62a4ad12509e47d0847dc787b0e981f"
+    },
+    {
+      "path": "jni/kawari8/shiori/kawari_shiori.cpp",
+      "sha256": "7b254ad9367b6c84a6ffafda3caad3de0c02459fad416976f9e584c1e8de18d7"
+    },
+    {
+      "path": "jni/kawari8/shiori/kawari_shiori.h",
+      "sha256": "02130944d0c39d569ec14de11e54026a0b4eecff2555b75cfa9403c4ac4e57a7"
+    },
+    {
+      "path": "jni/kawari8/shiori/old/shiori_posix.cpp",
+      "sha256": "3582b47ddb21f19001db1bb4f478ce88fa357225fe87c90e13f661cf69c03730"
+    },
+    {
+      "path": "jni/kawari8/shiori/py_shiori.cpp",
+      "sha256": "a38f90ef48bb75bb251614e7c60b156a29aa4f10c01b2804dc5a842db3701808"
+    },
+    {
+      "path": "jni/kawari8/shiori/py_shiori.h",
+      "sha256": "e635e1a9fc93e9c910ec6e08356a2d8c3101b72de0556f04d9b7ec771aa74a43"
+    },
+    {
+      "path": "jni/kawari8/shiori/shiori_object.cpp",
+      "sha256": "f44a3ffe981da3c031eca62000eb9dff0ac2abbeb69a3ee9ecceb5d22521101d"
+    },
+    {
+      "path": "jni/kawari8/shiori/shiori.cpp",
+      "sha256": "e7c5734fa5b4fa7cc91d0b23b921f2646b9038a6abbc5cc69c2fc119be5d36aa"
+    },
+    {
+      "path": "jni/kawari8/sjis2ascii.rb",
+      "sha256": "f58029aed0ab2aa4a070075d6669236d091c9f4d40a4a3ffa4ce67cdac7d92b1"
+    },
+    {
+      "path": "jni/kawari8/tool/kawari_decode2.cpp",
+      "sha256": "7a072a70d9cf2c4104819bc9b9e7951eaa72216bd0b117f7d7f8a24a46d0db84"
+    },
+    {
+      "path": "jni/kawari8/tool/kawari_encode.cpp",
+      "sha256": "1f750db9c2d1c2c9aeccaf3fc70ac8a218990cfa27bbcee7abafce16b4c02196"
+    },
+    {
+      "path": "jni/kawari8/tool/kawari_encode2.cpp",
+      "sha256": "6f7901ebf9a6962c54433166cb74f0b16a92e617fd146712e1c661f2a4490eca"
+    },
+    {
+      "path": "jni/kawari8/tool/kawari_kosui.h",
+      "sha256": "0c73fbf15a3e3b0c073ce85ed0e92de26975f201522c1a1c4e774408e43199e8"
+    },
+    {
+      "path": "jni/kawari8/tool/kdb.cpp",
+      "sha256": "3aedc9158a190933b1d72123e6892a55917609e542bc62253d86c8d2cb462831"
+    },
+    {
+      "path": "jni/kawari8/tool/kdb.h",
+      "sha256": "775a94ad56bb8af8279531a8e90331842ab0642a9a49654fe4d6cbddb7bd37c4"
+    },
+    {
+      "path": "jni/kawari8/tool/kosui_base.h",
+      "sha256": "ccae0ac24ce79d6a4b7c1fbf0839034fd7026471f7600195833d64922ea7136f"
+    },
+    {
+      "path": "jni/kawari8/tool/kosui_dsstp.cpp",
+      "sha256": "1783693ee7bbba3d3fa0d870a758ffd8f25d710c4cc0c7f01bd178e22c84c33d"
+    },
+    {
+      "path": "jni/kawari8/tool/kosui_dsstp.h",
+      "sha256": "a5da6d4714d3726858a625bebab6f779a1de5c5174d336f83d4ff27a2f16baf8"
+    },
+    {
+      "path": "jni/kawari8/tool/kosui.cpp",
+      "sha256": "81fd3cc1e9b9fdbed4ff33eaa480fd5b8dc94e93ad9f7c25cf7946cf1fd1053f"
+    },
+    {
+      "path": "jni/kawari8/tool/logserver.cpp",
+      "sha256": "504b2bf9a8987ed5e5374ca8f97b54d92c678a01937700688c732f36446e09f6"
+    },
+    {
+      "path": "jni/kawari8/vc_kawari/vc_kawari.dsp",
+      "sha256": "d941911cb13c2256685d18e1c4b86edb2f071baf2a13df01dcf8fe523f7fd496"
+    },
+    {
+      "path": "jni/kawari8/vc_kawari/vc_kawari.dsw",
+      "sha256": "a798dbcfe29af3183c52343b3ed98319c73f61877c524b71d6d3579a482d423a"
+    },
+    {
+      "path": "jni/kawari8/vc_kawari/vc_kawari.sln",
+      "sha256": "092514dd0adcf9536f6ed70abc949a31efa968b834ec94bb93d9c27aeb11ad3f"
+    },
+    {
+      "path": "jni/kawari8/vc_kawari/vc_kawari.vcproj",
+      "sha256": "7a47ef58884340320ee773dd5045760a5a57393f1631f2eeb36df467fa78696b"
+    },
+    {
+      "path": "jni/kawari8/vc_kawari/vc_kosui.dsp",
+      "sha256": "beec7a92dfa1ba04e4b192df40f82d45a34c0944aac9e0384f5aa317444e47e3"
+    },
+    {
+      "path": "jni/kawari8/vc_kawari/vc_kosui.dsw",
+      "sha256": "68948bc64bccb161b9b12a33a936047cb7e3f279720c398e16bd766df24e90c4"
+    },
+    {
+      "path": "jni/kawari8/vc_kawari/vc_kosui.sln",
+      "sha256": "01429acb3687f0abadd686db4bea6d61443638ad8240b66d0a68c48f4a2dcb66"
+    },
+    {
+      "path": "jni/kawari8/vc_kawari/vc_kosui.vcproj",
+      "sha256": "9e9de87908e917eec36b88fdf879fc90fb4f7cb35245bbf61ad786ae4879a7b1"
+    },
+    {
+      "path": "jni/kawari8/win32jvm.def",
+      "sha256": "c04e85aeedcf89ab78f2204460e3bd9fd46d9abf9c41f6d42f23864feb849a64"
+    },
+    {
+      "path": "jni/satori_compat.h",
+      "sha256": "4473aa2b77f7e7e83aef6972d8577b6a41dc90cfdeee8731869e548d1b848d1b"
+    },
+    {
+      "path": "jni/satori_license.txt",
+      "sha256": "f07679e7d288eda3d03f0444db29fd5250de9a9231b03c7657d665826265cd74"
+    },
+    {
+      "path": "jni/satori/Android.mk",
+      "sha256": "3e7807e3a9819842974ce8e43fd0bd3b009d4cfe815837dcf9ebbdc759a94f06"
+    },
+    {
+      "path": "jni/satori/console_application.h",
+      "sha256": "af6ce40295186d3e5618854c13ef8df9dd6cb99d7c375d5eb80efef4f713cf20"
+    },
+    {
+      "path": "jni/satori/Families.h",
+      "sha256": "dad40aa1798265c3e0280371622b6f2dd5dd4f079a1b21997890ef23d48edc11"
+    },
+    {
+      "path": "jni/satori/Family.h",
+      "sha256": "d504208b85b25dd9cc0a5ecefb6ec78fc39b83d9e80e5380bc69a2382325ab0e"
+    },
+    {
+      "path": "jni/satori/index.html",
+      "sha256": "f95d2c3d29a865c105f1ad9cda393f372e52cd54f6d2477d83e2d087b1cf69e8"
+    },
+    {
+      "path": "jni/satori/main.cpp",
+      "sha256": "c0c19edc6e6c30ea17251195c30ac8cfc966a329b8720fa3e3ca2f50b1f8870d"
+    },
+    {
+      "path": "jni/satori/makefile.cygwin",
+      "sha256": "75ef457908714e57042a4fe7d0839a653bd2ad4b8b0a519744aaf97457ce3bce"
+    },
+    {
+      "path": "jni/satori/makefile.posix",
+      "sha256": "bfc2e4331a7ec2515a6a5907b6f01008e87572ef4c32199c11f0a99313ab028e"
+    },
+    {
+      "path": "jni/satori/OverlapController.h",
+      "sha256": "ef6c13cf8dbc12c2313d40656b809ea54454f488ef411f68f0f113514b0789ed"
+    },
+    {
+      "path": "jni/satori/posix_utils.h",
+      "sha256": "dcfca5eded9d3a270e584b0ce8ce1d3a67133ecb56a58ffe6651c1fe4bd0228c"
+    },
+    {
+      "path": "jni/satori/SakuraClient.cpp",
+      "sha256": "57023dba41b7daddb66ce06d1ae9f773e593ab529b0d2b508fc4ed0ca131fc3e"
+    },
+    {
+      "path": "jni/satori/SakuraClient.h",
+      "sha256": "1cd0c48e539cca9672f380443cd9250795e97ea0a5a0d250012667ad6de0c707"
+    },
+    {
+      "path": "jni/satori/SakuraCS.cpp",
+      "sha256": "fad9e2d61edc29abd29d164c9dd42f224a7b798d348de086f95e430e89fbc69d"
+    },
+    {
+      "path": "jni/satori/SakuraCS.h",
+      "sha256": "a8e08517115040c4c208a6d7ca25cedf2f24a74e7bfabe88da46c7cecb4b663a"
+    },
+    {
+      "path": "jni/satori/SakuraDLLClient.cpp",
+      "sha256": "0355a9e6ff28a94392700e5030c96bd35940a3755162366e20788d7e40fae4a1"
+    },
+    {
+      "path": "jni/satori/SakuraDLLClient.h",
+      "sha256": "5a20d0c2a01f95b4466d9ae3f9675880d0c69ef2a130dbed015c9cf92399f7f5"
+    },
+    {
+      "path": "jni/satori/SakuraDLLHost.cpp",
+      "sha256": "14abb80d748785043e987862f1866978cfbe0b023418f963d7ae4ab352420855"
+    },
+    {
+      "path": "jni/satori/SakuraDLLHost.h",
+      "sha256": "5a201ba571851a39e0a6d22a119b6695780e4ecd773dd3267b6cbb069677d270"
+    },
+    {
+      "path": "jni/satori/SaoriClient.cpp",
+      "sha256": "3ba7b35a92798dfd4b0def6e3b43b25987567e15fdb43c7c80424bea67e44b9d"
+    },
+    {
+      "path": "jni/satori/SaoriClient.h",
+      "sha256": "b08493d1cd0c760e73405dd335b1ae1fd72b23a771eb519d84073585616b9268"
+    },
+    {
+      "path": "jni/satori/SaoriHost.cpp",
+      "sha256": "aca7f631b46a01bf696c2ac56c881160501ab04ac4ef9a1693c79e9069f658f1"
+    },
+    {
+      "path": "jni/satori/SaoriHost.h",
+      "sha256": "1fdd9b5eae123ac6d3988c1b931fd88152c93b6fd47d9f02ec026bbdb8e6fac2"
+    },
+    {
+      "path": "jni/satori/satori_AnalyzeRequest.cpp",
+      "sha256": "ebecf5759227323b8e0eb7cfa83f70029c36918839e62f2b9688fe650443d47c"
+    },
+    {
+      "path": "jni/satori/satori_CreateResponce.cpp",
+      "sha256": "df14181cff86c296c90ec3fca5c211bc8369af4e1444cc4547a8f6a100562e05"
+    },
+    {
+      "path": "jni/satori/satori_EventOperation.cpp",
+      "sha256": "c491c89f894d4287d1660f70545b6251a2ca8103adfbfa6c09a535eb2c868586"
+    },
+    {
+      "path": "jni/satori/satori_jni.cpp",
+      "sha256": "17a4aac520bcfa07a9f5041cc60b4990a6c574655a52619612fb280b93f4b61a"
+    },
+    {
+      "path": "jni/satori/satori_Kakko.cpp",
+      "sha256": "4692b88e8327ee0d1cedf2012006767b04250268f6ae2db5fa2d76ab116e23e3"
+    },
+    {
+      "path": "jni/satori/satori_load_dict.cpp",
+      "sha256": "ee2e2abbd2cc6cbf0e8999eebec81f216c058455dd675727ae17766c30d602e1"
+    },
+    {
+      "path": "jni/satori/satori_load_dict.h",
+      "sha256": "806b47ae45ac3c037dd216ada537c4280d2aef1a484a594be90b6a7f2f013181"
+    },
+    {
+      "path": "jni/satori/satori_load_unload.cpp",
+      "sha256": "c3f22cdc4e63dd20e6c6646b1570382259b8e30c16f6ad9491b58c0e0478e406"
+    },
+    {
+      "path": "jni/satori/satori_sentence.cpp",
+      "sha256": "ba119659dd225f2e04485af00cd84b7fc10575c8f99b7ffab06700a2c399faae"
+    },
+    {
+      "path": "jni/satori/satori_test.dsp",
+      "sha256": "b8c01826c966b15b93f9ec722c49a931fcae1d73560ebc0deda082509bbf3261"
+    },
+    {
+      "path": "jni/satori/satori_tool.cpp",
+      "sha256": "10d757b2db294d1c75441eec8d0a1578759ed6be88774f925676978e77402e2d"
+    },
+    {
+      "path": "jni/satori/satori.cpp",
+      "sha256": "e73206b90b5a4c03799cdd0c83248180bf3bc8a45547e8fc0627d33996944733"
+    },
+    {
+      "path": "jni/satori/satori.dsp",
+      "sha256": "375e26c667c5b772948a37c0cc39aeb95425a93f9e0263697af10b0c643aaa89"
+    },
+    {
+      "path": "jni/satori/satori.dsw",
+      "sha256": "d74736df8c03961b2b5df0d9c2480d05995bbb9f22d88aadb2a118057162cc17"
+    },
+    {
+      "path": "jni/satori/satori.h",
+      "sha256": "ed99f31e8a9f6ee523d436420e3c5bfb92a63ae98bcdb4367d92083ba552a899"
+    },
+    {
+      "path": "jni/satori/satoriFMO.cpp",
+      "sha256": "fb66ed6d9911fda6dd61981f79bd171021febb3603a0b0c7198cd01360d60df1"
+    },
+    {
+      "path": "jni/satori/satorite.dsp",
+      "sha256": "338542a1261bc8b94a963701cd4f32adbc44a5c682d7e88281be5372b0d06cc8"
+    },
+    {
+      "path": "jni/satori/satoriTranslate.cpp",
+      "sha256": "197cd6a35512f3e7d6f1e5fae5429dacacf16b87aeb8f5e18038b02b769a7f90"
+    },
+    {
+      "path": "jni/satori/Selector.h",
+      "sha256": "508301a262214d3d7758a57c7dbe6218487d92891da48730b1900ca12935c5e6"
+    },
+    {
+      "path": "jni/satori/shiori_plugin.cpp",
+      "sha256": "dff1dc81556345870ab9a232fa4ed430b27cff2f691c2926e786b5f1da70bdcc"
+    },
+    {
+      "path": "jni/satori/shiori_plugin.h",
+      "sha256": "83f74ced4d60eff8acfdd403504f5bc1936b5ade7167243bc502bb5535020cb3"
+    },
+    {
+      "path": "jni/satori/ShioriClient.cpp",
+      "sha256": "809af363f69880f7796636d3840d534996452b7f03c45c62197306539117abcf"
+    },
+    {
+      "path": "jni/satori/ShioriClient.h",
+      "sha256": "c329b6837a6d001ea3746841ebf841dd1570c3cff74f27b7e8134a4b16939938"
+    },
+    {
+      "path": "jni/satori/source-literal-manifest.json",
+      "sha256": "baaa391ee6232cb13fe8a9274800251dcc504502ead3a0cc1e733cfc7e344812"
+    },
+    {
+      "path": "jni/satori/SSTPClient.cpp",
+      "sha256": "7830a36f421789f85ba2d7de5a6cebd7b9547814582c50c8741fb6d6249db8c1"
+    },
+    {
+      "path": "jni/satori/SSTPClient.h",
+      "sha256": "3e5262a3d3acc741b6d3a5cddcdf9c12c8d904bbf0cacc4208a3de523d46b4ef"
+    },
+    {
+      "path": "jni/satori/ssu_anchor.cpp",
+      "sha256": "dad06b2d38e77e78e3ed3d11a8f4142623058eb6ff603ab5be425bfad27d7e52"
+    },
+    {
+      "path": "jni/satori/ssu.cpp",
+      "sha256": "8408e7367263dc2151f39e6f4aab878c08d967a6f44f868a9c5d554dc949e3a0"
+    },
+    {
+      "path": "jni/satori/ssu.dsp",
+      "sha256": "9fcf34f199b320aa31315e204976747390ac4a3d42e2943732d4528bc3b1c963"
+    },
+    {
+      "path": "jni/satori/test/characters.ini",
+      "sha256": "242c6c29cae80e2f1f227f643a7a7d9cee8083512e7e08a99e5cb5bded611fdf"
+    },
+    {
+      "path": "jni/satori/test/dic1.txt",
+      "sha256": "c7e4683a5756205a9fea3661d428c81aceec86bd23e2893c46abb056ae8c5099"
+    },
+    {
+      "path": "jni/satori/TimeCommands.cpp",
+      "sha256": "87d8df8a6a482a5a01877f40241a9e9a82044e2f4c7b52fd4241c890e674ee2e"
+    },
+    {
+      "path": "jni/satori/WinMain.cpp",
+      "sha256": "57d482c85f2c0a06a72ccaeeb16a28e5903d8f3a11e7c6adfab655923f49f7fc"
+    },
+    {
+      "path": "jni/yaya/.clang-format",
+      "sha256": "b9eb257a6135b57a505c468eb14db67ec64739196cc1255ce650d7bbcea27001"
+    },
+    {
+      "path": "jni/yaya/.gitignore",
+      "sha256": "efa6f7be94370b691aa345444e475c988cc358637903eb58b13f2c5a91c73bb4"
+    },
+    {
+      "path": "jni/yaya/android_charset.cpp",
+      "sha256": "b01484071a33a9b165aaedf8fa958a5fdaebfc45047f7cca83174ce6b4bca597"
+    },
+    {
+      "path": "jni/yaya/android_charset.h",
+      "sha256": "e512f5fc6793cb09a06df58cdbe919ff1ff6d9a7f600113cc39abdf6f863ff27"
+    },
+    {
+      "path": "jni/yaya/aya_profile.cpp",
+      "sha256": "e311f0829cd2760b9fa7da95bd25bb1f500a3c11c49e00e40ceafdc1cecb42f4"
+    },
+    {
+      "path": "jni/yaya/aya5.cpp",
+      "sha256": "02ee400156528de3819857b95e9925da549a2c4c77ce35ce1d6426af95e9d17d"
+    },
+    {
+      "path": "jni/yaya/aya5.h",
+      "sha256": "c7dfbb5d54e76397273bd04dee495d3c2112388287b5c2853161b6d01296cf69"
+    },
+    {
+      "path": "jni/yaya/ayavm.cpp",
+      "sha256": "da7f00db6c9c6daea38b830b98fc7df82ec7610ec725e5b8d4e8bdbd8fa0d117"
+    },
+    {
+      "path": "jni/yaya/ayavm.h",
+      "sha256": "be65b80783a6afa4a24697b2402993998b69ce81a1a4eb0058b21f0fcd54e7d7"
+    },
+    {
+      "path": "jni/yaya/basis.cpp",
+      "sha256": "205568824b7bd0548b45f560f78e2bc4c8184834fd222b34f3d1152a1acc4581"
+    },
+    {
+      "path": "jni/yaya/basis.h",
+      "sha256": "8bab0b83e3c2c13aac9f3730b66bd497de2571e6707a0ce06b1fa7428cb29b7c"
+    },
+    {
+      "path": "jni/yaya/ccct.cpp",
+      "sha256": "c2a921d46287c6a068ce3c669e57b9ef660fa7df49bd611ed3ee1ffb092f883c"
+    },
+    {
+      "path": "jni/yaya/ccct.h",
+      "sha256": "d94d8ca114f956a0fe072b6cc43ec97b4a2e95474e4fb592c439dba87870426f"
+    },
+    {
+      "path": "jni/yaya/cell.h",
+      "sha256": "ed03b1b76b981b4e3e6672a5533e5bf5cbcdc5ba834d3f399911f227019208d9"
+    },
+    {
+      "path": "jni/yaya/comment.cpp",
+      "sha256": "ff5401f463fddf3ba5a52927dbb7fe63baa6f2437d00fa2bb672b24bfca99bf5"
+    },
+    {
+      "path": "jni/yaya/comment.h",
+      "sha256": "d4e69e253095a65164d51495e615c0a4ca41d8692688785d3d822d3eb816bec4"
+    },
+    {
+      "path": "jni/yaya/cpp.hint",
+      "sha256": "35e26c8e59cbfbbf414c0426ef6eb3a8e54537a1e2187da16b58f296643f54fe"
+    },
+    {
+      "path": "jni/yaya/crc32.c",
+      "sha256": "a741e6637c93a3ecc99e80c13d52c50a0993c637a8bc84c68965c2e08e997785"
+    },
+    {
+      "path": "jni/yaya/crc32.h",
+      "sha256": "f638003629988d6065beb7f505b5ecb07d2cfc687d2220f82289481110940705"
+    },
+    {
+      "path": "jni/yaya/deelx.h",
+      "sha256": "dca4f2b7dbfe0bc3ac9dfa2ff19c0b97813987c15a2b201b95f49529e225b9f5"
+    },
+    {
+      "path": "jni/yaya/dir_enum.cpp",
+      "sha256": "ed04ed7cc072725201800d55a9771bc46bca1aa5fc10eda2269a14aad1d0f1f2"
+    },
+    {
+      "path": "jni/yaya/dir_enum.h",
+      "sha256": "3bf8f2da5a5ff91eeffdd419f662fe386df6946f166ce097112d0c20d3bf9ddd"
+    },
+    {
+      "path": "jni/yaya/duplevinfo.cpp",
+      "sha256": "fff4abc99593f93ee50eeb77f9f6569bd3a93e7537fcb087c43f2872df684c88"
+    },
+    {
+      "path": "jni/yaya/em-post.js",
+      "sha256": "cc36962e7091534bbe3cba1e0b84faf6228113f6a799813d0527c24835e9d981"
+    },
+    {
+      "path": "jni/yaya/em-pre.js",
+      "sha256": "e2abedbceec22064e585c524a1d2861975e054c0182a9215d90b5e74cb29896c"
+    },
+    {
+      "path": "jni/yaya/file.cpp",
+      "sha256": "aa0560be9ac3bf5f6f4127558bb4df679bd6431c5c20bb57cbc6e7cd185cd55d"
+    },
+    {
+      "path": "jni/yaya/file.h",
+      "sha256": "6c3c4249d8968345c5d51e3aee4c330397f3d00e80771f1c51ff180e7ee3c259"
+    },
+    {
+      "path": "jni/yaya/file1.cpp",
+      "sha256": "bf26bc64c5ec9fd23d8f73aa0f5844936763ad8f0793e6f560657a81666987b8"
+    },
+    {
+      "path": "jni/yaya/fix_unistd.h",
+      "sha256": "039c892ba9eeed6ccb87df6492b931e69dba32ec050eeda30f7d5a46b725e6c8"
+    },
+    {
+      "path": "jni/yaya/function.cpp",
+      "sha256": "cc6baa88496fbeca52bf0ef44513f02921e51de3f0e28e0af1653ad70bbc6437"
+    },
+    {
+      "path": "jni/yaya/function.h",
+      "sha256": "c1399d411dba2069662495cef6fe21afbd26af3c4b9ca988df13e38a3ed78806"
+    },
+    {
+      "path": "jni/yaya/global.h",
+      "sha256": "bc0d208c0dca5aa97b6dfe1fb7e0923b671f9370c11b3a535284a498d9fd76d9"
+    },
+    {
+      "path": "jni/yaya/globaldef.h",
+      "sha256": "3814bd8013e4c1cf458e72c991a5725270e070f0eda2bc3201aae841e1dc7388"
+    },
+    {
+      "path": "jni/yaya/globalvariable.cpp",
+      "sha256": "d2ffab2c9502a061a1cdbf9025b8ff018b237b6d5da3a694e3e093bc86326189"
+    },
+    {
+      "path": "jni/yaya/lib.cpp",
+      "sha256": "290052415f162e1ec7f3595316664923cb56ea792ee934ba052ce7c96899486c"
+    },
+    {
+      "path": "jni/yaya/lib.h",
+      "sha256": "f46ca8f6b19468da2cc31196c7a85faf23710da092ebb60dfcc32995f14d3fcd"
+    },
+    {
+      "path": "jni/yaya/lib1.cpp",
+      "sha256": "eab09de9c711cf2c868c030ad86f04f6ba1fe1b3afa89a0024c1ed932a12ae6b"
+    },
+    {
+      "path": "jni/yaya/LICENSE",
+      "sha256": "835cb88da811df138ad7fbadac695471999143dd751517bfa349c8acb1d09bc4"
+    },
+    {
+      "path": "jni/yaya/localvariable.cpp",
+      "sha256": "445afeb4f6015c139999c65702fe5c4012c20d88899827b65e84a406c7cdb6c6"
+    },
+    {
+      "path": "jni/yaya/log.cpp",
+      "sha256": "99ae39813860158eb0180c5725cb9d45305ea1720acb6fbc5004c98f13261de8"
+    },
+    {
+      "path": "jni/yaya/log.h",
+      "sha256": "de00f4d7e90c16686c95b96153cfc6852b2b916cd5abbbed6f3ec4adb0f18a78"
+    },
+    {
+      "path": "jni/yaya/logexcode.cpp",
+      "sha256": "dabaf72438f4a07ee23cc459fb728c9dfce53acd08bb591d08b85e086c1f0eb5"
+    },
+    {
+      "path": "jni/yaya/logexcode.h",
+      "sha256": "18cf88b932b93286a5e7693e286cf8069f01324c52b608f1d1e60d60c9e99511"
+    },
+    {
+      "path": "jni/yaya/make_aya.bat",
+      "sha256": "19ea546c379dd959120d6c557166757e857de2647e215c070f0df59eb3a8c603"
+    },
+    {
+      "path": "jni/yaya/makefile.emscripten",
+      "sha256": "bebf2f7fe92d3f7476a6a7c7128dadec0947a60abb7951dfce041c8466064276"
+    },
+    {
+      "path": "jni/yaya/makefile.fc6",
+      "sha256": "7e3aba5da6732dd7947a001ebee430085ba5e49f93873600eb9662b35b62e662"
+    },
+    {
+      "path": "jni/yaya/makefile.freebsd",
+      "sha256": "f073bb7b79c15b0a685c07959057654ba5c09bf0ccc4b3a8027e3e9c51fbdc4b"
+    },
+    {
+      "path": "jni/yaya/makefile.linux",
+      "sha256": "0af683849c3b42d48f09694e32be5420f883aa24bee6830e59cda9dc45fd8042"
+    },
+    {
+      "path": "jni/yaya/makefile.mingw32",
+      "sha256": "f1b1fc286ed2ba1c6b8065be5112cd23a1d0ac79ecff02cc25c3acf26a571868"
+    },
+    {
+      "path": "jni/yaya/makefile.posix",
+      "sha256": "a4b019680d4c75cce15bd9e3b638921b95813b7725610b9e53593536be63cb25"
+    },
+    {
+      "path": "jni/yaya/manifest.cpp",
+      "sha256": "826bcc1d624939ff8b6cabd90bac653b744531009f63f647cc72da91b7805cb0"
+    },
+    {
+      "path": "jni/yaya/manifest.h",
+      "sha256": "c04eca268540cd88028d9887cbb153ea014095bf497a1e81cdfe28c226b19497"
+    },
+    {
+      "path": "jni/yaya/md5.h",
+      "sha256": "25896e0792fedb8ac30a15e2eba4640219b0950cbf5ea0b4e2fa88ca6678b440"
+    },
+    {
+      "path": "jni/yaya/md5c.c",
+      "sha256": "d0dffdab052bb193f5098eae3625a2e40ae424dba4cf888f212b68e2ee5b1323"
+    },
+    {
+      "path": "jni/yaya/messages.cpp",
+      "sha256": "93e42ad7d3fa1f2e11acd4409390db6c502f47d949fcb475d921dd0eba7b7aeb"
+    },
+    {
+      "path": "jni/yaya/messages.h",
+      "sha256": "6dbf9bca9b253b562d3ab33bf91f241d746ae8fc064596a9ef8191646989bb0c"
+    },
+    {
+      "path": "jni/yaya/misc.cpp",
+      "sha256": "0ba4a01a33d5f417d90f26e08ab00c16ca1cce42cab7f8e7c9e590a8353b187d"
+    },
+    {
+      "path": "jni/yaya/misc.h",
+      "sha256": "a7a4562f8c5432ac727a38fddb27280432af1c9c428c2cde4fd7ecadb283d038"
+    },
+    {
+      "path": "jni/yaya/mt19937ar.cpp",
+      "sha256": "2cbea0c33cc8a53446354a2c38cf3ea557ba874b7b4d11d98dfb08960a39e466"
+    },
+    {
+      "path": "jni/yaya/mt19937ar.h",
+      "sha256": "e40eb505bd359848b560a21b97606be6811c484dfb6a9ed535e8adce37461a63"
+    },
+    {
+      "path": "jni/yaya/parser0.cpp",
+      "sha256": "e6670bd94e43f62e569cb81b42b7da040b442feedf09a4f8cd85b2a993641bef"
+    },
+    {
+      "path": "jni/yaya/parser0.h",
+      "sha256": "6c7ff031db885000dab5a26ba9a7798627b52d20b2aecc2f967c9e8c9bfbe0eb"
+    },
+    {
+      "path": "jni/yaya/parser1.cpp",
+      "sha256": "ad059311981a5011aaebd53a77e160599a5ca1b7a2029dc64217a41222b15d03"
+    },
+    {
+      "path": "jni/yaya/parser1.h",
+      "sha256": "1b407c3d12aa12f4b164cfe417a5fb8c7a58ef3c31ffe03f67903b42dc8b2f91"
+    },
+    {
+      "path": "jni/yaya/posix_utils.cpp",
+      "sha256": "80715dbc61b6433694eb865881fa311d55e8759cb65c5baaf69598b8d9793a77"
+    },
+    {
+      "path": "jni/yaya/posix_utils.h",
+      "sha256": "484c5504935b92010aa0e5ec396d95265acc2a80e7e302d7c392d935f6d87576"
+    },
+    {
+      "path": "jni/yaya/readme-original.txt",
+      "sha256": "9b0342290aa600a41fc0023fa5008da451c5fdacdf91a5495c60da8dab570537"
+    },
+    {
+      "path": "jni/yaya/readme.txt",
+      "sha256": "fdd9fb5b10d1c76cf97fdf495f718d47e47d863bb09bca1add3cc0ea75247ea2"
+    },
+    {
+      "path": "jni/yaya/resource.h",
+      "sha256": "18adcbe9297c91b7578d4da7d3d3c90257832980ae69c25aa2b43aa48f875636"
+    },
+    {
+      "path": "jni/yaya/selecter.cpp",
+      "sha256": "e184264b3ede0f1640d1269f0469914ac797faf3798b917d3e490d705df668e7"
+    },
+    {
+      "path": "jni/yaya/selecter.h",
+      "sha256": "203436a35f65e6a7d8be969db18a99632693660d91d82450a4c8366e8b84d04e"
+    },
+    {
+      "path": "jni/yaya/sha1.c",
+      "sha256": "9714a877277c9c07f554812c69478de4bfaa497088511f83d1c37ef9f3a4929e"
+    },
+    {
+      "path": "jni/yaya/sha1.h",
+      "sha256": "e042aa1896154eeb84d2b1eaae7c3698f48ac94bf964c513aca4e4c675252271"
+    },
+    {
+      "path": "jni/yaya/stdafx.cpp",
+      "sha256": "3911bc00321515d463116008db5b519f72b86be6562779ca4384d7f190ae629a"
+    },
+    {
+      "path": "jni/yaya/stdafx.h",
+      "sha256": "d8d1387e0f9d552c901b2e7677301876fadd302a8c767a61074e3317751d7dfc"
+    },
+    {
+      "path": "jni/yaya/sysfunc.cpp",
+      "sha256": "2d62d84a602c1470050ea639fad5b36f79d1be5cc5dc935a5e23921ab26dc70c"
+    },
+    {
+      "path": "jni/yaya/sysfunc.h",
+      "sha256": "151c6f7d7c72b0ea063801f0c4502e52e80c5b87e7b18b822474b42d52e57899"
+    },
+    {
+      "path": "jni/yaya/timer.h",
+      "sha256": "4b30182a755e1a0416bd43fe23c847a39ad86a9789d18ac7a0aeff47057c31e8"
+    },
+    {
+      "path": "jni/yaya/value.cpp",
+      "sha256": "3257b77c5f451a6712a54cdeae6a60039e4b544f828bc216fed5b322f1f9c6e0"
+    },
+    {
+      "path": "jni/yaya/value.h",
+      "sha256": "7c617717ca9d91ddf861f7ead797a86b7376bc00a3ffd15679911cfba9f379be"
+    },
+    {
+      "path": "jni/yaya/valuesub.cpp",
+      "sha256": "2b593579e3d51ca1fa683313483d62d9557d485cfc56d91957010f6e1783fdbf"
+    },
+    {
+      "path": "jni/yaya/variable.cpp",
+      "sha256": "fa579b92a1ab85936daef88f5dd1b47933bc4ec4115716275eb17022f81a8077"
+    },
+    {
+      "path": "jni/yaya/variable.h",
+      "sha256": "4fdefbc6a58ded164210377d76fa19be0bd94e20ea85cd618a754ce012d9543a"
+    },
+    {
+      "path": "jni/yaya/wsex.cpp",
+      "sha256": "289d9dac2e5711f7e0b4410512ce63a64064abeb70f85554243a1c955b44e3de"
+    },
+    {
+      "path": "jni/yaya/wsex.h",
+      "sha256": "2c4536d49e1263e8656e941af2659efcbdc1d2623c4d3c8b0e685cf99dc7e736"
+    },
+    {
+      "path": "jni/yaya/yaya_jni.cpp",
+      "sha256": "42fe54c2a7c522dc00d19a8b7343b31426541127fde232ffc33dde42f198bab6"
+    },
+    {
+      "path": "jni/yaya/yayad.py",
+      "sha256": "50c7aaad9f873234b586c097c728e85c6d49a53af9518850fa97bb02c08c19f9"
+    }
+  ]
+}
