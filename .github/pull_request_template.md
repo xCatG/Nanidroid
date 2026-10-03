@@ -1,46 +1,17 @@
-## Contract
+## Engine, runtime and lifecycle
 
-Describe the single behavior, policy, or migration boundary this PR owns.
+Describe ownership/event changes and focused evidence, or state unchanged.
 
-## Testing mode
+## Import, repositories and filesystem
 
-- [ ] Policy/acceptance gate
-- [ ] Characterization-preserving refactor
-- [ ] Red-green-refactor
+Describe installation/data preservation and failure behavior. State migration limits.
 
-### Evidence before the change
+## Playback, rendering and interactions
 
-For a behavior change, link the failing specification test. For a migration,
-record the passing baseline or differential fixture. For infrastructure, state
-the acceptance condition.
+Describe supported behavior and accepted compatibility/UI risks.
 
-### Evidence after the change
+## Build, assets, notices and reproducibility
 
-List exact commands and results. Separate JVM, native, emulator/device, and
-manual verification.
-
-## Behavior ledger
-
-- **Preserved:**
-- **Intentionally changed:**
-- **Unsupported or removed:**
-- **Insecure behavior not preserved:**
-
-## Non-goals
-
-List adjacent work deliberately excluded from this PR.
-
-## Rollback and data impact
-
-State whether reverting code is sufficient. Describe any persistent data,
-storage, preferences, native state, or signing implications.
-
-## Checklist
-
-- [ ] The branch targets `feature/modernization`.
-- [ ] The change has one reviewable behavioral contract.
-- [ ] File moves are separate from functional edits.
-- [ ] Required fixtures are synthetic or have documented provenance.
-- [ ] No SDK, NDK, Gradle, or dependency version floats on `latest`.
-- [ ] `python tools/check_repository_hygiene.py` passes.
-- [ ] `feature/modernization` remains buildable after merge.
+Record source/candidate/base identities, rollback ref, bundle recovery, manifest
+and actual verification. Distinguish historical checks from current execution and
+integration readiness from release eligibility.

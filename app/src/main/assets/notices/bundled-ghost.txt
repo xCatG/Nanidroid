@@ -1,0 +1,37 @@
+■ゴースト(NAMED)名
+Nanidroid
+
+■\0名
+郭家榆
+
+■\1名
+ドロイド君
+
+■公開日
+2012/5/12
+
+■作者名
+CatTail Software LLC
+
+■配布元
+CatTail Software LLC
+
+■連絡先
+info@cattail-sw.com
+
+■推奨動作環境
+Nanidroid for Android
+
+■ライセンス
+ドロイド君、Android Robot is reproduced from work created and shared by Google and used according to terms described in the Creative Commons 3.0 Attribution License.
+
+Other character usage by CC 3.0 attribute from CatG Studio
+
+■ゴーストの簡単な紹介
+Nanidroid紹介用ゴースト
+
+■ゴーストの操作説明
+何もできないので、ただの案内役です
+
+App-supplied license reference for the readme's Creative Commons 3.0 Attribution statement:
+https://creativecommons.org/licenses/by/3.0/

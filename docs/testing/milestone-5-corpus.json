@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "sourceRootHint": "C:/tmp/Nanidroid-corpus-recovery",
+  "rows": [
+    {
+      "label": "01-2elf-zip",
+      "relativePath": "2elf.zip",
+      "sha256": "efab05886ba48fd333666f28033b75b7d8ff055951066a1043c2d96ed07c9ed9",
+      "packageKind": "wrapper",
+      "family": "2elf",
+      "deepRepresentative": false
+    },
+    {
+      "label": "02-2elf-2-46-nar",
+      "relativePath": "2elf/2elf-2.46.nar",
+      "sha256": "a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0",
+      "packageKind": "ghost",
+      "family": "2elf",
+      "deepRepresentative": true
+    },
+    {
+      "label": "03-big-red-button-nar",
+      "relativePath": "pcPets/Ukagakas/Big Red Button/big_red_button.nar",
+      "sha256": "36ad0500958d88175d9e2530f4aa6e085a2d8579bbb200c1e2d2f9ac0785d21d",
+      "packageKind": "ghost",
+      "family": "Big Red Button",
+      "deepRepresentative": true
+    },
+    {
+      "label": "04-earthquake-duo-1-0-1-nar",
+      "relativePath": "pcPets/Ukagakas/Earthquake Rescue Duo/Earthquake_duo_1.0.1.nar",
+      "sha256": "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538",
+      "packageKind": "ghost",
+      "family": "Earthquake Rescue Duo",
+      "deepRepresentative": true
+    },
+    {
+      "label": "05-haiidrate-nar",
+      "relativePath": "pcPets/Ukagakas/Haiidrate/haiidrate.nar",
+      "sha256": "ba7f9b6d191a47491721892ce69ce4fa7cd8dbe61c8cbf28a23ede666937b685",
+      "packageKind": "shell",
+      "family": "Haiidrate",
+      "deepRepresentative": false
+    },
+    {
+      "label": "06-hareraiser-balloon-nar",
+      "relativePath": "pcPets/Ukagakas/Hareraiser/hareraiser_balloon.nar",
+      "sha256": "a686e3b4c57f30985582fb8ffe9cbbfda49609fa046bb8ca08b003105e1fe7fe",
+      "packageKind": "balloon",
+      "family": "Hareraiser",
+      "deepRepresentative": false
+    },
+    {
+      "label": "07-kitsune-no-ocha-nar",
+      "relativePath": "pcPets/Ukagakas/Kitsune no Ocha/kitsune-no-ocha.nar",
+      "sha256": "7b74cbaba0f2b0b159fb20da194d51c07925bb6c208c97e5021879fbdc3d29f5",
+      "packageKind": "shell",
+      "family": "Kitsune no Ocha",
+      "deepRepresentative": false
+    },
+    {
+      "label": "08-lobo-1-0-0-nar",
+      "relativePath": "pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar",
+      "sha256": "f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7",
+      "packageKind": "ghost",
+      "family": "LOBO",
+      "deepRepresentative": true
+    },
+    {
+      "label": "09-nanika-atsume-1-0-0-nar",
+      "relativePath": "pcPets/Ukagakas/Nanika Atsume/Nanika_Atsume_1.0.0.nar",
+      "sha256": "0ddfe156bf29e36522e58fe113ef64d0423cfd841007901a941dda50ed3302f9",
+      "packageKind": "ghost",
+      "family": "Nanika Atsume",
+      "deepRepresentative": false
+    },
+    {
+      "label": "10-nanika-atsume-1-0-1-nar",
+      "relativePath": "pcPets/Ukagakas/Nanika Atsume/Nanika_Atsume_1.0.1.nar",
+      "sha256": "9b5ffc161abc489bce332702a1945f3f7d5ec6d66def3b521299ff36d91f290c",
+      "packageKind": "ghost",
+      "family": "Nanika Atsume",
+      "deepRepresentative": true
+    },
+    {
+      "label": "11-nanika-atsume-silent-alpha-nar",
+      "relativePath": "pcPets/Ukagakas/Nanika Atsume/Nanika_Atsume_silent_ALPHA.nar",
+      "sha256": "be187fb6f51e3b45b5cfa0ab07a8fe46fd6862146a82e8e9dab563e699bf5d17",
+      "packageKind": "ghost",
+      "family": "Nanika Atsume",
+      "deepRepresentative": false
+    },
+    {
+      "label": "12-snake-and-otacon-v1-0-0-nar",
+      "relativePath": "pcPets/Ukagakas/Snake and Otacon/Snake and Otacon V1.0.0.nar",
+      "sha256": "526b7721103031fb3f28b22fffc54b71fd0b1e279168934a06d8076e20a1cbcc",
+      "packageKind": "ghost",
+      "family": "Snake and Otacon",
+      "deepRepresentative": false
+    },
+    {
+      "label": "13-snake-and-otacon-v1-0-1-nar",
+      "relativePath": "pcPets/Ukagakas/Snake and Otacon/Snake and Otacon V1.0.1.nar",
+      "sha256": "6f44dd039c17093d3f91e47bb9c474e128eb34fa4bfeb5ef3148625bbd613764",
+      "packageKind": "ghost",
+      "family": "Snake and Otacon",
+      "deepRepresentative": false
+    },
+    {
+      "label": "14-snake-and-otacon-v1-1-1-nar",
+      "relativePath": "pcPets/Ukagakas/Snake and Otacon/Snake And Otacon V1.1.1.nar",
+      "sha256": "21253507c17e90073974229ddf8b0d39e36efcae968a27c2569fe5c46c201e4b",
+      "packageKind": "ghost",
+      "family": "Snake and Otacon",
+      "deepRepresentative": false
+    },
+    {
+      "label": "15-snake-and-otacon-v1-2-1-nar",
+      "relativePath": "pcPets/Ukagakas/Snake and Otacon/Snake and Otacon V1.2.1.nar",
+      "sha256": "a4b89d1c932f5862ca60e8bacf62563dadb65f4dadce5fd1bc7945db652acb6f",
+      "packageKind": "ghost",
+      "family": "Snake and Otacon",
+      "deepRepresentative": false
+    },
+    {
+      "label": "16-snake-and-otacon-v1-3-1-nar",
+      "relativePath": "pcPets/Ukagakas/Snake and Otacon/Snake and Otacon V1.3.1.nar",
+      "sha256": "a710ff1f031ffd23d7d61fcf7fabed5d1cb4794eaf06e9eb6cd9d6df5fcc1219",
+      "packageKind": "ghost",
+      "family": "Snake and Otacon",
+      "deepRepresentative": false
+    },
+    {
+      "label": "17-snake-and-otacon-v1-3-2-nar",
+      "relativePath": "pcPets/Ukagakas/Snake and Otacon/Snake and Otacon V1.3.2.nar",
+      "sha256": "1c62ce50ca0daca3a9e14e6d870b02d4df9511dd5b586a7f4da49b402d56cbd5",
+      "packageKind": "ghost",
+      "family": "Snake and Otacon",
+      "deepRepresentative": true
+    },
+    {
+      "label": "18-snake-otacon-1-1-1b-nar",
+      "relativePath": "pcPets/Ukagakas/Snake and Otacon/Snake_Otacon_1.1.1b.nar",
+      "sha256": "ef1590f766964b1932020abf6e93aa229be12fbc6ba9238a4e5cda90939f4d70",
+      "packageKind": "ghost",
+      "family": "Snake and Otacon",
+      "deepRepresentative": false
+    },
+    {
+      "label": "19-snake-otacon-1-2-1b-nar",
+      "relativePath": "pcPets/Ukagakas/Snake and Otacon/Snake_Otacon_1.2.1b.nar",
+      "sha256": "4c925dc0b8a61b41cc91c72589e30e4ece7e6b0b92dcc44eec993b71605aed45",
+      "packageKind": "ghost",
+      "family": "Snake and Otacon",
+      "deepRepresentative": false
+    },
+    {
+      "label": "20-snake-otacon-1-3-1b-nar",
+      "relativePath": "pcPets/Ukagakas/Snake and Otacon/Snake_Otacon_1.3.1b.nar",
+      "sha256": "04d7563d65116d14e9e1208586c77cf3a6703dfcc3c10d48a10d581cfa9b8b59",
+      "packageKind": "ghost",
+      "family": "Snake and Otacon",
+      "deepRepresentative": false
+    },
+    {
+      "label": "21-hydrate-petpet-puddle-1-0-0-nar",
+      "relativePath": "pcPets/Ukagakas/The Petpet Puddle/hydrate-petpet-puddle-1.0.0.nar",
+      "sha256": "7746f4f47b633ff940200859052d351fb4d68bce307425af42cddbd1b9dccb22",
+      "packageKind": "shell",
+      "family": "The Petpet Puddle",
+      "deepRepresentative": false
+    },
+    {
+      "label": "22-bancho-jet-v1-0-0-nar",
+      "relativePath": "pcPets/Ukagakas/Watchdog Bancho/bancho_jet_v1.0.0.nar",
+      "sha256": "8a3f1dcaa4c34a625bf16c0a0ada2e3dff2d49fc029e014807aafb164f196dca",
+      "packageKind": "ghost",
+      "family": "Watchdog Bancho",
+      "deepRepresentative": true
+    },
+    {
+      "label": "23-yes-man-2-1-1-nar",
+      "relativePath": "Yes_Man-2.1.1.nar",
+      "sha256": "aa6383f564fc2d89cbbc926cd672f481d2e8aafa48ec235b07ba0cbdf77912e8",
+      "packageKind": "ghost",
+      "family": "Yes Man",
+      "deepRepresentative": true
+    }
+  ]
+}

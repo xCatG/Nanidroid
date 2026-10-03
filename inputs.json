@@ -1,0 +1,13 @@
+{
+  "bundledGhost": {
+    "path": "app/src/main/assets/nanidroid.zip",
+    "sha256": "2ebf24a2be8255011c5e004459a58dd1317eb7b12a55adcbe6b8b2977c89dc2d"
+  },
+  "nativeTransferred": true,
+  "nativeBaseline": "afc6a3a350fd10da35d085d9889c407ac5429a2b",
+  "nativeManifest": {
+    "path": "docs/superpowers/specs/2026-09-22-native-copy-manifest.json",
+    "sha256": "9a73ed596461a1d7bdb53fe8f389480f28c8230f23839641341f7b12a722a154",
+    "fileCount": 297
+  }
+}

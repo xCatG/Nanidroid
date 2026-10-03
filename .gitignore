@@ -1,46 +1,16 @@
-# Editor and operating-system state
-*~
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
 *.iml
-
-# Local Android configuration
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
 local.properties
-
-# Gradle, Kotlin, and Android build output
-.gradle/
-.kotlin/
-.cxx/
-build/
-**/build/
-bin/
-obj/
-captures/
-
-# Compiled and packaged output
-*.class
-*.o
-*.o.d
-*.suo
-*.so.dbg
-*.apk
-*.aab
-*.ap_
-
-# Logs and local test output
-*.log
-*.pyc
-__pycache__/
-test-results/
-screenshots/generated/
-artifacts/
-*.nar
-
-# Legacy vendor build artifacts are neither executed nor consumed by CMake.
-jni/satori/lib
-jni/satori/lib.exe
-jni/satori/satori.so
-.worktrees/
-build/reports/nar-corpus/
+/.superpowers/
