@@ -57,15 +57,13 @@ the frozen recreation history, target base, explicit path dispositions and check
 Historical evidence retains its source/APK/device provenance; ignored raw logs
 and private fixtures are not included and are not current passing results.
 
-The author reports the original signing key was recovered; its certificate identity
-and use have not been verified. Version code 1/name 1.0, published version history,
-signing identity, Play enrollment and store eligibility remain unverified release
-prerequisites. A differently signed
-build cannot update an old installed copy. A fresh installation may require
+The original Google Play signing key has been recovered. The published
+Play listing was at versionCode 6 / versionName 0.2.2; this rewrite starts at
+versionCode 7 / versionName 0.3.0, and every later upload must raise versionCode.
+A differently signed build cannot update an old installed copy. A fresh installation may require
 uninstalling that copy, which can remove app-owned data; leaving old external
-files untouched is not an uninstall-preservation guarantee. Verifying the recovered
-signing identity and any Play App Signing/upload-key requirements is the author's
-separate release work. No push, merge or release is implied by this local candidate.
+files untouched is not an uninstall-preservation guarantee. Play App Signing,
+upload-key and release CI setup are the author's separate release work.
 
 ## Attribution and licenses
 
