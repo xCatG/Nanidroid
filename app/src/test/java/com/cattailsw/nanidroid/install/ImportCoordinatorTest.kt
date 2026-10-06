@@ -305,23 +305,29 @@ class ImportCoordinatorTest {
     @Test fun cancellationBeforeInstallBeginEmitsNoInstallEvent() = runBlocking {
         val events = mutableListOf<ShioriEvent>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
         try {
             val root = folder.newFolder()
             val runtime = runtime(root, scope, events)
             runtime.start("ja")
-            lateinit var coordinator: ImportCoordinator
             val importer = GhostImporter(root, writeSourceChunk = { output, bytes, count ->
-                coordinator.cancelBeforePublication()
+                entered.countDown()
+                release.await()
                 output.write(bytes, 0, count)
             })
-            coordinator = ImportCoordinator(importer, runtime, scope)
+            val coordinator = ImportCoordinator(importer, runtime, scope)
             val id = coordinator.beginPicking()!!
             coordinator.acceptResult(id) { ByteArrayInputStream(archive("visitor")) }
+            withTimeout(10_000) { while (entered.count > 0) delay(10) }
+            // UI cancellation follows admission on the caller; the IO hook only holds source copying.
+            coordinator.cancelBeforePublication()
+            release.countDown()
             val done = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
             assertEquals(ImportOutcome.Cancelled, done.outcome)
             assertEquals(listOf("OnBoot"), events.map { it.id })
             assertFalse(root.resolve("ghost/visitor").exists())
-        } finally { scope.cancel() }
+        } finally { release.countDown(); scope.cancel() }
     }
 
     @Test fun finishedSessionDropsAutomaticPromptButKeepsInstallation() = runBlocking<Unit> {

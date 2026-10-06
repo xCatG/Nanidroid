@@ -1,0 +1,11 @@
+<resources>
+    <string name="stage_ghosts">ゴースト切り替え</string>
+    <string name="stage_about">このアプリについて</string>
+    <string name="stage_bounds">タッチ範囲</string>
+    <string name="stage_hide_controls">ステージの操作ボタンを隠す</string>
+    <string name="stage_show_controls">ステージの操作ボタンを表示</string>
+    <string name="stage_hide_bounds">タッチ範囲を隠す</string>
+    <string name="stage_show_bounds">タッチ範囲を表示</string>
+    <string name="stage_bounds_on">タッチ範囲の表示はオン</string>
+    <string name="stage_bounds_off">タッチ範囲の表示はオフ</string>
+</resources>
