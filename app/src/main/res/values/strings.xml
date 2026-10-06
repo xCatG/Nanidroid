@@ -1,3 +1,12 @@
 <resources>
-    <string name="app_name">Nanidroid</string>
+    <string name="app_name" translatable="false">Nanidroid</string>
+    <string name="stage_ghosts">Ghosts</string>
+    <string name="stage_about">About</string>
+    <string name="stage_bounds">Bounds</string>
+    <string name="stage_hide_controls">Hide stage controls</string>
+    <string name="stage_show_controls">Show stage controls</string>
+    <string name="stage_hide_bounds">Hide touch bounds</string>
+    <string name="stage_show_bounds">Show touch bounds</string>
+    <string name="stage_bounds_on">Touch bounds on</string>
+    <string name="stage_bounds_off">Touch bounds off</string>
 </resources>
