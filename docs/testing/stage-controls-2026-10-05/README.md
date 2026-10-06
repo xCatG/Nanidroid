@@ -35,3 +35,11 @@ An independent GPT-6-Sol source review found no actionable defects. Translation
 scope is the stage controls/accessibility labels and Ghosts dialog title, not
 the entire application. Native code, SDK configuration, runtime and the existing
 blank-stage hide/show behavior are unchanged.
+
+PR CI exposed a scheduling race in the existing cancellation test: its IO hook
+could cancel before the Default-dispatcher job was assigned. The fixture now
+holds source copying until admission returns, then cancels from the caller as
+the UI does. Cancellation, no-install-event and no-publication assertions remain.
+The focused `ImportCoordinatorTest` suite and full JVM suite passed after this
+test-only correction (380 cases, four skipped, zero failures/errors). Screenshot
+source remains `8afe17b7`; production runtime code is unchanged.
