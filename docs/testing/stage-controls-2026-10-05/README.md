@@ -43,3 +43,8 @@ the UI does. Cancellation, no-install-event and no-publication assertions remain
 The focused `ImportCoordinatorTest` suite and full JVM suite passed after this
 test-only correction (380 cases, four skipped, zero failures/errors). Screenshot
 source remains `8afe17b7`; production runtime code is unchanged.
+
+The Taiwan Chinese resource directory was subsequently renamed to
+`values-zh-rTW` with identical string contents. Resource compilation, debug APK
+assembly and lint passed (zero errors, 35 warnings, one hint); `aapt2` confirmed
+all nine stage strings are packaged under `zh-rTW` with their original values.
