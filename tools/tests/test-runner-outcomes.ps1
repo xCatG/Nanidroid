@@ -33,7 +33,16 @@ Check ((Get-CorpusClassification $device).classification -eq 'unsupported-engine
 $device=DeviceResult; $device.firstBootText=''; $device.bootReplayStatus=204
 Check ((Get-CorpusClassification $device).classification -eq 'partial-unsupported') 'actual native silent boot limitation'
 $device.bootReplayStatus=200; $device.bootReplayValue='Replayed authored text'
-Check ((Get-CorpusClassification $device).classification -eq 'supported-smoke') 'replay response is not silent limitation'
+Check ((Get-CorpusClassification $device).classification -eq 'partial-unsupported') 'nonempty replay cannot prove initial activation boot'
+Check ((Get-CorpusClassification $device).basis -match 'initial boot dialogue was not observed.*separate diagnostic replay.*value=nonempty') 'nonempty replay limited basis preserves boundary'
+$record=Record 'supported-smoke'; $record.deviceResult=$device
+$device | Add-Member label 'row'; $device | Add-Member actualSha256 $hash; $device | Add-Member expectedSha256 $hash
+$supportedMap=Read-OutcomeExpectations (Expect) @($row) @($row)
+Check ((Get-CorpusOutcome @($row) @($record) Acceptance $supportedMap).outcome -eq 'failed') 'nonempty replay cannot satisfy supported expectation'
+$device=DeviceResult; $device.firstBootText=''; $device.laterText='Visible later activation dialogue'
+Check ((Get-CorpusClassification $device).classification -eq 'supported-smoke') 'actual later activation dialogue supports boot render'
+$device=DeviceResult; $device.firstBootText=''; $device.bootReplayStatus=200; $device.bootReplayValue=42
+Reject { Get-CorpusClassification $device } 'malformed diagnostic replay cannot establish limited pass'
 $device=DeviceResult; $device.classification='in-scope-failure'; $device.detectedEngineKind='UNSUPPORTED'
 Check ((Get-CorpusClassification $device).classification -eq 'in-scope-failure') 'hard failure never becomes limited'
 foreach ($field in @('testStatus','importOutcome','directoryId','activeGhost','closeState','detectedEngineKind')) {

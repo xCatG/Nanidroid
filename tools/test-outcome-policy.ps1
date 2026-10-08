@@ -65,10 +65,9 @@ function Get-CorpusClassification($Result) {
             ($null -ne $Result.bootReplayValue -and $Result.bootReplayValue -isnot [string])) {
             throw 'Silent native stage lacks a successful real-lease boot replay result'
         }
-        if ([string]::IsNullOrEmpty($Result.bootReplayValue)) {
-            if ($Result.classification -ceq 'unsupported-engine') { throw 'Recorded unsupported-engine classification contradicts native evidence' }
-            return @{classification='partial-unsupported';basis='Known native engine rendered/closed own stage, but first/later dialogue and successful native boot replay value were empty; boot dialogue was not observed (intentional silence is possible)'}
-        }
+        if ($Result.classification -ceq 'unsupported-engine') { throw 'Recorded unsupported-engine classification contradicts native evidence' }
+        $replayValue = if ([string]::IsNullOrEmpty($Result.bootReplayValue)) { 'empty' } else { 'nonempty' }
+        return @{classification='partial-unsupported';basis="Known native engine rendered/closed own stage, but initial boot dialogue was not observed in first/later stage text; separate diagnostic replay status=$($Result.bootReplayStatus), value=$replayValue does not establish earlier activation rendering (intentional initial silence is possible)"}
     }
     if ($Result.classification -cne 'supported-smoke') { throw 'Recorded limited classification lacks matching actual limitation evidence' }
     return @{classification='supported-smoke';basis='Installed own-stage render/close completed without activation error; no recorded engine/boot-dialogue limitation'}

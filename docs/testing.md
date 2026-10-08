@@ -36,8 +36,9 @@ The host refines the completed device result using its recorded current
 `EngineSelector` kind and actual stage/boot evidence. A detected `UNSUPPORTED`
 engine with installed own-stage render/close and no activation error is
 `unsupported-engine`. A known native engine with empty first/later dialogue and
-an empty successful real-lease boot replay (status 200/204) is
-`partial-unsupported`: boot dialogue was not observed. Intentional authored silence
+a successful real-lease boot replay (status 200/204, empty or nonempty text value) is
+`partial-unsupported`: initial boot dialogue was not observed. A separate replay
+is diagnostic and cannot establish earlier activation rendering. Intentional authored silence
 can receive that conservative limitation; it does not prove unsupported authored
 scripts. Missing/failed replay, missing kind, activation error or incomplete close
 cannot establish a limited pass. Raw hard-failure categories stay failures, and
