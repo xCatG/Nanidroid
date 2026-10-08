@@ -35,8 +35,8 @@ import org.junit.rules.TemporaryFolder
 class ImportCoordinatorTest {
     @get:Rule val folder = TemporaryFolder()
 
-    @Test fun abandoningOnlyMatchingUnstartedPickerPreservesOtherAttempts() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Test fun abandoningOnlyMatchingUnstartedPickerPreservesOtherAttempts() = runOnRuntimeOwner {
+        val scope = ownerScope(this)
         try {
             val root = folder.newFolder()
             val coordinator = ImportCoordinator(GhostImporter(root), runtime(root, scope, EventLog()), scope)
@@ -56,8 +56,8 @@ class ImportCoordinatorTest {
         } finally { scope.cancel() }
     }
 
-    @Test fun restoredPickerAdmitsFirstResultWithoutRetargetingEvents() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Test fun restoredPickerAdmitsFirstResultWithoutRetargetingEvents() = runOnRuntimeOwner {
+        val scope = ownerScope(this)
         try {
             val root = folder.newFolder()
             val events = EventLog()
@@ -74,9 +74,9 @@ class ImportCoordinatorTest {
         } finally { scope.cancel() }
     }
 
-    @Test fun cancelledPickerStartsNoImportAndEmitsNoEvent() = runBlocking {
+    @Test fun cancelledPickerStartsNoImportAndEmitsNoEvent() = runOnRuntimeOwner {
         val events = EventLog()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = ownerScope(this)
         try {
             val root = folder.newFolder()
             val runtime = runtime(root, scope, events)
@@ -90,9 +90,9 @@ class ImportCoordinatorTest {
         } finally { scope.cancel() }
     }
 
-    @Test fun successPublishesBeforePromptWithoutActivatingAndRejectsDuplicateCallback() = runBlocking {
+    @Test fun successPublishesBeforePromptWithoutActivatingAndRejectsDuplicateCallback() = runOnRuntimeOwner {
         val events = EventLog()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = ownerScope(this)
         try {
             val root = folder.newFolder()
             val runtime = runtime(root, scope, events)
@@ -118,10 +118,10 @@ class ImportCoordinatorTest {
         } finally { scope.cancel() }
     }
 
-    @Test fun blockedBeginCannotDelayPublicationAndCloseDropsQueuedComplete() = runBlocking {
+    @Test fun blockedBeginCannotDelayPublicationAndCloseDropsQueuedComplete() = runOnRuntimeOwner {
         val events = EventLog()
         val gate = CompletableDeferred<Unit>()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = ownerScope(this)
         try {
             val root = folder.newFolder()
             val runtime = runtime(root, scope, events, gate)
@@ -145,11 +145,11 @@ class ImportCoordinatorTest {
         } finally { gate.complete(Unit); scope.cancel() }
     }
 
-    @Test fun refusalAndFailureEventsFollowValidationBoundary() = runBlocking {
+    @Test fun refusalAndFailureEventsFollowValidationBoundary() = runOnRuntimeOwner {
         val cases = listOf("reserved", "existing", "late", "invalid", "extraction")
         for (case in cases) {
             val events = EventLog()
-            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val scope = ownerScope(this)
             try {
                 val root = folder.newFolder()
                 val runtime = runtime(root, scope, events)
@@ -195,9 +195,9 @@ class ImportCoordinatorTest {
         }
     }
 
-    @Test fun pendingPromptRetriesOnActiveTransitionAndSurvivesAcknowledgmentUntilAsked() = runBlocking {
+    @Test fun pendingPromptRetriesOnActiveTransitionAndSurvivesAcknowledgmentUntilAsked() = runOnRuntimeOwner {
         val events = EventLog()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = ownerScope(this)
         try {
             val root = folder.newFolder()
             val runtime = runtime(root, scope, events)
@@ -221,8 +221,8 @@ class ImportCoordinatorTest {
         } finally { scope.cancel() }
     }
 
-    @Test fun pickerStartedUnderAEmitsNoInstallEventToBAfterSwitch() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Test fun pickerStartedUnderAEmitsNoInstallEventToBAfterSwitch() = runOnRuntimeOwner {
+        val scope = ownerScope(this)
         try {
             val root = folder.newFolder()
             val other = root.resolve("ghost/other")
@@ -265,8 +265,8 @@ class ImportCoordinatorTest {
         } finally { scope.cancel() }
     }
 
-    @Test fun cancellationAfterMoveStillReportsInstalled() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Test fun cancellationAfterMoveStillReportsInstalled() = runOnRuntimeOwner {
+        val scope = ownerScope(this)
         try {
             val root = folder.newFolder()
             val runtime = runtime(root, scope, EventLog())
@@ -286,9 +286,9 @@ class ImportCoordinatorTest {
         } finally { scope.cancel() }
     }
 
-    @Test fun cancellationAfterInstallBeginEmitsFailureWithoutReferences() = runBlocking {
+    @Test fun cancellationAfterInstallBeginEmitsFailureWithoutReferences() = runOnRuntimeOwner {
         val events = EventLog()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = ownerScope(this)
         try {
             val root = folder.newFolder()
             val runtime = runtime(root, scope, events)
@@ -354,8 +354,8 @@ class ImportCoordinatorTest {
         } finally { scope.cancel() }
     }
 
-    @Test fun finishedSessionDropsAutomaticPromptButKeepsInstallation() = runBlocking<Unit> {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Test fun finishedSessionDropsAutomaticPromptButKeepsInstallation() = runOnRuntimeOwner {
+        val scope = ownerScope(this)
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         try {
@@ -381,8 +381,8 @@ class ImportCoordinatorTest {
         } finally { release.countDown(); scope.cancel() }
     }
 
-    @Test fun deferredPromptRetriesWhenSwitchingSessionBecomesActive() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Test fun deferredPromptRetriesWhenSwitchingSessionBecomesActive() = runOnRuntimeOwner {
+        val scope = ownerScope(this)
         val changing = CompletableDeferred<Unit>()
         try {
             val root = folder.newFolder()
@@ -413,8 +413,8 @@ class ImportCoordinatorTest {
         } finally { changing.complete(Unit); scope.cancel() }
     }
 
-    @Test fun deferredPromptRetriesWhenGhostChangingThrows() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Test fun deferredPromptRetriesWhenGhostChangingThrows() = runOnRuntimeOwner {
+        val scope = ownerScope(this)
         val changing = CompletableDeferred<Unit>()
         try {
             val root = folder.newFolder()
@@ -445,11 +445,10 @@ class ImportCoordinatorTest {
         } finally { changing.complete(Unit); scope.cancel() }
     }
 
-    @Test fun resolvingShownPromptCompletesAttempt() = runBlocking<Unit>(Dispatchers.Default.limitedParallelism(1)) {
+    @Test fun resolvingShownPromptCompletesAttempt() = runOnRuntimeOwner {
         // The application owns runtime state on Main.immediate. Use one real Default
         // lane for the caller and scope jobs; IO stays real and install requests may suspend.
-        val owner = coroutineContext[kotlin.coroutines.ContinuationInterceptor]!!
-        val scope = CoroutineScope(SupervisorJob() + owner)
+        val scope = ownerScope(this)
         val installGate = CompletableDeferred<Unit>()
         val events = EventLog()
         try {
@@ -483,8 +482,8 @@ class ImportCoordinatorTest {
         } finally { installGate.complete(Unit); scope.cancel() }
     }
 
-    @Test fun finishedRuntimeClearsCompletedResult() = runBlocking<Unit> {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Test fun finishedRuntimeClearsCompletedResult() = runOnRuntimeOwner {
+        val scope = ownerScope(this)
         try {
             val root = folder.newFolder()
             val runtime = runtime(root, scope, EventLog())
@@ -499,8 +498,8 @@ class ImportCoordinatorTest {
         } finally { scope.cancel() }
     }
 
-    @Test fun acknowledgingResultKeepsDeferredPrompt() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Test fun acknowledgingResultKeepsDeferredPrompt() = runOnRuntimeOwner {
+        val scope = ownerScope(this)
         val changing = CompletableDeferred<Unit>()
         try {
             val root = folder.newFolder()
@@ -528,8 +527,8 @@ class ImportCoordinatorTest {
         } finally { changing.complete(Unit); scope.cancel() }
     }
 
-    @Test fun shownPromptSurvivesBootFailure() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Test fun shownPromptSurvivesBootFailure() = runOnRuntimeOwner {
+        val scope = ownerScope(this)
         val boot = CompletableDeferred<Unit>()
         try {
             val root = folder.newFolder()
@@ -551,6 +550,12 @@ class ImportCoordinatorTest {
                 (coordinator.state.value as ImportState.Completed).promptResult)
         } finally { boot.complete(Unit); scope.cancel() }
     }
+
+    private fun runOnRuntimeOwner(block: suspend CoroutineScope.() -> Unit) =
+        runBlocking<Unit>(Dispatchers.Default.limitedParallelism(1), block)
+
+    private fun ownerScope(caller: CoroutineScope) = CoroutineScope(
+        SupervisorJob() + requireNotNull(caller.coroutineContext[kotlin.coroutines.ContinuationInterceptor]))
 
     private class EventLog : AbstractList<ShioriEvent>() {
         private val observed = MutableStateFlow<List<ShioriEvent>>(emptyList())
