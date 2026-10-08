@@ -81,9 +81,45 @@ class GhostImportInstrumentationTest {
     private lateinit var root: File
     private val context by lazy { ApplicationProvider.getApplicationContext<android.content.Context>() }
 
+    private fun requireMeasurementArguments(args: android.os.Bundle) {
+        require(listOf("measurePath", "measureLabel", "measureSha256").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: measurePath, measureLabel, measureSha256"
+        }
+        val name = requireNotNull(args.getString("measurePath"))
+        require(name.matches(Regex("[A-Za-z0-9_.-]{1,100}"))) { "Invalid measurePath" }
+        val label = requireNotNull(args.getString("measureLabel"))
+        require(label.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid measureLabel" }
+        val expected = requireNotNull(args.getString("measureSha256")).lowercase()
+        require(expected.matches(Regex("[0-9a-f]{64}"))) { "measureSha256 must be 64 hex characters" }
+    }
+
+    private fun requireFixtureArguments(args: android.os.Bundle) {
+        require(listOf("fixtureId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId"
+        }
+        val id = requireNotNull(args.getString("fixtureId"))
+        require(id.matches(Regex("[A-Za-z0-9 _-]{1,100}")) && id == id.trim()) { "Invalid fixtureId" }
+    }
+
+    private fun requireProcessDeathArguments(args: android.os.Bundle) {
+        require(listOf("phase", "runId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: phase, runId"
+        }
+        val phase = args.getString("phase") ?: throw AssertionError("Missing phase")
+        val runId = args.getString("runId") ?: throw AssertionError("Missing runId")
+        require(phase in setOf("copy", "extract", "pre", "post")) { "phase must be copy, extract, pre or post" }
+        require(runId.matches(Regex("[0-9a-f]{32}"))) { "runId must be 32 lowercase hex characters" }
+    }
+
     @Before fun createDisposableRoot() {
         val args = InstrumentationRegistry.getArguments()
+        // Validate every supplied host family before disposable fixture work.
+        if (listOf("measurePath", "measureLabel", "measureSha256").any { args.containsKey(it) }) {
+            requireMeasurementArguments(args)
+        }
+        if (args.containsKey("fixtureId")) requireFixtureArguments(args)
         if (args.containsKey("phase") || args.containsKey("runId")) {
+            requireProcessDeathArguments(args)
             Log.i("NanidroidTestFixtures", "IMPORT_DEVICE_SETUP_SKIPPED runId=${args.getString("runId")} rootInitialized=${::root.isInitialized}")
             return
         }
@@ -101,15 +137,10 @@ class GhostImportInstrumentationTest {
         val args = InstrumentationRegistry.getArguments()
         org.junit.Assume.assumeTrue("Run host-staged import measurement; required arguments: measurePath, measureLabel, measureSha256",
             listOf("measurePath", "measureLabel", "measureSha256").any { args.containsKey(it) })
-        require(listOf("measurePath", "measureLabel", "measureSha256").all { !args.getString(it).isNullOrBlank() }) {
-            "Provide all nonblank host arguments: measurePath, measureLabel, measureSha256"
-        }
+        requireMeasurementArguments(args)
         val name = requireNotNull(args.getString("measurePath"))
-        require(name.matches(Regex("[A-Za-z0-9_.-]{1,100}"))) { "Invalid measurePath" }
         val label = requireNotNull(args.getString("measureLabel"))
-        require(label.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid measureLabel" }
         val expected = requireNotNull(args.getString("measureSha256")).lowercase()
-        require(expected.matches(Regex("[0-9a-f]{64}"))) { "measureSha256 must be 64 hex characters" }
         val input = File(context.filesDir, name)
         val output = requireNotNull(context.getExternalFilesDir(null))
         val resultFile = File(output, "import-measure-result.json")
@@ -239,11 +270,8 @@ class GhostImportInstrumentationTest {
         val args = InstrumentationRegistry.getArguments()
         org.junit.Assume.assumeTrue("Run host-staged unchanged AYA5 root-entry import; required arguments: fixtureId",
             listOf("fixtureId").any { args.containsKey(it) })
-        require(listOf("fixtureId").all { !args.getString(it).isNullOrBlank() }) {
-            "Provide all nonblank host arguments: fixtureId"
-        }
+        requireFixtureArguments(args)
         val id = requireNotNull(args.getString("fixtureId"))
-        require(id.matches(Regex("[A-Za-z0-9 _-]{1,100}")) && id == id.trim()) { "Invalid fixtureId" }
         val repository = InstalledGhostRepository(File(context.filesDir, "ghost"))
         val descriptor = repository.validate(id)
         assertEquals("aya5.dll", descriptor.engineDeclaration)
@@ -1045,13 +1073,9 @@ class GhostImportInstrumentationTest {
         val args = InstrumentationRegistry.getArguments()
         org.junit.Assume.assumeTrue("Run tools/test-import-process-death.ps1; required arguments: phase, runId",
             listOf("phase", "runId").any { args.containsKey(it) })
-        require(listOf("phase", "runId").all { !args.getString(it).isNullOrBlank() }) {
-            "Provide all nonblank host arguments: phase, runId"
-        }
-        val phase = args.getString("phase") ?: throw AssertionError("Missing phase")
-        val runId = args.getString("runId") ?: throw AssertionError("Missing runId")
-        require(phase in setOf("copy", "extract", "pre", "post")) { "phase must be copy, extract, pre or post" }
-        require(runId.matches(Regex("[0-9a-f]{32}"))) { "runId must be 32 lowercase hex characters" }
+        requireProcessDeathArguments(args)
+        val phase = requireNotNull(args.getString("phase"))
+        val runId = requireNotNull(args.getString("runId"))
         val ghostId = "kill${phase}${runId.take(12)}"
         val marker = File(context.filesDir, "process-death-$runId.marker")
         val sentinel = File(context.filesDir, "import-staging/sentinel-$runId")
@@ -1114,13 +1138,9 @@ class GhostImportInstrumentationTest {
         val args = InstrumentationRegistry.getArguments()
         org.junit.Assume.assumeTrue("Run tools/test-import-process-death.ps1; required arguments: phase, runId",
             listOf("phase", "runId").any { args.containsKey(it) })
-        require(listOf("phase", "runId").all { !args.getString(it).isNullOrBlank() }) {
-            "Provide all nonblank host arguments: phase, runId"
-        }
-        val phase = args.getString("phase") ?: throw AssertionError("Missing phase")
-        val runId = args.getString("runId") ?: throw AssertionError("Missing runId")
-        require(phase in setOf("copy", "extract", "pre", "post")) { "phase must be copy, extract, pre or post" }
-        require(runId.matches(Regex("[0-9a-f]{32}"))) { "runId must be 32 lowercase hex characters" }
+        requireProcessDeathArguments(args)
+        val phase = requireNotNull(args.getString("phase"))
+        val runId = requireNotNull(args.getString("runId"))
         val ghostId = "kill${phase}${runId.take(12)}"
         val staging = File(context.filesDir, "import-staging")
         val sentinel = File(staging, "sentinel-$runId")
