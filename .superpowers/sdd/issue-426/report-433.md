@@ -21,15 +21,17 @@ One job-owned Google APIs API31 x86_64 AVD uses port5554/`emulator-5554`, headle
 SwiftShader and required KVM acceleration. Initial occupied/offline serials are
 rejected. Bounded boot checks verify emulator process, state/boot/API/ABI/qemu,
 AVD identity, actual 1080×2400/420dpi/portrait/font1 settings and usable window
-configuration >=600dp. A 45-minute job bounds provisioning/execution, with the
-existing 30-minute instrumentation deadline. Numeric schema/counters, exact
+configuration >=600dp. A 90-minute outer job safety limit contains explicitly
+bounded provisioning/execution steps and reserved teardown/upload time; the
+existing 30-minute instrumentation deadline remains unchanged. Numeric schema/counters, exact
 selection/result identities, source/APK hashes, all-pass status and successful
 cleanup are checked. No retries, broad connected task, skip-as-pass, private
 fixtures or second APK/native build are introduced.
 
 Always-run bounded diagnostics and teardown capture available first streams,
-method summary/results, selection, emulator/boot/configuration, logcat/crash and
-Gradle reports. App/serial teardown requires matching AVD identity; process
+method summary/results, selection, emulator/boot/configuration and logcat/crash
+logs in the device artifact. Build-job Gradle reports are retained separately in
+`android-reports`. App/serial teardown requires matching AVD identity; process
 fallback verifies recorded PID ownership and treats exited zombies as stopped.
 Failures remain failed even when teardown succeeds; teardown failure is also
 nonzero. A unique artifact and readable Actions summary expose evidence and
@@ -121,7 +123,7 @@ accepted exceptions; no API37/arm64/private-corpus or screenshot parity is claim
 Input review: `.superpowers/sdd/issue-426/review-433.md`; input revision
 `b5b624caa7ce8bb8007de339cbc95e5dbcb245f1`. The Important timeout finding and
 same-file Minor identity finding are addressed in the owned workflow/docs/report.
-The original 45-minute limit described above is superseded by the budget below.
+The original implementation's 45-minute limit was superseded by the budget below.
 No runner, instrumentation predicate, APK/native build, dependency or retry changes.
 
 The stable runner's existing process bounds can total 2400 seconds: five
