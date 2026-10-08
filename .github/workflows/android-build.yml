@@ -205,9 +205,81 @@ jobs:
           timeout 15 "$adb" -s "$DEVICE_SERIAL" shell wm density > "$DEVICE_REPORT/display-density.log"
           [[ "$(tr -d '\r' < "$DEVICE_REPORT/display-size.log" | tail -n 1)" == *': 1080x2400' ]]
           [[ "$(tr -d '\r' < "$DEVICE_REPORT/display-density.log" | tail -n 1)" == *': 420' ]]
-          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell settings get system user_rotation | tr -d '\r')" == 0 ]]
-          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell settings get system accelerometer_rotation | tr -d '\r')" == 0 ]]
-          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell settings get system font_scale | tr -d '\r')" == 1.0 ]]
+          # Initial writes can overlap first-boot configuration. Converge setup only;
+          # preserve every raw response and never start instrumentation on a mismatch.
+          timeout --kill-after=1s 30s bash -s -- "$adb" "$DEVICE_SERIAL" "$DEVICE_REPORT" <<'SH'
+          set -euo pipefail
+          adb=$1; serial=$2; report=$3
+          sample=0; consecutive=0; deadline=$((SECONDS + 30))
+          fail() {
+            printf '%s\n' "$1" >> "$report/settings-error.log"
+            if [[ ! -e "$report/settings-first-mismatch.log" ]]; then
+              printf '%s\n' "$1" > "$report/settings-first-mismatch.log"
+            fi
+            exit "${2:-1}"
+          }
+          trap 'printf "Configuration deadline/termination at sample %s\n" "$sample" >> "$report/settings-error.log"; exit 124' TERM
+          read_setting() {
+            key=$1; prefix="$report/settings-$sample-$key-read"
+            code=0
+            timeout --kill-after=1s 3s "$adb" -s "$serial" shell settings get system "$key" > "$prefix.stdout.log" 2> "$prefix.stderr.log" || code=$?
+            (( code == 0 )) || fail "Read command failed: sample=$sample key=$key exit=$code" "$code"
+            # Read through EOF and remove only one standard line ending. Internal
+            # control bytes/extra lines must remain visible to strict validation.
+            if IFS= read -r -d '' raw < "$prefix.stdout.log"; then
+              fail "Malformed NUL response: sample=$sample key=$key"
+            fi
+            raw=${raw%$'\n'}
+            raw=${raw%$'\r'}
+            normalized=$raw
+            case "$key" in
+              user_rotation|accelerometer_rotation)
+                [[ "$raw" == 0 || "$raw" == 1 ]] || normalized=invalid
+                ;;
+              font_scale)
+                if [[ ! "$raw" =~ ^(0|[1-9][0-9]*)(\.[0-9]+)?$ || "$raw" =~ ^0(\.0+)?$ ]]; then
+                  normalized=invalid
+                elif [[ "$raw" =~ ^1(\.0+)?$ ]]; then
+                  normalized=1.0
+                fi
+                ;;
+            esac
+            printf 'sample=%s key=%s raw=%q normalized=%q\n' "$sample" "$key" "$raw" "$normalized" >> "$report/settings-readbacks.log"
+            [[ "$normalized" != invalid ]] || fail "Malformed response: sample=$sample key=$key raw=$(printf '%q' "$raw")"
+          }
+          write_setting() {
+            key=$1; value=$2; prefix="$report/settings-$sample-$key-write"
+            code=0
+            timeout --kill-after=1s 3s "$adb" -s "$serial" shell settings put system "$key" "$value" > "$prefix.stdout.log" 2> "$prefix.stderr.log" || code=$?
+            (( code == 0 )) || fail "Write command failed: sample=$sample key=$key exit=$code" "$code"
+          }
+          while (( SECONDS < deadline )); do
+            sample=$((sample + 1))
+            read_setting user_rotation; rotation=$normalized
+            read_setting accelerometer_rotation; accelerometer=$normalized
+            read_setting font_scale; font=$normalized
+            (( SECONDS < deadline )) || fail 'Configuration deadline expired before stable readback'
+            if [[ "$rotation" == 0 && "$accelerometer" == 0 && "$font" == 1.0 ]]; then
+              consecutive=$((consecutive + 1))
+              if (( consecutive == 2 )); then
+                printf 'sample=%s user_rotation=0 accelerometer_rotation=0 font_scale=1.0 consecutive=2\n' "$sample" > "$report/settings-verified.log"
+                exit 0
+              fi
+            else
+              consecutive=0
+              printf 'sample=%s user_rotation=%s accelerometer_rotation=%s font_scale=%s\n' "$sample" "$rotation" "$accelerometer" "$font" >> "$report/settings-mismatches.log"
+              if [[ ! -e "$report/settings-first-mismatch.log" ]]; then
+                tail -n 1 "$report/settings-mismatches.log" > "$report/settings-first-mismatch.log"
+              fi
+              # Only syntactically valid mismatches reach these idempotent writes.
+              write_setting accelerometer_rotation 0
+              write_setting user_rotation 0
+              write_setting font_scale 1.0
+            fi
+            sleep 1
+          done
+          fail 'Configuration deadline expired without two consecutive desired samples'
+          SH
           timeout 15 "$adb" -s "$DEVICE_SERIAL" shell dumpsys display > "$DEVICE_REPORT/display.log"
           timeout 15 "$adb" -s "$DEVICE_SERIAL" shell dumpsys window > "$DEVICE_REPORT/window.log"
           # API31's actual app rectangle excludes system decor; validate both portrait and usable height.

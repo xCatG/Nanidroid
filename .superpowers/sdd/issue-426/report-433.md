@@ -393,3 +393,19 @@ push or workflow retry was performed. Corrected hosted boot/instrumentation and
 job-owned emulator cleanup remain pending controller publication/review/execution.
 Build reports remain in `android-reports`; device setup/test diagnostics remain
 in the unique device artifact. M5 exceptions and parity limits are unchanged.
+
+## Hosted baseline readback failure and bounded convergence
+
+Hosted run 37743603204 (source e0c587c6547cb5444ea29f228d07ab4658f5cf26) passed build and APK provenance verification but failed the immediate `accelerometer_rotation == 0` boot guard before instrumentation. The downloaded first artifact remains in ignored `hosted-final-37743603204/device/reports/device-self-contained/`; boot.log retains the failed guard, verified-device.json identifies API 31/x86_64, and physical size/density were 1080x2400/420dpi. Teardown exited 0. No runner summary or instrumentation result exists. The old assertion discarded its returned value, so asynchronous settling or another settings writer is a hypothesis, not a proven cause.
+
+Starting from rebased source c8fa2efa7976fa4539704c3566b9b9b063794f8a, the workflow now gives only the owned emulator's three baseline settings a 30-second configuration convergence window. It retains every raw read/write stream, parsed sample, and first mismatch/error. Rotations accept only 0 or 1; font values must be ordinary positive decimals, with numeric 1 normalized to 1.0. Malformed responses and command failures fail immediately. Valid mismatches reapply only the three existing idempotent baseline writes. Success requires two consecutive desired 0/0/1.0 samples; a later mismatch resets the streak. Individual commands have 3-second deadlines within the overall bound. Instrumentation still runs once, and viewport predicates, job deadlines and evidence reserve remain unchanged.
+
+Focused validation command:
+
+```powershell
+wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/yenchi/.codex/worktrees/bd56/Nanidroid/.superpowers/sdd/issue-426/433-evidence/settings-convergence/check.sh
+```
+
+The driver extracts the actual amended workflow configuration body and uses a synthetic adb settings control, not a real emulator. YAML parsing, Bash syntax and Linux PowerShell AST parsing passed. Settling passed with 9 reads/3 writes (2.355 seconds); a mismatch interrupting the streak passed with 15 reads/6 writes (4.613 seconds). Read and write failures exited 7 and 9. Null, invalid rotation, escaped-newline rotation, NaN, zero, exponent, internal carriage return and extra-line font responses each exited 1 without reapplication. A command timeout exited 124 in 3.042 seconds with partial stdout/stderr retained. Permanent mismatch exited 1 in 29.191 seconds with raw samples and the first mismatch retained and no verified-settings file. The covering driver exited 0. Extracted scripts, control outputs and raw diagnostic files remain in ignored `433-evidence/settings-convergence/`.
+
+No local build, JVM/device suite, real emulator boot or instrumentation was repeated. The underlying hosted readback cause remains unproven; corrected hosted execution is pending controller review/publication. Gradle/JVM/lint evidence remains in `android-reports`, while these setup diagnostics belong to the unique device artifact. M5 exceptions and parity limits remain unchanged.
