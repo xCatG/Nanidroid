@@ -190,12 +190,12 @@ $ErrorActionPreference='Stop'
 function global:Start-ForbiddenProcess { [IO.File]::WriteAllText($Sentinel,'started'); throw 'PROCESS START SENTINEL' }
 switch ($Case) {
  'self' { & $Runner -SelfCheck }
- 'mixed' { & $Runner -Only @('satori','unknown') -OutputDirectory $Output }
- 'empty' { & $Runner -Only @() -OutputDirectory $Output }
- 'duplicate-positive' { & $Runner -Only @('satori','satori') -OutputDirectory $Output }
+ 'mixed' { & $Runner -Serial emulator-5554 -CorpusRoot ([IO.Path]::GetTempPath()) -Adb (Join-Path $PSHOME $(if ($IsWindows) {'pwsh.exe'} else {'pwsh'})) -Only @('satori','unknown') -OutputDirectory $Output }
+ 'empty' { & $Runner -Serial emulator-5554 -CorpusRoot ([IO.Path]::GetTempPath()) -Adb (Join-Path $PSHOME $(if ($IsWindows) {'pwsh.exe'} else {'pwsh'})) -Only @() -OutputDirectory $Output }
+ 'duplicate-positive' { & $Runner -Serial emulator-5554 -CorpusRoot ([IO.Path]::GetTempPath()) -Adb (Join-Path $PSHOME $(if ($IsWindows) {'pwsh.exe'} else {'pwsh'})) -Only @('satori','satori') -OutputDirectory $Output }
  'double-failure' {
      function global:Get-FileHash { [pscustomobject]@{Path='synthetic';Hash=('a'*64)} }
-     & $Runner -Only satori -SkipBuild -OutputDirectory $Output
+     & $Runner -Serial emulator-5554 -CorpusRoot ([IO.Path]::GetTempPath()) -Adb (Join-Path $PSHOME $(if ($IsWindows) {'pwsh.exe'} else {'pwsh'})) -Only satori -SkipBuild -OutputDirectory $Output
  }
  'unknown-corpus' { & $Runner -DeviceSerial emulator-5554 -Label unknown -OutputDirectory $Output }
  'missing-map' { & $Runner -DeviceSerial emulator-5554 -Mode Acceptance -OutputDirectory $Output }
@@ -255,7 +255,7 @@ switch ($Case) {
             Check ($LASTEXITCODE -eq 0) "selfcheck $runner"
         }
         foreach ($selection in @('unknown','',' ')) {
-            & $pwsh -NoProfile -File $native -Only $selection -Adb $fake -OutputDirectory (Join-Path $root 'native-output') *> (Join-Path $root 'negative.log')
+            & $pwsh -NoProfile -File $native -Serial emulator-5554 -CorpusRoot $root -Only $selection -Adb $fake -OutputDirectory (Join-Path $root 'native-output') *> (Join-Path $root 'negative.log')
             Check ($LASTEXITCODE -ne 0) 'native preflight nonzero'
         }
         & $pwsh -NoProfile -File $corpus -DeviceSerial emulator-5554 -Label unknown -OutputDirectory (Join-Path $root 'corpus-output') *> (Join-Path $root 'negative.log')

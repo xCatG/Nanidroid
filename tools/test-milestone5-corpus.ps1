@@ -2,7 +2,8 @@
 param(
     [Parameter(ParameterSetName='SelfCheck', Mandatory)][switch]$SelfCheck,
     [Parameter(ParameterSetName='Run', Mandatory)][string]$DeviceSerial,
-    [Parameter(ParameterSetName='Run')][string]$CorpusRoot = 'C:/tmp/Nanidroid-corpus-recovery',
+    [Parameter(ParameterSetName='Run')][string]$CorpusRoot,
+    [Parameter(ParameterSetName='Run')][string]$Adb,
     [Parameter(ParameterSetName='Run')][string]$OutputDirectory = (Join-Path $PSScriptRoot ('../.superpowers/sdd/2026-09-27-milestone-5-corpus-polish/task-1-run-' + [guid]::NewGuid().ToString('N'))),
     [Parameter(ParameterSetName='Run')][switch]$SkipBuild,
     [Parameter(ParameterSetName='Run')][string]$Label,
@@ -14,7 +15,6 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'test-outcome-policy.ps1')
 if ($SelfCheck) { & (Join-Path $PSScriptRoot 'tests/test-runner-outcomes.ps1') -PolicyOnly; return }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$adb = 'C:/tools/android.sdk/platform-tools/adb.exe'
 $package = 'com.cattailsw.nanidroid'
 $runner = "$package.test/androidx.test.runner.AndroidJUnitRunner"
 $class = "$package.corpus.Milestone5CorpusTest#smokeArchive"
@@ -32,6 +32,25 @@ if ($Mode -eq 'Acceptance') {
     if ([string]::IsNullOrWhiteSpace($ExpectationsPath)) { throw 'Acceptance requires -ExpectationsPath' }
     $expectations = Read-OutcomeExpectations (Get-Content -LiteralPath $ExpectationsPath -Raw | ConvertFrom-Json) $manifest.rows $selected
     $expectationIdentity = [ordered]@{path=[IO.Path]::GetFullPath($ExpectationsPath);sha256=(Get-FileHash -LiteralPath $ExpectationsPath -Algorithm SHA256).Hash.ToLowerInvariant()}
+}
+if ($DeviceSerial -notmatch '^emulator-[0-9]+$') { throw 'Require explicit disposable emulator DeviceSerial' }
+if ([string]::IsNullOrWhiteSpace($CorpusRoot) -or !(Test-Path -LiteralPath $CorpusRoot -PathType Container)) { throw 'Real fixture execution requires explicit existing -CorpusRoot' }
+$CorpusRoot = (Resolve-Path -LiteralPath $CorpusRoot).Path
+$adbName = if ($IsWindows) { 'adb.exe' } else { 'adb' }
+if (!$Adb) {
+    foreach ($sdkRoot in @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME)) {
+        if ($sdkRoot -and (Test-Path -LiteralPath (Join-Path $sdkRoot "platform-tools/$adbName"))) {
+            $Adb = Join-Path $sdkRoot "platform-tools/$adbName"; break
+        }
+    }
+    if (!$Adb) { $command = Get-Command $adbName -ErrorAction SilentlyContinue; if ($command) { $Adb=$command.Source } }
+}
+if (!$Adb -or !(Test-Path -LiteralPath $Adb -PathType Leaf)) { throw 'Cannot resolve adb: supply -Adb or Android SDK environment/PATH' }
+$Adb = (Resolve-Path -LiteralPath $Adb).Path
+$platformTools = Split-Path -Parent $Adb
+if ((Split-Path -Leaf $platformTools) -eq 'platform-tools') {
+    $sdk = Split-Path -Parent $platformTools
+    $env:ANDROID_HOME=$sdk; $env:ANDROID_SDK_ROOT=$sdk
 }
 Write-Host "Requested: $(if ($requested.Count) { $requested -join ',' } else { '<all>' }); resolved: $($resolved -join ','); mode=$Mode"
 $records = @(); $runReasons=@(); $commit=(& git -C $repo rev-parse HEAD | Out-String).Trim()
@@ -110,7 +129,7 @@ function Assert-DeviceIdentity {
     $boot = (Invoke-Adb @('shell','getprop','sys.boot_completed') | Out-String).Trim()
     $api = (Invoke-Adb @('shell','getprop','ro.build.version.sdk') | Out-String).Trim()
     $abi = (Invoke-Adb @('shell','getprop','ro.product.cpu.abi') | Out-String).Trim()
-    if ($qemu -ne '1' -or $boot -ne '1' -or $api -ne '31' -or $abi -ne 'x86_64') {
+    if ($qemu -ne '1' -or $boot -ne '1' -or $api -notmatch '^\d+$' -or [int]$api -lt 31 -or $abi -ne 'x86_64') {
         throw "Unexpected device identity qemu=$qemu boot=$boot api=$api abi=$abi"
     }
     return [ordered]@{serial=$DeviceSerial;qemu=$qemu;boot=$boot;api=$api;abi=$abi}
@@ -325,9 +344,11 @@ $hostGuards | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $guardRoot 'r
 $identity = Assert-DeviceIdentity
 $identity | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'device.json')
 if (!$SkipBuild) {
-    $env:GRADLE_USER_HOME = 'C:/Users/yenchi/.gradle'
-    & (Join-Path $repo 'gradlew.bat') :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain `
-        *> (Join-Path $OutputDirectory 'build.log')
+    Push-Location $repo
+    try {
+        if ($IsWindows) { & "$repo/gradlew.bat" :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain *> (Join-Path $OutputDirectory 'build.log') }
+        else { & bash "$repo/gradlew" :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain *> (Join-Path $OutputDirectory 'build.log') }
+    } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw 'Build failed; inspect build.log' }
 }
 $appHash = (Get-FileHash -LiteralPath $appApk -Algorithm SHA256).Hash.ToLowerInvariant()

@@ -170,15 +170,19 @@ class RealCorpusImportUiTest {
     /** One fresh app-data installation and unchanged host-staged NAR per invocation. */
     @Test fun importedCorpusRendersOwnStageAndClosesThroughVisibleControls() {
         val args = InstrumentationRegistry.getArguments()
-        assumeTrue("Host-only corpus UI probe", args.containsKey("uiCorpusPath"))
+        org.junit.Assume.assumeTrue("Run host-staged corpus UI probe; required arguments: uiCorpusPath, uiCorpusSha256, uiCorpusGhostId, uiCorpusMode",
+            listOf("uiCorpusPath", "uiCorpusSha256", "uiCorpusGhostId", "uiCorpusMode").any { args.containsKey(it) })
+        require(listOf("uiCorpusPath", "uiCorpusSha256", "uiCorpusGhostId", "uiCorpusMode").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: uiCorpusPath, uiCorpusSha256, uiCorpusGhostId, uiCorpusMode"
+        }
         val name = requireNotNull(args.getString("uiCorpusPath"))
-        require(name.matches(Regex("[A-Za-z0-9_.-]{1,100}")))
+        require(name.matches(Regex("[A-Za-z0-9_.-]{1,100}"))) { "Invalid uiCorpusPath" }
         val expectedHash = requireNotNull(args.getString("uiCorpusSha256")).lowercase()
-        require(expectedHash.matches(Regex("[0-9a-f]{64}")))
+        require(expectedHash.matches(Regex("[0-9a-f]{64}"))) { "uiCorpusSha256 must be 64 hex characters" }
         val id = requireNotNull(args.getString("uiCorpusGhostId"))
-        require(id.matches(Regex("[A-Za-z0-9 _-]{1,100}")) && id == id.trim())
+        require(id.matches(Regex("[A-Za-z0-9 _-]{1,100}")) && id == id.trim()) { "Invalid uiCorpusGhostId" }
         val mode = requireNotNull(args.getString("uiCorpusMode"))
-        require(mode == "aya5-only" || mode == "yaya")
+        require(mode == "aya5-only" || mode == "yaya") { "uiCorpusMode must be aya5-only or yaya" }
         val target = compose.activity
         val app = target.application as NanidroidApplication
         val source = File(target.filesDir, name)
@@ -295,13 +299,18 @@ class RealCorpusImportUiTest {
 
     @Test fun cancelRealImportThroughVisibleDialog() {
         val args = InstrumentationRegistry.getArguments()
-        assumeTrue("Host-only corpus UI probe", args.containsKey("uiProbePath"))
+        org.junit.Assume.assumeTrue("Run host-staged corpus cancellation probe; required arguments: uiProbePath, uiProbeSha256",
+            listOf("uiProbePath", "uiProbeSha256").any { args.containsKey(it) })
+        require(listOf("uiProbePath", "uiProbeSha256").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: uiProbePath, uiProbeSha256"
+        }
         val target = compose.activity
         val app = target.application as NanidroidApplication
         val name = requireNotNull(args.getString("uiProbePath"))
-        require(name.matches(Regex("[A-Za-z0-9_.-]{1,100}")))
+        require(name.matches(Regex("[A-Za-z0-9_.-]{1,100}"))) { "Invalid uiProbePath" }
         val source = File(target.filesDir, name)
         val expected = requireNotNull(args.getString("uiProbeSha256")).lowercase()
+        require(expected.matches(Regex("[0-9a-f]{64}"))) { "Invalid uiProbeSha256" }
         val actual = MessageDigest.getInstance("SHA-256").digest(source.readBytes())
             .joinToString("") { "%02x".format(it) }
         assertEquals(expected, actual)

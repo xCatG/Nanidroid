@@ -1,8 +1,9 @@
 [CmdletBinding(DefaultParameterSetName='Run')]
 param(
     [Parameter(ParameterSetName='SelfCheck', Mandatory)][switch]$SelfCheck,
-    [Parameter(ParameterSetName='Run')][string]$Adb = 'C:/Users/yenchi/AppData/Local/Android/Sdk/platform-tools/adb.exe',
-    [Parameter(ParameterSetName='Run')][ValidateSet('emulator-5554')][string]$Serial = 'emulator-5554',
+    [Parameter(ParameterSetName='Run')][string]$Adb,
+    [Parameter(ParameterSetName='Run', Mandatory)][string]$Serial,
+    [Parameter(ParameterSetName='Run')][string]$CorpusRoot,
     [Parameter(ParameterSetName='Run')][string]$OutputDirectory = (Join-Path ([IO.Path]::GetTempPath()) ('nanidroid-persistence-' + [guid]::NewGuid().ToString('N'))),
     [Parameter(ParameterSetName='Run')][switch]$SkipBuild,
     [Parameter(ParameterSetName='Run')][string[]]$Only
@@ -14,19 +15,39 @@ $package = 'com.cattailsw.nanidroid'
 $runner = "$package.test/androidx.test.runner.AndroidJUnitRunner"
 $testClass = "$package.engine.NativePersistenceTest"
 $sources = @(
-    @{ name='satori'; archive='C:/tmp/Nanidroid-corpus-recovery/2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='satoriOrderlyUnloadRestoresChangedFlag' },
-    @{ name='satori-rotation'; archive='C:/tmp/Nanidroid-corpus-recovery/2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='twoelfKeepsFlagAndLeaseAcrossRecreationAndDisplayRotation' },
-    @{ name='satori-runtime'; archive='C:/tmp/Nanidroid-corpus-recovery/2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='twoelfRuntimeSwitchBackAndCloseWritesFlag' },
-    @{ name='lobo-minute'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboMinuteSaveRestoresTalkInterval' },
-    @{ name='lobo-destroy'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboDestroyWritesNestedProfile' },
-    @{ name='lobo-runtime'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboRuntimeSwitchBackAndCloseWritesInterval' },
-    @{ name='yaya'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/Earthquake Rescue Duo/Earthquake_duo_1.0.1.nar'; hash='06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; method='yayaOrderlyUnloadRestoresChangedName' },
-    @{ name='yaya-runtime'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/Earthquake Rescue Duo/Earthquake_duo_1.0.1.nar'; hash='06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; method='yayaRuntimeSwitchBackAndCloseWritesName' },
-    @{ name='lobo-kill'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method=$null }
+    @{ name='satori'; archive='2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='satoriOrderlyUnloadRestoresChangedFlag' },
+    @{ name='satori-rotation'; archive='2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='twoelfKeepsFlagAndLeaseAcrossRecreationAndDisplayRotation' },
+    @{ name='satori-runtime'; archive='2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='twoelfRuntimeSwitchBackAndCloseWritesFlag' },
+    @{ name='lobo-minute'; archive='pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboMinuteSaveRestoresTalkInterval' },
+    @{ name='lobo-destroy'; archive='pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboDestroyWritesNestedProfile' },
+    @{ name='lobo-runtime'; archive='pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboRuntimeSwitchBackAndCloseWritesInterval' },
+    @{ name='yaya'; archive='pcPets/Ukagakas/Earthquake Rescue Duo/Earthquake_duo_1.0.1.nar'; hash='06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; method='yayaOrderlyUnloadRestoresChangedName' },
+    @{ name='yaya-runtime'; archive='pcPets/Ukagakas/Earthquake Rescue Duo/Earthquake_duo_1.0.1.nar'; hash='06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; method='yayaRuntimeSwitchBackAndCloseWritesName' },
+    @{ name='lobo-kill'; archive='pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method=$null }
 )
 $requested = if ($PSBoundParameters.ContainsKey('Only')) { @($Only) } else { @() }
 $resolved = @(Resolve-OutcomeSelection @($sources | ForEach-Object name) $requested $PSBoundParameters.ContainsKey('Only'))
 $sources = @($sources | Where-Object { $_.name -cin $resolved })
+if ($Serial -notmatch '^emulator-[0-9]+$') { throw 'Require explicit disposable emulator Serial' }
+if ([string]::IsNullOrWhiteSpace($CorpusRoot) -or !(Test-Path -LiteralPath $CorpusRoot -PathType Container)) { throw 'Real fixture execution requires explicit existing -CorpusRoot' }
+$CorpusRoot = (Resolve-Path -LiteralPath $CorpusRoot).Path
+foreach ($source in $sources) { $source.archive = Join-Path $CorpusRoot $source.archive }
+$adbName = if ($IsWindows) { 'adb.exe' } else { 'adb' }
+if (!$Adb) {
+    foreach ($sdkRoot in @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME)) {
+        if ($sdkRoot -and (Test-Path -LiteralPath (Join-Path $sdkRoot "platform-tools/$adbName"))) {
+            $Adb = Join-Path $sdkRoot "platform-tools/$adbName"; break
+        }
+    }
+    if (!$Adb) { $command = Get-Command $adbName -ErrorAction SilentlyContinue; if ($command) { $Adb=$command.Source } }
+}
+if (!$Adb -or !(Test-Path -LiteralPath $Adb -PathType Leaf)) { throw 'Cannot resolve adb: supply -Adb or Android SDK environment/PATH' }
+$Adb = (Resolve-Path -LiteralPath $Adb).Path
+$platformTools = Split-Path -Parent $Adb
+if ((Split-Path -Leaf $platformTools) -eq 'platform-tools') {
+    $sdk = Split-Path -Parent $platformTools
+    $env:ANDROID_HOME=$sdk; $env:ANDROID_SDK_ROOT=$sdk
+}
 Write-Host "Requested: $(if ($requested.Count) { $requested -join ',' } else { '<all>' }); resolved: $($resolved -join ',')"
 $scenarioRecords = @($sources | ForEach-Object { [ordered]@{name=$_.name;status='incomplete';cleanupStatus='not-run'} })
 $instrumentRecords = @()
@@ -85,6 +106,11 @@ function Assert-DeviceHealth([string]$LogName) {
     $state = (Invoke-Adb -Arguments @('get-state') -TimeoutSeconds 15 | Out-String).Trim()
     $state | Out-File (Join-Path $OutputDirectory $LogName)
     if ($state -ne 'device') { throw "Unexpected $Serial state: '$state'" }
+    $qemu=(Invoke-Adb @('shell','getprop','ro.kernel.qemu') | Out-String).Trim()
+    $boot=(Invoke-Adb @('shell','getprop','sys.boot_completed') | Out-String).Trim()
+    $api=(Invoke-Adb @('shell','getprop','ro.build.version.sdk') | Out-String).Trim()
+    $abi=(Invoke-Adb @('shell','getprop','ro.product.cpu.abi') | Out-String).Trim()
+    if ($qemu -ne '1' -or $boot -ne '1' -or $api -notmatch '^\d+$' -or [int]$api -lt 31 -or $abi -ne 'x86_64') { throw 'Require booted API>=31 x86_64 emulator' }
 }
 
 function Stage-Fixture($source, [string]$runId) {
@@ -144,7 +170,8 @@ function Run-KillScenario([string]$fixtureId, [string]$runId) {
         Write-Host $entry
     }
     $args = @('-s',$Serial,'shell','am','instrument','-w','-r','-e','fixtureId',$fixtureId,'-e','runId',$runId,'-e','class',"$testClass#abruptWriteWaitsForHostKill",$runner)
-    $process = Start-Process -FilePath $Adb -ArgumentList $args -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    $windowOptions = if ($IsWindows) { @{WindowStyle='Hidden'} } else { @{} }
+    $process = Start-Process -FilePath $Adb -ArgumentList $args -PassThru @windowOptions -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     Write-KillTrace "write-start runId=$runId fixtureId=$fixtureId adbPid=$($process.Id) readinessDeadlineSeconds=45 exitDeadlineSeconds=15"
     try {
     $markerPath = "files/native-persistence-$runId.ready"
@@ -217,7 +244,11 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 "serial=$Serial commit=$(git rev-parse HEAD)" | Add-Content (Join-Path $OutputDirectory 'run.log')
 Assert-DeviceHealth 'device-state.log'
 if (!$SkipBuild) {
-    & "$PSScriptRoot/../gradlew.bat" :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain *> (Join-Path $OutputDirectory 'build.log')
+    Push-Location (Join-Path $PSScriptRoot '..')
+    try {
+        if ($IsWindows) { & "$PSScriptRoot/../gradlew.bat" :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain *> (Join-Path $OutputDirectory 'build.log') }
+        else { & bash "$PSScriptRoot/../gradlew" :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain *> (Join-Path $OutputDirectory 'build.log') }
+    } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw 'APK build failed; inspect build.log' }
 }
 Invoke-Adb -Arguments @('install','-r',"$PSScriptRoot/../app/build/outputs/apk/debug/app-debug.apk") -TimeoutSeconds 180 | Out-Null

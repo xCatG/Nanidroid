@@ -82,12 +82,18 @@ class Milestone5CorpusTest {
         val args = InstrumentationRegistry.getArguments()
         val context = instrumentation.targetContext
         val app = context.applicationContext as NanidroidApplication
+        org.junit.Assume.assumeTrue("Run tools/test-milestone5-corpus.ps1; required arguments: corpusLabel, corpusSha256, corpusPath",
+            listOf("corpusLabel", "corpusSha256", "corpusPath", "corpusKind").any { args.containsKey(it) })
+        require(listOf("corpusLabel", "corpusSha256", "corpusPath").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: corpusLabel, corpusSha256, corpusPath"
+        }
+        require(!args.containsKey("corpusKind") || args.getString("corpusKind")?.matches(Regex("[A-Za-z0-9_-]{1,100}")) == true) { "Invalid corpusKind" }
         val label = requireNotNull(args.getString("corpusLabel"))
-        require(label.matches(Regex("[a-zA-Z0-9_-]{1,100}")))
+        require(label.matches(Regex("[a-zA-Z0-9_-]{1,100}"))) { "Invalid corpusLabel" }
         val expectedHash = requireNotNull(args.getString("corpusSha256"))
-        require(expectedHash.matches(Regex("[0-9a-fA-F]{64}")))
+        require(expectedHash.matches(Regex("[0-9a-fA-F]{64}"))) { "corpusSha256 must be 64 hex characters" }
         val inputName = requireNotNull(args.getString("corpusPath"))
-        require(inputName.matches(Regex("[a-zA-Z0-9_.-]{1,100}")))
+        require(inputName.matches(Regex("[a-zA-Z0-9_.-]{1,100}"))) { "Invalid corpusPath" }
         val input = File(context.filesDir, inputName)
         val output = requireNotNull(context.getExternalFilesDir(null))
         val phaseFile = File(output, "corpus-phase.txt")
