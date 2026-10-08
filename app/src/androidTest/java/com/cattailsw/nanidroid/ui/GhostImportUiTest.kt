@@ -165,11 +165,9 @@ class GhostImportUiTest {
 
 /** Host-staged unchanged corpus; kept separate from the normal synthetic UI tests. */
 class RealCorpusImportUiTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val compose = createAndroidComposeRule<MainActivity>()
 
-    /** One fresh app-data installation and unchanged host-staged NAR per invocation. */
-    @Test fun importedCorpusRendersOwnStageAndClosesThroughVisibleControls() {
-        val args = InstrumentationRegistry.getArguments()
+    private fun requireCorpusArguments(args: android.os.Bundle) {
         org.junit.Assume.assumeTrue("Run host-staged corpus UI probe; required arguments: uiCorpusPath, uiCorpusSha256, uiCorpusGhostId, uiCorpusMode",
             listOf("uiCorpusPath", "uiCorpusSha256", "uiCorpusGhostId", "uiCorpusMode").any { args.containsKey(it) })
         require(listOf("uiCorpusPath", "uiCorpusSha256", "uiCorpusGhostId", "uiCorpusMode").all { !args.getString(it).isNullOrBlank() }) {
@@ -183,6 +181,64 @@ class RealCorpusImportUiTest {
         require(id.matches(Regex("[A-Za-z0-9 _-]{1,100}")) && id == id.trim()) { "Invalid uiCorpusGhostId" }
         val mode = requireNotNull(args.getString("uiCorpusMode"))
         require(mode == "aya5-only" || mode == "yaya") { "uiCorpusMode must be aya5-only or yaya" }
+    }
+
+    private fun requireProbeArguments(args: android.os.Bundle) {
+        org.junit.Assume.assumeTrue("Run host-staged corpus cancellation probe; required arguments: uiProbePath, uiProbeSha256",
+            listOf("uiProbePath", "uiProbeSha256").any { args.containsKey(it) })
+        require(listOf("uiProbePath", "uiProbeSha256").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: uiProbePath, uiProbeSha256"
+        }
+        val name = requireNotNull(args.getString("uiProbePath"))
+        require(name.matches(Regex("[A-Za-z0-9_.-]{1,100}"))) { "Invalid uiProbePath" }
+        val expected = requireNotNull(args.getString("uiProbeSha256")).lowercase()
+        require(expected.matches(Regex("[0-9a-f]{64}"))) { "Invalid uiProbeSha256" }
+    }
+
+    private val hostPrerequisites = org.junit.rules.TestRule { base, description ->
+        object : org.junit.runners.model.Statement() {
+            override fun evaluate() {
+                val instrumentation = InstrumentationRegistry.getInstrumentation()
+                val launches = AtomicInteger(0)
+                val callback = androidx.test.runner.lifecycle.ActivityLifecycleCallback { activity, stage ->
+                    if (activity is MainActivity && stage == androidx.test.runner.lifecycle.Stage.CREATED) {
+                        launches.incrementAndGet()
+                    }
+                }
+                instrumentation.runOnMainSync {
+                    androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                        .addLifecycleCallback(callback)
+                }
+                try {
+                    val args = InstrumentationRegistry.getArguments()
+                    when (description.methodName) {
+                        "importedCorpusRendersOwnStageAndClosesThroughVisibleControls" -> requireCorpusArguments(args)
+                        "cancelRealImportThroughVisibleDialog" -> requireProbeArguments(args)
+                        else -> error("Unclassified host UI method: ${description.methodName}")
+                    }
+                    base.evaluate()
+                } finally {
+                    instrumentation.runOnMainSync {
+                        androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                            .removeLifecycleCallback(callback)
+                    }
+                    android.util.Log.i("NanidroidHostUi", "UI_HOST_LAUNCH method=${description.methodName} created=${launches.get()}")
+                }
+            }
+        }
+    }
+
+    @get:Rule val rules: org.junit.rules.TestRule = org.junit.rules.RuleChain
+        .outerRule(hostPrerequisites).around(compose)
+
+    /** One fresh app-data installation and unchanged host-staged NAR per invocation. */
+    @Test fun importedCorpusRendersOwnStageAndClosesThroughVisibleControls() {
+        val args = InstrumentationRegistry.getArguments()
+        requireCorpusArguments(args)
+        val name = requireNotNull(args.getString("uiCorpusPath"))
+        val expectedHash = requireNotNull(args.getString("uiCorpusSha256" )).lowercase()
+        val id = requireNotNull(args.getString("uiCorpusGhostId"))
+        val mode = requireNotNull(args.getString("uiCorpusMode"))
         val target = compose.activity
         val app = target.application as NanidroidApplication
         val source = File(target.filesDir, name)
@@ -299,11 +355,7 @@ class RealCorpusImportUiTest {
 
     @Test fun cancelRealImportThroughVisibleDialog() {
         val args = InstrumentationRegistry.getArguments()
-        org.junit.Assume.assumeTrue("Run host-staged corpus cancellation probe; required arguments: uiProbePath, uiProbeSha256",
-            listOf("uiProbePath", "uiProbeSha256").any { args.containsKey(it) })
-        require(listOf("uiProbePath", "uiProbeSha256").all { !args.getString(it).isNullOrBlank() }) {
-            "Provide all nonblank host arguments: uiProbePath, uiProbeSha256"
-        }
+        requireProbeArguments(args)
         val target = compose.activity
         val app = target.application as NanidroidApplication
         val name = requireNotNull(args.getString("uiProbePath"))
