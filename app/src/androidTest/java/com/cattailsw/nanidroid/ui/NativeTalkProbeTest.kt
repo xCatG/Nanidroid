@@ -81,7 +81,7 @@ class NativeTalkProbeTest {
         assertEquals(NativeAvailability.Available, host.availability.value)
         ActivityScenario.launch(MainActivity::class.java).use {
             try {
-            waitUntil(45_000, "nativeAboutBackKeepsSameReadyLeaseWithoutBootOrClose/" + fixtureId, "(runtime.state.value as? StageState.Ready)?.ghostName == \"Earthquake Duo!\" &&",
+            waitUntil(45_000, "nativeAboutBackKeepsSameReadyLeaseWithoutBootOrClose/" + fixtureId, "ready Earthquake ghost with native lease and boot event",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) {
                 (runtime.state.value as? StageState.Ready)?.ghostName == "Earthquake Duo!" &&
                     runtime.activeNativeLeaseForTest() != null &&
@@ -111,9 +111,9 @@ class NativeTalkProbeTest {
                 "eventsAfterAbout=${after.events.drop(baseline.events.size)}")
             } finally {
                 runtime.close()
-                waitUntil(30_000, "nativeAboutBackKeepsSameReadyLeaseWithoutBootOrClose/" + fixtureId, "runtime.state.value is StageState.Finished }",
+                waitUntil(30_000, "nativeAboutBackKeepsSameReadyLeaseWithoutBootOrClose/" + fixtureId, "runtime finished",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { runtime.state.value is StageState.Finished }
-                waitUntil(30_000, "nativeAboutBackKeepsSameReadyLeaseWithoutBootOrClose/" + fixtureId, "host.availability.value == NativeAvailability.Available }",
+                waitUntil(30_000, "nativeAboutBackKeepsSameReadyLeaseWithoutBootOrClose/" + fixtureId, "native host available",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { host.availability.value == NativeAvailability.Available }
                 val cleaned = host.observationForTest()
                 println("M5_NATIVE_ABOUT_CLEANUP loads=${cleaned.loads} " +
@@ -163,12 +163,12 @@ class NativeTalkProbeTest {
             bitmap.recycle()
         }
         ActivityScenario.launch(MainActivity::class.java).use {
-            waitUntil(45_000, "groupBDeepInteraction/" + id, "(runtime.state.value as? StageState.Ready)?.ghostName?.startsWith(expectedName) == true }",
+            waitUntil(45_000, "groupBDeepInteraction/" + id, "ready expected fixture ghost",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { (runtime.state.value as? StageState.Ready)?.ghostName?.startsWith(expectedName) == true }
             assertEquals(id, com.cattailsw.nanidroid.data.PreferencesLastGhostStore(
                 context.getSharedPreferences("last_ghost", 0)).read())
             assertEquals(null, ready().activationError)
-            waitUntil(45_000, "groupBDeepInteraction/" + id, "runtime.activeNativeLeaseForTest() != null }",
+            waitUntil(45_000, "groupBDeepInteraction/" + id, "active native lease",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { runtime.activeNativeLeaseForTest() != null }
             compose.waitUntil(45_000) {
                 val authored = (runtime.state.value as? StageState.Ready)?.frame?.let { frame ->
@@ -194,7 +194,7 @@ class NativeTalkProbeTest {
 
             val beforeClick = host.observationForTest().eventCount("OnMouseDoubleClick")
             runtime.doubleClick(0, 100, 100)
-            waitUntil(20_000, "groupBDeepInteraction/" + id, "host.observationForTest().eventCount(\"OnMouseDoubleClick\") > beforeClick }",
+            waitUntil(20_000, "groupBDeepInteraction/" + id, "double-click event count increased",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { host.observationForTest().eventCount("OnMouseDoubleClick") > beforeClick }
             SystemClock.sleep(1_300)
             detail("runtime-double-click")
@@ -225,7 +225,7 @@ class NativeTalkProbeTest {
                 val eventsBefore = host.observationForTest()
                 println("M5_DEEP_B id=$id phase=choose label=${choice.label}")
                 runtime.choose(choice.token)
-                waitUntil(20_000, "groupBDeepInteraction/" + id, "val events = host.observationForTest()",
+                waitUntil(20_000, "groupBDeepInteraction/" + id, "choice event count increased once or native request ordinal advanced",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) {
                     val events = host.observationForTest()
                     if (expectedChoiceEvent == null) events.requestOrdinal > eventsBefore.requestOrdinal
@@ -244,24 +244,24 @@ class NativeTalkProbeTest {
             }
 
             runtime.selectGhost("nanidroid")
-            waitUntil(20_000, "groupBDeepInteraction/" + id, "(runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId == \"nanidroid\" }",
+            waitUntil(20_000, "groupBDeepInteraction/" + id, "switch prompt targets Nanidroid",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { (runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId == "nanidroid" }
             runtime.confirmSwitch()
-            waitUntil(60_000, "groupBDeepInteraction/" + id, "(runtime.state.value as? StageState.Ready)?.ghostName == \"Nanidroid\" }",
+            waitUntil(60_000, "groupBDeepInteraction/" + id, "ready Nanidroid ghost",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { (runtime.state.value as? StageState.Ready)?.ghostName == "Nanidroid" }
             println("M5_DEEP_B id=$id phase=switch-away")
             runtime.selectGhost(id)
-            waitUntil(20_000, "groupBDeepInteraction/" + id, "(runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId == id }",
+            waitUntil(20_000, "groupBDeepInteraction/" + id, "switch prompt targets fixture",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { (runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId == id }
             runtime.confirmSwitch()
-            waitUntil(60_000, "groupBDeepInteraction/" + id, "(runtime.state.value as? StageState.Ready)?.ghostName?.startsWith(expectedName) == true }",
+            waitUntil(60_000, "groupBDeepInteraction/" + id, "ready expected fixture ghost",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { (runtime.state.value as? StageState.Ready)?.ghostName?.startsWith(expectedName) == true }
             SystemClock.sleep(1_300)
             detail("switch-back")
             capture("switch-back")
             runtime.close()
             println("M5_DEEP_B id=$id phase=single-close-requested")
-            waitUntil(90_000, "groupBDeepInteraction/" + id, "runtime.state.value is StageState.Finished }",
+            waitUntil(90_000, "groupBDeepInteraction/" + id, "runtime finished",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { runtime.state.value is StageState.Finished }
             println("M5_DEEP_B id=$id phase=finished availability=${host.availability.value}")
         }
@@ -339,7 +339,7 @@ class NativeTalkProbeTest {
             assertTrue("$id $phase native script lacked substantive text: $script",
                 nativeText.count(Char::isLetter) >= 8)
             val signature = nativeText.trimStart().take(16)
-            waitUntil(30_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "(runtime.state.value as? StageState.Ready)?.frame?.let {",
+            waitUntil(30_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "ready frame contains native reply signature",
                 snapshot = { nativeSnapshot(runtime, host) + " clickReplyStatus=${clickReply.get()?.status} choiceReplyStatus=${choiceReply.get()?.status}" }) { (runtime.state.value as? StageState.Ready)?.frame?.let {
                 frame -> (frame.sakura.text + frame.kero.text).contains(signature)
             } == true }
@@ -350,17 +350,17 @@ class NativeTalkProbeTest {
         }
         try {
             runBlocking { runtime.start("en") }
-            waitUntil(45_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "(runtime.state.value as? StageState.Ready)?.ghostName?.startsWith(expectedName) == true &&",
+            waitUntil(45_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "ready expected fixture ghost with native lease",
                 snapshot = { nativeSnapshot(runtime, host) + " clickReplyStatus=${clickReply.get()?.status} choiceReplyStatus=${choiceReply.get()?.status}" }) {
                 (runtime.state.value as? StageState.Ready)?.ghostName?.startsWith(expectedName) == true &&
                     runtime.activeNativeLeaseForTest() != null
             }
             runtime.setResumed(true)
             runtime.doubleClick(0, 100, 100)
-            waitUntil(30_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "clickReply.get() != null }",
+            waitUntil(30_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "native double-click reply recorded",
                 snapshot = { nativeSnapshot(runtime, host) + " clickReplyStatus=${clickReply.get()?.status} choiceReplyStatus=${choiceReply.get()?.status}" }) { clickReply.get() != null }
             matchReply("double-click", requireNotNull(clickReply.get()))
-            waitUntil(30_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "val ready = runtime.state.value as? StageState.Ready",
+            waitUntil(30_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "ready frame offers choices or dialogue ended",
                 snapshot = { nativeSnapshot(runtime, host) + " clickReplyStatus=${clickReply.get()?.status} choiceReplyStatus=${choiceReply.get()?.status}" }) {
                 val ready = runtime.state.value as? StageState.Ready
                 ready?.choices?.values?.flatten()?.isNotEmpty() == true || ready?.frame?.ended == true
@@ -379,7 +379,7 @@ class NativeTalkProbeTest {
                 val token = offered.first { it.label == expectedLabel }.token
                 val before = host.observationForTest().eventCount(requireNotNull(choiceEvent))
                 runtime.choose(token)
-                waitUntil(30_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "choiceReply.get() != null }",
+                waitUntil(30_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "native choice reply recorded",
                 snapshot = { nativeSnapshot(runtime, host) + " clickReplyStatus=${clickReply.get()?.status} choiceReplyStatus=${choiceReply.get()?.status}" }) { choiceReply.get() != null }
                 assertEquals("$id choice native event count", before + 1,
                     host.observationForTest().eventCount(requireNotNull(choiceEvent)))
@@ -392,7 +392,7 @@ class NativeTalkProbeTest {
         } finally {
             try {
                 runtime.close()
-                waitUntil(90_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "runtime.state.value is StageState.Finished }",
+                waitUntil(90_000, "groupBRecordedNativeReplyMatchesVisibleState/" + id, "runtime finished",
                 snapshot = { nativeSnapshot(runtime, host) + " clickReplyStatus=${clickReply.get()?.status} choiceReplyStatus=${choiceReply.get()?.status}" }) { runtime.state.value is StageState.Finished }
             } finally {
                 scope.cancel()
@@ -437,7 +437,7 @@ class NativeTalkProbeTest {
             bitmap.recycle()
         }
         ActivityScenario.launch(MainActivity::class.java).use {
-            waitUntil(30_000, "groupADeepInteraction/" + id, "(runtime.state.value as? StageState.Ready)?.ghostName?.isNotBlank() == true }",
+            waitUntil(30_000, "groupADeepInteraction/" + id, "ready named ghost",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { (runtime.state.value as? StageState.Ready)?.ghostName?.isNotBlank() == true }
             assertEquals(id, com.cattailsw.nanidroid.data.PreferencesLastGhostStore(
                 context.getSharedPreferences("last_ghost", 0)).read())
@@ -448,7 +448,7 @@ class NativeTalkProbeTest {
                 else -> "Big Red Button"
             }, frame().ghostName)
             assertEquals("Unexpected activation fallback", null, frame().activationError)
-            waitUntil(30_000, "groupADeepInteraction/" + id, "runtime.activeNativeLeaseForTest() != null }",
+            waitUntil(30_000, "groupADeepInteraction/" + id, "active native lease",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { runtime.activeNativeLeaseForTest() != null }
             SystemClock.sleep(1200)
             detail("boot")
@@ -456,11 +456,11 @@ class NativeTalkProbeTest {
             val before = host.observationForTest().eventCount("OnMouseDoubleClick")
             runtime.doubleClick(0, 100, 100)
             println("M5_DEEP_A id=$id phase=runtime-double-click events=${host.observationForTest().events.takeLast(8)}")
-            waitUntil(15_000, "groupADeepInteraction/" + id, "host.observationForTest().eventCount(\"OnMouseDoubleClick\") > before }",
+            waitUntil(15_000, "groupADeepInteraction/" + id, "double-click event count increased",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { host.observationForTest().eventCount("OnMouseDoubleClick") > before }
             SystemClock.sleep(1200)
             if (id == "2elf") {
-                waitUntil(15_000, "groupADeepInteraction/" + id, "frame().frame.sakura.text.contains(\"オプション\") }",
+                waitUntil(15_000, "groupADeepInteraction/" + id, "ready frame displays options text",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { frame().frame.sakura.text.contains("オプション") }
             }
             detail("double-tap")
@@ -471,19 +471,19 @@ class NativeTalkProbeTest {
                     frame().frame.sakura.text + frame().frame.kero.text)
             }
             if (id == "earthquake_duo") {
-                waitUntil(15_000, "groupADeepInteraction/" + id, "frame().choices.values.flatten().any { it.label == \"Say something\" } }",
+                waitUntil(15_000, "groupADeepInteraction/" + id, "ready frame offers Say something choice",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { frame().choices.values.flatten().any { it.label == "Say something" } }
                 val token = frame().choices.values.flatten().first { it.label == "Say something" }.token
                 val talkBefore = host.observationForTest().eventCount("OnAiTalk")
                 runtime.choose(token)
-                waitUntil(15_000, "groupADeepInteraction/" + id, "host.observationForTest().eventCount(\"OnAiTalk\") == talkBefore + 1 }",
+                waitUntil(15_000, "groupADeepInteraction/" + id, "OnAiTalk event count increased once",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { host.observationForTest().eventCount("OnAiTalk") == talkBefore + 1 }
                 SystemClock.sleep(1300)
                 detail("choice-on-ai-talk")
                 capture("choice-on-ai-talk")
             }
             if (id == "lobo_okuajub") {
-                waitUntil(20_000, "groupADeepInteraction/" + id, "frame().choices.values.flatten().any { it.label == \"Say Something\" } }",
+                waitUntil(20_000, "groupADeepInteraction/" + id, "ready frame offers Say Something choice",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { frame().choices.values.flatten().any { it.label == "Say Something" } }
                 SystemClock.sleep(700)
                 detail("menu-ready")
@@ -491,7 +491,7 @@ class NativeTalkProbeTest {
                 val token = frame().choices.values.flatten().first { it.label == "Say Something" }.token
                 val talkBefore = host.observationForTest().eventCount("OnAITalk")
                 runtime.choose(token)
-                waitUntil(15_000, "groupADeepInteraction/" + id, "host.observationForTest().eventCount(\"OnAITalk\") == talkBefore + 1 }",
+                waitUntil(15_000, "groupADeepInteraction/" + id, "OnAITalk event count increased once",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { host.observationForTest().eventCount("OnAITalk") == talkBefore + 1 }
                 SystemClock.sleep(1300)
                 assertTrue("LOBO choice produced no visible dialogue",
@@ -500,24 +500,24 @@ class NativeTalkProbeTest {
                 capture("choice-on-ai-talk")
             }
             runtime.selectGhost("nanidroid")
-            waitUntil(15_000, "groupADeepInteraction/" + id, "(runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId == \"nanidroid\" }",
+            waitUntil(15_000, "groupADeepInteraction/" + id, "switch prompt targets Nanidroid",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { (runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId == "nanidroid" }
             runtime.confirmSwitch()
-            waitUntil(60_000, "groupADeepInteraction/" + id, "(runtime.state.value as? StageState.Ready)?.ghostName == \"Nanidroid\" }",
+            waitUntil(60_000, "groupADeepInteraction/" + id, "ready Nanidroid ghost",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { (runtime.state.value as? StageState.Ready)?.ghostName == "Nanidroid" }
             println("M5_DEEP_A id=$id phase=switch-away name=${frame().ghostName}")
             runtime.selectGhost(id)
-            waitUntil(15_000, "groupADeepInteraction/" + id, "(runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId == id }",
+            waitUntil(15_000, "groupADeepInteraction/" + id, "switch prompt targets fixture",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { (runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId == id }
             runtime.confirmSwitch()
-            waitUntil(60_000, "groupADeepInteraction/" + id, "(runtime.state.value as? StageState.Ready)?.ghostName != \"Nanidroid\" }",
+            waitUntil(60_000, "groupADeepInteraction/" + id, "ready ghost differs from Nanidroid",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { (runtime.state.value as? StageState.Ready)?.ghostName != "Nanidroid" }
             SystemClock.sleep(1000)
             detail("switch-back")
             capture("switch-back")
             runtime.close()
             println("M5_DEEP_A id=$id phase=single-close-requested")
-            waitUntil(90_000, "groupADeepInteraction/" + id, "runtime.state.value is StageState.Finished }",
+            waitUntil(90_000, "groupADeepInteraction/" + id, "runtime finished",
                 snapshot = { nativeSnapshot(runtime, host) + " " }) { runtime.state.value is StageState.Finished }
             println("M5_DEEP_A id=$id phase=finished availability=${host.availability.value}")
         }
@@ -586,7 +586,7 @@ class NativeTalkProbeTest {
         )
         try {
             runBlocking { runtime.start("en") }
-            waitUntil(30_000, "snakeV132SingleCloseDiagnostic/" + "Snake_Otacon", "val ready = runtime.state.value as? StageState.Ready",
+            waitUntil(30_000, "snakeV132SingleCloseDiagnostic/" + "Snake_Otacon", "ready Snake and Otacon ghost without activation error and with native lease",
                 snapshot = { nativeSnapshot(runtime, host) + " closeReplyStatus=${closeReply.get()?.status}" }) {
                 val ready = runtime.state.value as? StageState.Ready
                 ready?.ghostName == "Snake and Otacon" && ready.activationError == null &&
@@ -594,7 +594,7 @@ class NativeTalkProbeTest {
             }
             runtime.setResumed(true)
             val tickerField = GhostRuntime::class.java.getDeclaredField("ticker").apply { isAccessible = true }
-            waitUntil(5_000, "snakeV132SingleCloseDiagnostic/" + "Snake_Otacon", "(tickerField.get(runtime) as? kotlinx.coroutines.Job)?.isActive == true }",
+            waitUntil(5_000, "snakeV132SingleCloseDiagnostic/" + "Snake_Otacon", "runtime ticker active",
                 snapshot = { nativeSnapshot(runtime, host) + " closeReplyStatus=${closeReply.get()?.status}" }) { (tickerField.get(runtime) as? kotlinx.coroutines.Job)?.isActive == true }
             SystemClock.sleep(2_000)
             val loaded = runtime.state.value as StageState.Ready
@@ -715,15 +715,15 @@ class NativeTalkProbeTest {
         )
         try {
             runBlocking { runtime.start("en") }
-            waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "runtime.activeNativeLeaseForTest() != null }",
+            waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "active native lease",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) { runtime.activeNativeLeaseForTest() != null }
-            waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "host.observationForTest().let { it.eventCount(\"OnFirstBoot\") + it.eventCount(\"OnBoot\") > before.eventCount(\"OnFirstBoot\") + before.eventCount(\"OnBoot\") }",
+            waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "boot or first-boot event count increased",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) {
                 host.observationForTest().let { it.eventCount("OnFirstBoot") + it.eventCount("OnBoot") > before.eventCount("OnFirstBoot") + before.eventCount("OnBoot") }
             }
             runtime.setResumed(true)
             runtime.doubleClick(0, 100, 100)
-            waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "val ready = runtime.state.value as? StageState.Ready",
+            waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "ready Sakura frame offers OnAiTalk choice",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) {
                 val ready = runtime.state.value as? StageState.Ready
                 ready?.frame?.sakura?.choices?.any { choice -> choice.choiceId == "OnAiTalk" } == true
@@ -745,7 +745,7 @@ class NativeTalkProbeTest {
                 (runtime.state.value as? StageState.Ready)?.choices?.values?.flatten()?.any { it.token == token } == true)
             val previousTalks = host.observationForTest().eventCount("OnAiTalk")
             runtime.choose(token)
-            waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "host.observationForTest().eventCount(\"OnAiTalk\") == previousTalks + 1",
+            waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "OnAiTalk event count increased once",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) {
                 host.observationForTest().eventCount("OnAiTalk") == previousTalks + 1
             }
@@ -757,7 +757,7 @@ class NativeTalkProbeTest {
             assertTrue("Earthquake OnAiTalk produced no substantive native dialogue: ${talk.value}",
                 nativeText.count(Char::isLetter) >= 12)
             val nativeSignature = nativeText.take(20)
-            waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "val ready = runtime.state.value as? StageState.Ready ?: return@waitUntil false",
+            waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "ready frame contains native reply signature with no remaining choices",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) {
                 val ready = runtime.state.value as? StageState.Ready ?: return@waitUntil false
                 val text = ready.frame.sakura.text + ready.frame.kero.text
@@ -773,7 +773,7 @@ class NativeTalkProbeTest {
             try {
                 runtime.close()
                 runtime.close()
-                waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "runtime.state.value is StageState.Finished }",
+                waitUntil(30_000, "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk/" + fixtureId, "runtime finished",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) { runtime.state.value is StageState.Finished }
             } finally {
                 scope.cancel()
@@ -826,15 +826,15 @@ class NativeTalkProbeTest {
         )
         try {
             runBlocking { runtime.start("en") }
-            waitUntil(30_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "runtime.activeNativeLeaseForTest() != null }",
+            waitUntil(30_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "active native lease",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) { runtime.activeNativeLeaseForTest() != null }
-            waitUntil(30_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "(runtime.state.value as? StageState.Ready)?.ghostName == \"LOBO\"",
+            waitUntil(30_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "ready LOBO ghost",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) {
                 (runtime.state.value as? StageState.Ready)?.ghostName == "LOBO"
             }
             runtime.setResumed(true)
             runtime.doubleClick(0, 100, 100)
-            waitUntil(30_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "(runtime.state.value as? StageState.Ready)?.choices?.values?.flatten()",
+            waitUntil(30_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "ready frame offers Say Something choice",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) {
                 (runtime.state.value as? StageState.Ready)?.choices?.values?.flatten()
                     ?.any { it.label == "Say Something" } == true
@@ -846,7 +846,7 @@ class NativeTalkProbeTest {
                 .first { it.label == "Say Something" }.token
             val beforeTalks = host.observationForTest().eventCount("OnAITalk")
             runtime.choose(token)
-            waitUntil(30_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "talkReply.get() != null }",
+            waitUntil(30_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "native OnAITalk reply recorded",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) { talkReply.get() != null }
             assertEquals("LOBO native OnAITalk count", beforeTalks + 1,
                 host.observationForTest().eventCount("OnAITalk"))
@@ -859,7 +859,7 @@ class NativeTalkProbeTest {
             assertTrue("LOBO native OnAITalk response was empty: $script",
                 nativeText.count(Char::isLetter) >= 12)
             val signature = nativeText.take(20)
-            waitUntil(30_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "val ready = runtime.state.value as? StageState.Ready ?: return@waitUntil false",
+            waitUntil(30_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "ready frame contains native reply signature",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) {
                 val ready = runtime.state.value as? StageState.Ready ?: return@waitUntil false
                 (ready.frame.sakura.text + ready.frame.kero.text).contains(signature)
@@ -872,7 +872,7 @@ class NativeTalkProbeTest {
         } finally {
             try {
                 runtime.close()
-                waitUntil(90_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "runtime.state.value is StageState.Finished }",
+                waitUntil(90_000, "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply/" + "lobo_okuajub", "runtime finished",
                 snapshot = { nativeSnapshot(runtime, host) + " menuReplyStatus=${menuReply.get()?.status} talkReplyStatus=${talkReply.get()?.status}" }) { runtime.state.value is StageState.Finished }
             } finally {
                 scope.cancel()
@@ -885,7 +885,6 @@ class NativeTalkProbeTest {
 
     private fun nativeSnapshot(runtime: GhostRuntime, host: NativeShioriHost): String {
         val state = runtime.state.value
-        val ready = state as? StageState.Ready
         val observation = host.observationForTest()
         // Never include authored text, private reply scripts, or choice labels.
         val stateSummary = when (state) {
@@ -921,7 +920,7 @@ class NativeTalkProbeTest {
         var conditions = 0
         var snapshots = 0
         val failure = try {
-            waitUntil(100, "synthetic-LOBO", "ready native lease", snapshot = {
+            waitUntil(100, "synthetic-LOBO", "ready LOBO ghost", snapshot = {
                 snapshots++
                 "lastStageState=${state.value} lease=null availability=Available observedEvents=0"
             }, now = { clock }, pause = {
@@ -936,6 +935,7 @@ class NativeTalkProbeTest {
         assertEquals(2, conditions)
         assertEquals(1, snapshots)
         assertTrue(failure.message.orEmpty().contains("scenario=synthetic-LOBO"))
+        assertTrue(failure.message.orEmpty().contains("awaited=ready LOBO ghost elapsedMs="))
         assertTrue(failure.message.orEmpty().contains("lastStageState=Finished"))
         assertTrue(failure.message.orEmpty().contains("elapsedMs=100 deadlineMs=100"))
         assertFalse(failure.message.orEmpty().contains("Earthquake"))

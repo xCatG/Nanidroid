@@ -56,3 +56,27 @@ Raw logs (including first-red JVM output), final XML, APK hashes, source diff, s
 No authorized identity-verified private fixtures were available to this task. Dynamic Earthquake rendering and real private/native fixture cohorts remain unexecuted. No real private archive acceptance map was invented. Existing M5 missing LOBO Pixel cycles and intermittent Compose wrong-thread/IME exceptions remain accepted risks, not fixed/passing results.
 
 Self-review preserved all existing @Test identities and distinct positive/held/translation/resize/cancellation assertions. Working diff check passed exit 0. Full-range `git diff --check d5d99cf52685bb01c035f306007d6cacb0abeb2b..HEAD` and clean-status evidence are recorded at local commit closeout.
+
+## Review fix round 1
+
+Addressed `.superpowers/sdd/issue-426/review-430.md` on `9547ff3d39801cd1b41c71e95d77b9a42f7145a9`. Replaced all 45 native runtime awaited labels with complete short semantic condition names. Compound predicates name their complete requirements (for example, ready Earthquake ghost with native lease and boot event); choice alternatives, recorded replies and rendered signatures are explicit. Removed only the unused `ready` local in nativeSnapshot. The actual-helper synthetic assertion now requires the complete `awaited=ready LOBO ghost elapsedMs=` diagnostic field and actual last state. A normalized before/after diff check confirmed predicates, deadlines and other behavior were unchanged; its output was `Normalized scoped diff: predicates, deadlines and other behavior unchanged` (exit 0).
+
+Covering commands, with the same explicit JDK/SDK and owned emulator:
+
+```powershell
+.\gradlew.bat :app:assembleDebugAndroidTest --offline --console=plain
+adb -s emulator-5580 install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb -s emulator-5580 shell am instrument -w -r -e class 'com.cattailsw.nanidroid.ui.NativeTalkProbeTest#nativeAboutBackKeepsSameReadyLeaseWithoutBootOrClose' com.cattailsw.nanidroid.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+Assembly output: `BUILD SUCCESSFUL in 5s`, exit 0. Install: `Success`. One selected/observed wrapper method, 0 passed/1 skipped/0 failed/0 incomplete method records; strict outcome remains incomplete due to missing fixtureId. Instrumentation output: terminal method status -4 with the expected absent-fixtureId assumption, terminal instrumentation code -1, time 0.389 s, wall 1.722 s, adb exit 0. The permanent @Before actual-helper assertions completed successfully before that assumption; filtered logcat output proves:
+
+```text
+WAIT_DIAGNOSTICS_SYNTHETIC Timed out scenario=synthetic-LOBO awaited=ready LOBO ghost elapsedMs=100 deadlineMs=100 absoluteDeadlineMs=100 lastStageState=Finished lease=null availability=Available observedEvents=0
+```
+
+No private fixture/native cohort was run or counted as passing. No JVM, gesture or full-suite repetitions were needed for these diagnostics-only edits. Both protected sentinel SHA256 values remain unchanged. No owned fixture roots were created or deleted.
+
+APK/source evidence: base `9547ff3d39801cd1b41c71e95d77b9a42f7145a9` plus final NativeTalkProbeTest working diff at build time, captured in ignored `430-evidence/fix1-source-base.txt` and `fix1-source-working.diff`; only this report was appended afterward. App APK hash unchanged `99a25e4d0c597b32787e1a3cbaac8850589cbb54c6c682eb13bfa0923fba2c59`; rebuilt test APK SHA256 `bd66bc389a3c434eb59886b006f5fee50a04242d7ef02facd52baab10dc1a6d8`. Raw assembly/instrumentation/diagnostic/timing/hash evidence is ignored under `430-evidence/fix1-*`. This is base-plus-working-diff verification, not the later clean integrated committed gate.
+
+Working and full-range `git diff --check d5d99cf52685bb01c035f306007d6cacb0abeb2b..HEAD` return exit 0; clean local status is checked at fix commit closeout. Independent scoped re-review remains controller work.
