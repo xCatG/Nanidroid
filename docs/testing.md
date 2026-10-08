@@ -32,6 +32,17 @@ reviewed public-safe maps and retain private evidence outside Git. Internal
 synthetic success/rejection/wrong-hash guards keep their explicit expectations;
 the wrong-hash instrumentation must fail and is not a passing test.
 
+The host refines the completed device result using its recorded current
+`EngineSelector` kind and actual stage/boot evidence. A detected `UNSUPPORTED`
+engine with installed own-stage render/close and no activation error is
+`unsupported-engine`. A known native engine with empty first/later dialogue and
+an empty successful real-lease boot replay (status 200/204) is
+`partial-unsupported`: boot dialogue was not observed. Intentional authored silence
+can receive that conservative limitation; it does not prove unsupported authored
+scripts. Missing/failed replay, missing kind, activation error or incomplete close
+cannot establish a limited pass. Raw hard-failure categories stay failures, and
+each refinement retains its basis alongside the unchanged device JSON.
+
 Use a fresh ignored output directory (or a temporary directory outside the
 repository). Each executed run writes `summary.json` with source, selection,
 counts, outcome/reasons and retained scenario/row records; corpus summaries also

@@ -42,6 +42,37 @@ function Assert-NativeMethodCompleteness([string[]]$Expected, $Observed) {
         if ($matches.Count -ne 1 -or $matches[0].status -ne 'passed') { throw "Native method did not pass exactly once: $method" }
     }
 }
+function Get-CorpusClassification($Result) {
+    # Preserve the device's failure/rejection categories; expectations are not input.
+    if ($Result.classification -cnotin @('supported-smoke','partial-unsupported','unsupported-engine')) {
+        return @{classification=$Result.classification;basis='Device classification retained without refinement'}
+    }
+    if ($Result.testStatus -cne 'completed' -or $Result.importOutcome -cne 'Installed' -or
+        [string]::IsNullOrWhiteSpace($Result.directoryId) -or [string]::IsNullOrWhiteSpace($Result.displayName) -or
+        $Result.activeGhost -cne $Result.displayName -or $Result.activationError -or $Result.closeState -cne 'Finished' -or
+        $Result.detectedEngineKind -cnotin @('BUILTIN','SATORI','KAWARI','YAYA','UNSUPPORTED') -or
+        $Result.firstBootText -isnot [string] -or $Result.laterText -isnot [string]) {
+        throw 'Incomplete/error/own-stage evidence cannot establish corpus smoke or a limited classification'
+    }
+    if ($Result.detectedEngineKind -ceq 'UNSUPPORTED') {
+        if ($Result.classification -ceq 'partial-unsupported') { throw 'Recorded limited classification contradicts detected engine' }
+        return @{classification='unsupported-engine';basis='Current EngineSelector detected UNSUPPORTED; installed own stage rendered and closed without activation error'}
+    }
+    if ($Result.detectedEngineKind -cin @('SATORI','KAWARI','YAYA') -and
+        $Result.firstBootText.Length -eq 0 -and $Result.laterText.Length -eq 0) {
+        if (($Result.bootReplayStatus -isnot [int] -and $Result.bootReplayStatus -isnot [long]) -or
+            $Result.bootReplayStatus -notin @(200,204) -or
+            ($null -ne $Result.bootReplayValue -and $Result.bootReplayValue -isnot [string])) {
+            throw 'Silent native stage lacks a successful real-lease boot replay result'
+        }
+        if ([string]::IsNullOrEmpty($Result.bootReplayValue)) {
+            if ($Result.classification -ceq 'unsupported-engine') { throw 'Recorded unsupported-engine classification contradicts native evidence' }
+            return @{classification='partial-unsupported';basis='Known native engine rendered/closed own stage, but first/later dialogue and successful native boot replay value were empty; boot dialogue was not observed (intentional silence is possible)'}
+        }
+    }
+    if ($Result.classification -cne 'supported-smoke') { throw 'Recorded limited classification lacks matching actual limitation evidence' }
+    return @{classification='supported-smoke';basis='Installed own-stage render/close completed without activation error; no recorded engine/boot-dialogue limitation'}
+}
 function Get-CorpusOutcome($SelectedRows, $Records, [string]$Mode, $Expectations) {
     $categories = @('supported-smoke','partial-unsupported','expected-rejection','unsupported-engine','in-scope-failure','native-failure','unverified')
     $counts = [ordered]@{}; foreach ($category in $categories) { $counts[$category]=0 }
@@ -55,9 +86,12 @@ function Get-CorpusOutcome($SelectedRows, $Records, [string]$Mode, $Expectations
         if ($actual -cin $categories) { $counts[$actual]++ } else { $reasons += "Unknown classification: $($selected.label)" }
         if ($found.Count -ne 1) { $reasons += "Missing/duplicate record: $($selected.label)"; continue }
         $record=$found[0]
+        try { $classification=Get-CorpusClassification $record.deviceResult }
+        catch { $reasons += "Invalid classification evidence: $($selected.label): $($_.Exception.Message)"; continue }
+        $rows[-1].classificationBasis=$classification.basis
         if ($record.archiveSha256 -cne $selected.sha256 -or !$record.deviceResult -or $record.deviceResult.label -cne $selected.label -or
             $record.deviceResult.actualSha256 -cne $selected.sha256 -or $record.deviceResult.expectedSha256 -cne $selected.sha256 -or
-            $record.deviceResult.classification -cne $actual -or $record.deviceResult.testStatus -ne 'completed' -or !$record.instrumentExited -or $record.instrumentExitCode -ne 0 -or !$record.instrumentOneTestOk -or
+            $classification.classification -cne $actual -or $record.deviceResult.testStatus -ne 'completed' -or !$record.instrumentExited -or $record.instrumentExitCode -ne 0 -or !$record.instrumentOneTestOk -or
             $record.instrumentStatus -ne 'passed' -or !$record.ended -or !$record.healthAfter -or $record.hostError -or $record.timeout -or $record.cleanupError -or $record.healthError -or $actual -ceq 'unverified') {
             $reasons += "Untrustworthy/incomplete evidence: $($selected.label)"; continue
         }

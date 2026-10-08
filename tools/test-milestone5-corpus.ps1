@@ -234,7 +234,12 @@ function Invoke-Row($row, [string]$source, [bool]$expectedPass, [bool]$wrongHash
             'unsupported-engine','in-scope-failure','native-failure','unverified') -and !$wrongHash) {
             throw "Unknown device classification: $($result.classification)"
         }
-        $record.outcome = if ($wrongHash) { 'expected-rejection' } else { $result.classification }
+        if ($wrongHash) { $record.outcome = 'expected-rejection' }
+        else {
+            $classification = Get-CorpusClassification $result
+            $record.outcome = $classification.classification
+            $record.classificationBasis = $classification.basis
+        }
     } catch {
         $record.hostError = $_.Exception.Message
         if ($record.hostError -match 'timed out|deadline') { $record.timeout = $true }

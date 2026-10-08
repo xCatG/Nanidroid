@@ -15,7 +15,49 @@ Reject { Resolve-OutcomeSelection @('row') @('unknown') $true } 'unknown corpus 
 $hash='a'*64
 $row=[pscustomobject]@{label='row';sha256=$hash}
 function Expect([string]$Category='supported-smoke') { [pscustomobject]@{schemaVersion=1;rows=@([pscustomobject]@{label='row';sha256=$hash;expectedClassification=$Category;basis='https://example.test/review scope rationale'})} }
-function Record([string]$Category='supported-smoke') { [pscustomobject]@{label='row';archiveSha256=$hash;outcome=$Category;deviceResult=[pscustomobject]@{label='row';actualSha256=$hash;expectedSha256=$hash;testStatus='completed';classification=$Category};instrumentExited=$true;instrumentExitCode=0;instrumentOneTestOk=$true;instrumentStatus='passed';ended='now';healthAfter=@{serial='synthetic'}} }
+function Record([string]$Category='supported-smoke') {
+    $device=DeviceResult
+    $device | Add-Member label 'row'; $device | Add-Member actualSha256 $hash; $device | Add-Member expectedSha256 $hash
+    if ($Category -eq 'partial-unsupported') { $device.firstBootText=''; $device.bootReplayStatus=204 }
+    elseif ($Category -eq 'unsupported-engine') { $device.detectedEngineKind='UNSUPPORTED' }
+    else { $device.classification=$Category }
+    [pscustomobject]@{label='row';archiveSha256=$hash;outcome=$Category;deviceResult=$device;instrumentExited=$true;instrumentExitCode=0;instrumentOneTestOk=$true;instrumentStatus='passed';ended='now';healthAfter=@{serial='synthetic'}}
+}
+function DeviceResult {
+    [pscustomobject]@{classification='supported-smoke';testStatus='completed';importOutcome='Installed';directoryId='owned';displayName='Observed ghost';activeGhost='Observed ghost';activationError=$null;closeState='Finished';detectedEngineKind='YAYA';firstBootText='Authored boot';laterText='';bootReplayStatus=$null;bootReplayValue=$null}
+}
+$device=DeviceResult
+Check ((Get-CorpusClassification $device).classification -eq 'supported-smoke') 'actual authored supported smoke'
+$device.detectedEngineKind='UNSUPPORTED'
+Check ((Get-CorpusClassification $device).classification -eq 'unsupported-engine') 'actual detected unsupported engine'
+$device=DeviceResult; $device.firstBootText=''; $device.bootReplayStatus=204
+Check ((Get-CorpusClassification $device).classification -eq 'partial-unsupported') 'actual native silent boot limitation'
+$device.bootReplayStatus=200; $device.bootReplayValue='Replayed authored text'
+Check ((Get-CorpusClassification $device).classification -eq 'supported-smoke') 'replay response is not silent limitation'
+$device=DeviceResult; $device.classification='in-scope-failure'; $device.detectedEngineKind='UNSUPPORTED'
+Check ((Get-CorpusClassification $device).classification -eq 'in-scope-failure') 'hard failure never becomes limited'
+foreach ($field in @('testStatus','importOutcome','directoryId','activeGhost','closeState','detectedEngineKind')) {
+    $device=DeviceResult; $device.$field=''
+    Reject { Get-CorpusClassification $device } "missing actual evidence $field"
+}
+$device=DeviceResult; $device.activationError='Native load failed: -1'; $device.detectedEngineKind='UNSUPPORTED'
+Reject { Get-CorpusClassification $device } 'activation failure cannot become limited'
+$device=DeviceResult; $device.classification='unsupported-engine'
+Reject { Get-CorpusClassification $device } 'raw limited label alone cannot establish limitation'
+$device=DeviceResult; $device.firstBootText=''; $device.bootReplayStatus='no-native-lease'
+Reject { Get-CorpusClassification $device } 'no-native-lease cannot establish limited smoke'
+foreach ($status in @($null,500,'204')) {
+    $device=DeviceResult; $device.firstBootText=''; $device.bootReplayStatus=$status
+    Reject { Get-CorpusClassification $device } "missing/failed/non-numeric native replay $status"
+}
+$record=Record 'unsupported-engine'; $record.deviceResult.activationError='Native load failed: -1'
+$limitedMap=Read-OutcomeExpectations (Expect 'unsupported-engine') @($row) @($row)
+Check ((Get-CorpusOutcome @($row) @($record) Acceptance $limitedMap).outcome -eq 'failed') 'actual limited error cannot pass expectation'
+$record=Record 'partial-unsupported'; $record.deviceResult.closeState='Ready'
+$limitedMap=Read-OutcomeExpectations (Expect 'partial-unsupported') @($row) @($row)
+Check ((Get-CorpusOutcome @($row) @($record) Acceptance $limitedMap).outcome -eq 'failed') 'actual limited incomplete close cannot pass expectation'
+$record=Record 'partial-unsupported'; $record.deviceResult.detectedEngineKind=''
+Check ((Get-CorpusOutcome @($row) @($record) Acceptance $limitedMap).outcome -eq 'failed') 'actual limited missing kind cannot pass expectation'
 foreach ($category in @('supported-smoke','expected-rejection','partial-unsupported','unsupported-engine')) {
     $map=Read-OutcomeExpectations (Expect $category) @($row) @($row)
     Check ((Get-CorpusOutcome @($row) @((Record $category)) Acceptance $map).outcome -eq 'passed') "exact $category"
