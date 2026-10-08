@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -118,6 +119,10 @@ class StagePolishTest {
             }, {}, {}, {}, onCharacterClickResolved = { _, x, y, baseId, _ ->
                 hits += SurfaceCollisionHitTest.find(definitions.definition(baseId)?.collisions.orEmpty(), x, y)
             })
+        }
+        compose.waitUntil(2_000) {
+            compose.onAllNodesWithTag("sakura").fetchSemanticsNodes().singleOrNull()
+                ?.boundsInRoot?.let { it.width > 0f && it.height > 0f } == true
         }
         val character = compose.onNodeWithTag("sakura")
         fun hasCyanAt(authoredX: Int, authoredY: Int, originX: Int, originY: Int): Boolean {
