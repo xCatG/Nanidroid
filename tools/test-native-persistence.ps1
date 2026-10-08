@@ -1,11 +1,15 @@
+[CmdletBinding(DefaultParameterSetName='Run')]
 param(
-    [string]$Adb = 'C:/Users/yenchi/AppData/Local/Android/Sdk/platform-tools/adb.exe',
-    [ValidateSet('emulator-5554')][string]$Serial = 'emulator-5554',
-    [string]$OutputDirectory = (Join-Path $env:TEMP ('nanidroid-persistence-' + [guid]::NewGuid().ToString('N'))),
-    [switch]$SkipBuild,
-    [string[]]$Only
+    [Parameter(ParameterSetName='SelfCheck', Mandatory)][switch]$SelfCheck,
+    [Parameter(ParameterSetName='Run')][string]$Adb = 'C:/Users/yenchi/AppData/Local/Android/Sdk/platform-tools/adb.exe',
+    [Parameter(ParameterSetName='Run')][ValidateSet('emulator-5554')][string]$Serial = 'emulator-5554',
+    [Parameter(ParameterSetName='Run')][string]$OutputDirectory = (Join-Path ([IO.Path]::GetTempPath()) ('nanidroid-persistence-' + [guid]::NewGuid().ToString('N'))),
+    [Parameter(ParameterSetName='Run')][switch]$SkipBuild,
+    [Parameter(ParameterSetName='Run')][string[]]$Only
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'test-outcome-policy.ps1')
+if ($SelfCheck) { & (Join-Path $PSScriptRoot 'tests/test-runner-outcomes.ps1') -PolicyOnly; return }
 $package = 'com.cattailsw.nanidroid'
 $runner = "$package.test/androidx.test.runner.AndroidJUnitRunner"
 $testClass = "$package.engine.NativePersistenceTest"
@@ -20,7 +24,26 @@ $sources = @(
     @{ name='yaya-runtime'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/Earthquake Rescue Duo/Earthquake_duo_1.0.1.nar'; hash='06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; method='yayaRuntimeSwitchBackAndCloseWritesName' },
     @{ name='lobo-kill'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method=$null }
 )
-if ($Only) { $sources = @($sources | Where-Object { $_.name -in $Only }) }
+$requested = if ($PSBoundParameters.ContainsKey('Only')) { @($Only) } else { @() }
+$resolved = @(Resolve-OutcomeSelection @($sources | ForEach-Object name) $requested $PSBoundParameters.ContainsKey('Only'))
+$sources = @($sources | Where-Object { $_.name -cin $resolved })
+Write-Host "Requested: $(if ($requested.Count) { $requested -join ',' } else { '<all>' }); resolved: $($resolved -join ',')"
+$scenarioRecords = @($sources | ForEach-Object { [ordered]@{name=$_.name;status='incomplete';cleanupStatus='not-run'} })
+$instrumentRecords = @()
+$runReasons = @()
+$sourceCommit = (& git -C (Join-Path $PSScriptRoot '..') rev-parse HEAD | Out-String).Trim()
+function Write-NativeSummary {
+    $counts = [ordered]@{passed=0;skipped=0;failed=0;incomplete=0}
+    foreach ($record in $scenarioRecords) { $counts[$record.status]++ }
+    $instrumentCounts=[ordered]@{passed=0;skipped=0;failed=0;incomplete=0}
+    foreach ($record in $instrumentRecords) { $instrumentCounts[$record.status]++ }
+    $completed = @($scenarioRecords | Where-Object { $_.status -eq 'passed' }).Count
+    $summary = [ordered]@{schemaVersion=1;runner='native-persistence';mode='Acceptance';sourceCommit=$sourceCommit;
+        requestedSelection=@($requested);resolvedSelection=@($resolved);selectedCount=$sources.Count;completedCount=$completed;
+        counts=$counts;instrumentationCounts=$instrumentCounts;scenarios=@($scenarioRecords);instrumentation=@($instrumentRecords);
+        outcome=$(if (!$runReasons.Count -and $completed -eq $sources.Count -and $completed -gt 0) {'passed'} else {'failed'});reasons=@($runReasons)}
+    $summary | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'summary.json') -Encoding utf8
+}
 
 function Invoke-BoundedAdb([string[]]$Arguments, [int]$TimeoutSeconds) {
     $quoted = @('-s', $Serial) + @($Arguments | ForEach-Object {
@@ -97,12 +120,18 @@ function Stage-Fixture($source, [string]$runId) {
 function Run-Instrumentation([string]$fixtureId, [string]$method, [string]$runId, [string]$logName, [string]$className = $testClass) {
     $stdout = Join-Path $OutputDirectory $logName
     $arguments = @('shell','am','instrument','-w','-e','fixtureId',$fixtureId,'-e','runId',$runId,'-e','class',"$className#$method",$runner)
-    $result = Invoke-BoundedAdb -Arguments $arguments -TimeoutSeconds 180
+    try { $result = Invoke-BoundedAdb -Arguments $arguments -TimeoutSeconds 180 }
+    catch {
+        $_.Exception.Message | Set-Content -LiteralPath $stdout
+        $script:instrumentRecords += [ordered]@{methodId="$className#$method";status='incomplete';runId=$runId;stdoutPath=$stdout;reason=$_.Exception.Message}
+        throw
+    }
     $result.Stdout | Set-Content -LiteralPath $stdout -Encoding utf8
     $result.Stderr | Set-Content -LiteralPath "$stdout.stderr" -Encoding utf8
-    if ($result.ExitCode -ne 0 -or !($result.Stdout -match 'OK \(1 test\)')) {
-        throw "Instrumentation $method failed; inspect $logName (exit $($result.ExitCode)): $($result.Stdout) $($result.Stderr)"
-    }
+    $status = Get-InstrumentationOutcome ($result.Stdout + $result.Stderr) $result.ExitCode $className $method
+    $script:instrumentRecords += [ordered]@{methodId="$className#$method";status=$status;runId=$runId;stdoutPath=$stdout}
+    if ($status -ne 'passed') { throw "Instrumentation $method $status; inspect $logName" }
+
 }
 
 function Run-KillScenario([string]$fixtureId, [string]$runId) {
@@ -180,6 +209,8 @@ function Capture-SaveMarker([string]$runId, [string]$kind) {
     }
 }
 
+if (Test-Path -LiteralPath $OutputDirectory) { throw "Output directory already exists: $OutputDirectory" }
+try {
 [System.IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 "Started $(Get-Date -Format o); output=$OutputDirectory" | Out-File (Join-Path $OutputDirectory 'run.log')
@@ -198,6 +229,15 @@ Get-FileHash "$PSScriptRoot/../app/build/outputs/apk/debug/app-debug.apk","$PSSc
 foreach ($source in $sources) {
     $runId = [guid]::NewGuid().ToString('N')
     $fixtureId = $null
+    $scenario = $scenarioRecords | Where-Object { $_.name -ceq $source.name }
+    $scenario.runId=$runId
+    $scenario.expectedMethods = if ($source.name -eq 'lobo-kill') {
+        @("$testClass#abruptReadUsesFreshProcessAndSavedBytes")
+    } elseif ($source.name -in @('satori-rotation','satori-runtime','lobo-runtime','yaya-runtime')) {
+        @("$package.ui.NativeRotationTest#$($source.method)")
+    } else { @("$testClass#$($source.method)") }
+    $readerMethods=@{'satori-runtime'='twoelfReadsAfterRuntimeBackInFreshProcess';'lobo-runtime'='loboReadsAfterRuntimeBackInFreshProcess';'yaya-runtime'='yayaReadsAfterRuntimeBackInFreshProcess'}
+    if ($readerMethods.ContainsKey($source.name)) { $scenario.expectedMethods += "$package.ui.NativeRotationTest#$($readerMethods[$source.name])" }
     try {
     $fixtureId = Stage-Fixture $source $runId
     if ($source.name -eq 'lobo-kill') { Run-KillScenario $fixtureId $runId }
@@ -215,7 +255,11 @@ foreach ($source in $sources) {
         $reader = if ($source.name -eq 'lobo-runtime') { 'loboReadsAfterRuntimeBackInFreshProcess' } else { 'yayaReadsAfterRuntimeBackInFreshProcess' }
         Run-Instrumentation $fixtureId $reader $runId "$runId-runtime-read.log" "$package.ui.NativeRotationTest"
     } else { Run-Instrumentation $fixtureId $source.method $runId "$runId-$($source.name).log" }
+    Assert-NativeMethodCompleteness $scenario.expectedMethods @($instrumentRecords | Where-Object { $_.runId -eq $runId })
+    } catch {
+        $scenario.status='failed'; $scenario.reason=$_.Exception.Message; throw
     } finally {
+        try {
         Invoke-Adb -Arguments @('shell','am','force-stop',$package) -TimeoutSeconds 15 | Out-Null
         $cleanupId = "persist-$runId"
         Invoke-Adb -Arguments @('shell','run-as',$package,'rm','-rf',"files/ghost/$cleanupId") -TimeoutSeconds 15 | Out-Null
@@ -223,9 +267,20 @@ foreach ($source in $sources) {
         Invoke-Adb -Arguments @('shell','rm','-f',"/data/local/tmp/$cleanupId.nar") -TimeoutSeconds 15 | Out-Null
         Assert-DeviceHealth "$runId-health.log"
         "$(Get-Date -Format o) CLEANUP $($source.name) runId=$runId" | Add-Content (Join-Path $OutputDirectory 'run.log')
+        $scenario.cleanupStatus='passed'
+        } catch { $scenario.status='failed'; $scenario.cleanupStatus='failed'; $scenario.reason=$_.Exception.Message; throw }
+        finally { $scenario | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDirectory "$runId-scenario.json") }
     }
+    $scenario.status='passed'
+    $scenario | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDirectory "$runId-scenario.json")
     "$(Get-Date -Format o) PASS $($source.name) runId=$runId fixtureId=$fixtureId source=$($source.archive) sha256=$($source.hash)" | Add-Content (Join-Path $OutputDirectory 'run.log')
 }
 Invoke-Adb -Arguments @('logcat','-d','-s','System.out:I') -TimeoutSeconds 30 | Select-String 'PERSIST ' |
     ForEach-Object { $_.Line } | Set-Content -Encoding utf8 (Join-Path $OutputDirectory 'fixture-logcat.log')
+} catch {
+    $runReasons += $_.Exception.Message
+    throw
+} finally {
+    if (Test-Path -LiteralPath $OutputDirectory) { Write-NativeSummary }
+}
 Write-Host "Native persistence host tests passed; raw logs: $OutputDirectory"

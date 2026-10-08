@@ -1,5 +1,48 @@
 # Testing and toolchain
 
+## Current native/corpus outcome policy
+
+Both host runners provide `-SelfCheck`, with no device, SDK, fixture, build or
+output-directory work. Run `pwsh -NoProfile -File tools/tests/test-runner-outcomes.ps1`
+for synthetic policy checks and process-start sentinels. These checks do not
+establish device passes.
+
+Native `-Only` names are exact scenario names. Omission selects all; explicit
+empty/blank, unknown or mixed valid/unknown selections fail before side effects.
+Repeated valid names resolve once. Success requires every selected scenario,
+its expected method terminal results and its cleanup/health checks to pass.
+`OK (1 test)` alone and assumption/ignored methods never establish a pass. The
+host-kill writer is intentionally killed; its readiness, live PID, kill/exit and
+fresh-reader boundaries retain their separate host evidence contract.
+
+Corpus defaults to `-Mode Diagnostic`: complete trustworthy classifications are
+findings, and the message is `diagnostic complete`. All seven categories are
+counted separately. Missing/stale evidence, unverified results, transport,
+timeouts or unsafe cleanup/health exit nonzero. Complete `in-scope-failure` and
+`native-failure` findings can complete a diagnostic but always fail acceptance.
+
+`-Mode Acceptance -ExpectationsPath <json>` requires reviewed exact label/archive
+SHA coverage before any device/build/install work. The schema is
+`{"schemaVersion":1,"rows":[{"label":"exact-manifest-label","sha256":"64-lowercase-hex","expectedClassification":"supported-smoke","basis":"reviewed evidence URL and scope rationale"}]}`.
+Only `supported-smoke`, `expected-rejection`, `partial-unsupported` and
+`unsupported-engine` may be expected. Actual classifications must match exactly;
+a supported-to-limited downgrade fails. Inventory names, families and deep flags
+are not outcome oracles. No real-row expectations are shipped: callers supply
+reviewed public-safe maps and retain private evidence outside Git. Internal
+synthetic success/rejection/wrong-hash guards keep their explicit expectations;
+the wrong-hash instrumentation must fail and is not a passing test.
+
+Use a fresh ignored output directory (or a temporary directory outside the
+repository). Each executed run writes `summary.json` with source, selection,
+counts, outcome/reasons and retained scenario/row records; corpus summaries also
+include expected/actual classifications and expectation-file SHA identity.
+Native scenario counts include unstarted scenarios as incomplete, with separate
+instrumentation counts. Preflight failures create no output directory or summary.
+Runtime failure retains raw evidence and exits nonzero. `supported-smoke` proves
+only import/own-stage/boot-render/close with identity guards, not all authored
+routes or engines. LOBO `replace`, AYA5 authored-script, audio/SSP exclusions and
+unsampled branches remain unchanged. M5's accepted exceptions remain exceptions.
+
 ## Milestone 5 final-source gate (2026-09-29; acceptance open)
 
 Source `06a82ec0cacf94d78901bb55c1c43d1060c50e7d` produced debug APK SHA-256 `bf56e2ed8cb1e6d410001e4e061e1fe78043c3bb36500d888b1658e881f2eed9`, test APK `6ddb9561f9a81cf06519e4aff6f4c6219ae0a626cfa4717eee8e0a61cbca7a1f`, and unsigned release APK `08a23b3b9ce07ad227cf712b02bb23978af7d18c0f1bba48674d1729021a561b`. Source manifest hash is `da03c17b43797623dfe6fb75eb4d5491a22328974fc95fbf748fd20751f7c14d`. The final offline five-task gate passed **373 JVM tests, four skips, zero failures/errors**, lint with zero errors/13 warnings/one hint, and debug/test/release assembly. See [final raw build log](../app/build/task7-evidence/final-api31-06a82ec/offline-gate-escalated.raw.log) and [Milestone 5 evidence](milestone-5-evidence.md#task-7-final-source-synthesis-2026-09-29) for per-archive compatibility and limits.
