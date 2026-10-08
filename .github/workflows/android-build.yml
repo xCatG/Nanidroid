@@ -27,6 +27,21 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build and check
         run: bash ./gradlew testDebugUnitTest lint assembleDebug assembleDebugAndroidTest assembleRelease
+      - name: Record APK provenance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $commit = (& git rev-parse HEAD | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $commit -cnotmatch '^[0-9a-f]{40}$') { throw 'Cannot identify built source' }
+          $root = 'app/build/outputs/apk'
+          $paths = @('debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk')
+          $apks = @($paths | ForEach-Object {
+            $file = Join-Path $root $_
+            if (!(Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing APK: $_" }
+            @{path=$_; sha256=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()}
+          })
+          @{schemaVersion=1; sourceCommit=$commit; apks=$apks} | ConvertTo-Json -Depth 4 |
+            Set-Content -LiteralPath "$root/artifact-provenance.json" -Encoding utf8
       - name: Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -40,3 +55,265 @@ jobs:
           name: android-apks
           path: app/build/outputs/apk/
           if-no-files-found: error
+
+  device:
+    name: Self-contained device tests
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DEVICE_REPORT: app/build/reports/device-self-contained
+      DEVICE_SERIAL: emulator-5554
+      AVD_NAME: nanidroid-ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize diagnostics
+        run: |
+          mkdir -p "$DEVICE_REPORT"
+          date -u +%FT%TZ > "$DEVICE_REPORT/start-time.txt"
+          git rev-parse HEAD > "$DEVICE_REPORT/source-commit.txt"
+          cp docs/testing/device-suites.json "$DEVICE_REPORT/selection-inventory.json"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apks
+          path: app/build/outputs/apk/
+      - name: Verify same-run APKs and host selection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+          $workspace = [IO.Path]::GetFullPath('.')
+          $root = [IO.Path]::GetFullPath('app/build/outputs/apk')
+          $provenance = Get-Content "$root/artifact-provenance.json" -Raw | ConvertFrom-Json
+          $commit = (& git rev-parse HEAD | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $commit -cnotmatch '^[0-9a-f]{40}$') { throw 'Cannot identify checked-out source' }
+          $paths = @('debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk')
+          if (($provenance.schemaVersion -isnot [long] -and $provenance.schemaVersion -isnot [int]) -or
+              $provenance.schemaVersion -cne 1 -or $provenance.sourceCommit -cne $commit -or
+              $provenance.apks -isnot [array] -or $provenance.apks.Count -ne 2) { throw 'Invalid same-run APK provenance' }
+          foreach ($path in $paths) {
+            $entries = @($provenance.apks | Where-Object { $_.path -ceq $path })
+            if ($entries.Count -ne 1) { throw "Missing or duplicate provenance path: $path" }
+            $entry = $entries[0]
+            # Exact allowed relative paths also reject absolute paths, traversal and extra entries.
+            $file = [IO.Path]::GetFullPath((Join-Path $root $entry.path))
+            if (!$file.StartsWith($root + '/', [StringComparison]::Ordinal) -or
+                !(Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing/escaping APK: $path" }
+            $resolved = (Resolve-Path -LiteralPath $file).Path
+            if ($resolved -cne $file) { throw "Linked APK rejected: $path" }
+            $component = $file
+            while ($component.StartsWith($workspace, [StringComparison]::Ordinal)) {
+              if ((Get-Item -LiteralPath $component).LinkType) { throw "Linked APK component rejected: $component" }
+              $component = Split-Path -Parent $component
+            }
+            if ($entry.sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha256) {
+              throw "APK hash mismatch: $path"
+            }
+          }
+          Copy-Item "$root/artifact-provenance.json" "$env:DEVICE_REPORT/artifact-provenance.json"
+          & pwsh -NoProfile -File tools/test-device-suite.ps1 -ListOnly -Suite self-contained *> "$env:DEVICE_REPORT/selection.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Linux list-only failed' }
+          & pwsh -NoProfile -File tools/test-device-suite.ps1 -SelfCheck *> "$env:DEVICE_REPORT/host-self-check.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Linux host self-check failed' }
+          } catch {
+            $_ | Out-String | Set-Content "$env:DEVICE_REPORT/gate-error.log"
+            throw
+          }
+      - name: Install emulator and image
+        run: |
+          set -euo pipefail
+          sdkmanager "emulator" "system-images;android-31;google_apis;x86_64" > "$DEVICE_REPORT/sdk-install.log" 2>&1
+          "$ANDROID_HOME/emulator/emulator" -version > "$DEVICE_REPORT/emulator-version.log" 2>&1
+          "$ANDROID_HOME/platform-tools/adb" version > "$DEVICE_REPORT/adb-version.log" 2>&1
+          java -version > "$DEVICE_REPORT/java-version.log" 2>&1
+          sdkmanager --list_installed > "$DEVICE_REPORT/sdk-components.log" 2>&1
+          sudo chmod 666 /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -accel-check > "$DEVICE_REPORT/acceleration.log" 2>&1
+      - name: Boot owned API 31 emulator
+        run: |
+          set -euo pipefail
+          exec > "$DEVICE_REPORT/boot.log" 2>&1
+          trap 'echo "Boot/configuration failure at line $LINENO: $BASH_COMMAND" >&2' ERR
+          adb="$ANDROID_HOME/platform-tools/adb"
+          emulator="$ANDROID_HOME/emulator/emulator"
+          # Never adopt an existing emulator on the assigned port.
+          timeout 20 "$adb" start-server
+          timeout 15 "$adb" devices > "$DEVICE_REPORT/initial-devices.log"
+          if grep -Eq "^${DEVICE_SERIAL}[[:space:]]" "$DEVICE_REPORT/initial-devices.log"; then
+            echo 'Assigned serial already exists'; exit 1
+          fi
+          printf 'no\n' | avdmanager create avd -n "$AVD_NAME" -k 'system-images;android-31;google_apis;x86_64'
+          config="$HOME/.android/avd/$AVD_NAME.avd/config.ini"
+          printf '\nhw.lcd.width=1080\nhw.lcd.height=2400\nhw.lcd.density=420\nhw.initialOrientation=portrait\n' >> "$config"
+          cp "$config" "$DEVICE_REPORT/avd-config.ini"
+          "$emulator" -avd "$AVD_NAME" -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader -accel on > "$DEVICE_REPORT/emulator.log" 2>&1 &
+          pid=$!
+          echo "$pid" > "$DEVICE_REPORT/emulator.pid"
+          deadline=$((SECONDS + 300))
+          ready=false
+          while (( SECONDS < deadline )); do
+            kill -0 "$pid" || { echo 'Emulator exited during boot'; exit 1; }
+            if [[ "$(timeout 10 "$adb" -s "$DEVICE_SERIAL" get-state 2>/dev/null || true)" == device ]] &&
+               [[ "$(timeout 10 "$adb" -s "$DEVICE_SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)" == 1 ]]; then
+              ready=true; break
+            fi
+            sleep 2
+          done
+          [[ "$ready" == true ]] || { echo 'Boot deadline expired'; exit 1; }
+          timeout 15 "$adb" -s "$DEVICE_SERIAL" shell getprop > "$DEVICE_REPORT/device-properties.log"
+          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" emu avd name | head -n 1 | tr -d '\r')" == "$AVD_NAME" ]]
+          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell getprop ro.build.version.sdk | tr -d '\r')" == 31 ]]
+          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell getprop ro.product.cpu.abi | tr -d '\r')" == x86_64 ]]
+          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell getprop ro.kernel.qemu | tr -d '\r')" == 1 ]]
+          timeout 15 "$adb" -s "$DEVICE_SERIAL" shell wm size 1080x2400
+          timeout 15 "$adb" -s "$DEVICE_SERIAL" shell wm density 420
+          timeout 15 "$adb" -s "$DEVICE_SERIAL" shell settings put system accelerometer_rotation 0
+          timeout 15 "$adb" -s "$DEVICE_SERIAL" shell settings put system user_rotation 0
+          timeout 15 "$adb" -s "$DEVICE_SERIAL" shell settings put system font_scale 1.0
+          timeout 15 "$adb" -s "$DEVICE_SERIAL" shell input keyevent 82
+          timeout 15 "$adb" -s "$DEVICE_SERIAL" shell wm size > "$DEVICE_REPORT/display-size.log"
+          timeout 15 "$adb" -s "$DEVICE_SERIAL" shell wm density > "$DEVICE_REPORT/display-density.log"
+          [[ "$(tr -d '\r' < "$DEVICE_REPORT/display-size.log" | tail -n 1)" == *': 1080x2400' ]]
+          [[ "$(tr -d '\r' < "$DEVICE_REPORT/display-density.log" | tail -n 1)" == *': 420' ]]
+          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell settings get system user_rotation | tr -d '\r')" == 0 ]]
+          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell settings get system accelerometer_rotation | tr -d '\r')" == 0 ]]
+          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell settings get system font_scale | tr -d '\r')" == 1.0 ]]
+          timeout 15 "$adb" -s "$DEVICE_SERIAL" shell dumpsys display > "$DEVICE_REPORT/display.log"
+          timeout 15 "$adb" -s "$DEVICE_SERIAL" shell dumpsys window > "$DEVICE_REPORT/window.log"
+          # API31's actual app rectangle excludes system decor; validate both portrait and usable height.
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          root = Path(os.environ['DEVICE_REPORT'])
+          text = (root / 'window.log').read_text()
+          # Global window configuration reports the usable app viewport in dp.
+          match = re.search(r'mGlobalConfiguration=\{1\.0\s[^\n]*\bw(\d+)dp h(\d+)dp 420dpi[^\n]*\bport\b[^\n]*mRotation=ROTATION_0', text)
+          if not match or int(match[2]) < 600 or int(match[2]) <= int(match[1]):
+              raise SystemExit('Usable API31 portrait/font1 fixture viewport below 600 dp or unverified')
+          (root / 'viewport.log').write_text(f'API=31 ABI=x86_64 portrait font=1.0 density=420 usable={match[1]}x{match[2]}dp\n')
+          PY
+      - name: Execute first-attempt self-contained suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+          $adb = Join-Path $env:ANDROID_HOME 'platform-tools/adb'
+          & pwsh -NoProfile -File tools/test-device-suite.ps1 -Suite self-contained -Serial emulator-5554 -Adb $adb -OutputDirectory "$env:DEVICE_REPORT/runner" -SkipBuild *> "$env:DEVICE_REPORT/runner-console.log"
+          if ($LASTEXITCODE -ne 0) { throw 'First-attempt device suite failed; retained runner diagnostics' }
+          $summary = Get-Content "$env:DEVICE_REPORT/runner/summary.json" -Raw | ConvertFrom-Json
+          $provenance = Get-Content "$env:DEVICE_REPORT/artifact-provenance.json" -Raw | ConvertFrom-Json
+          $selected = @(Get-Content "$env:DEVICE_REPORT/selection.log" | Where-Object { $_ -cmatch '^[A-Za-z0-9_.]+#[A-Za-z0-9_]+$' })
+          function Same-Ids($left, $right) { return (($left | ConvertTo-Json -Compress) -ceq ($right | ConvertTo-Json -Compress)) }
+          $required = @('schemaVersion','suite','sourceCommit','serial','appApkSha256','testApkSha256','device','selectedMethods','expectedCount','observedMethods','observedCount','results','counts','durationSeconds','cleanupStatus','outcome')
+          foreach ($field in $required) {
+            if ($field -cnotin $summary.PSObject.Properties.Name) { throw "Missing summary field: $field" }
+          }
+          foreach ($number in @($summary.schemaVersion,$summary.expectedCount,$summary.observedCount,$summary.device.api,$summary.counts.passed,$summary.counts.failed,$summary.counts.skipped,$summary.counts.incomplete)) {
+            if ($number -isnot [long] -and $number -isnot [int]) { throw 'Noninteger summary counter/schema/API' }
+          }
+          if ($summary.selectedMethods -isnot [array] -or $summary.observedMethods -isnot [array] -or
+              $summary.results -isnot [array] -or ($summary.durationSeconds -isnot [long] -and
+              $summary.durationSeconds -isnot [int] -and $summary.durationSeconds -isnot [double] -and
+              $summary.durationSeconds -isnot [decimal]) -or
+              $summary.durationSeconds -lt 0) { throw 'Invalid summary arrays/duration' }
+          $observed = @($summary.observedMethods | Sort-Object -CaseSensitive)
+          $resultIds = @($summary.results.methodId | Sort-Object -CaseSensitive)
+          $appHash = @($provenance.apks | Where-Object path -CEQ 'debug/app-debug.apk')[0].sha256
+          $testHash = @($provenance.apks | Where-Object path -CEQ 'androidTest/debug/app-debug-androidTest.apk')[0].sha256
+          if ($summary.schemaVersion -cne 1 -or $summary.sourceCommit -cne $provenance.sourceCommit -or
+              $summary.appApkSha256 -cne $appHash -or $summary.testApkSha256 -cne $testHash -or
+              $summary.suite -cne 'self-contained' -or $summary.serial -cne 'emulator-5554' -or
+              $summary.device.api -cne 31 -or $summary.device.abi -cne 'x86_64' -or
+              !$selected.Count -or !(Same-Ids @($summary.selectedMethods) $selected) -or
+              !(Same-Ids $observed $selected) -or !(Same-Ids $resultIds $selected) -or
+              @($observed | Select-Object -Unique).Count -ne $selected.Count -or
+              $summary.expectedCount -ne $selected.Count -or $summary.observedCount -ne $selected.Count -or
+              $summary.counts.passed -ne $selected.Count -or $summary.counts.failed -ne 0 -or
+              $summary.counts.skipped -ne 0 -or $summary.counts.incomplete -ne 0 -or
+              @($summary.results | Where-Object status -CNE 'passed').Count -or
+              $summary.cleanupStatus -cne 'passed' -or $summary.outcome -cne 'passed') {
+            throw 'Incomplete, duplicated, skipped, failed or mismatched device summary'
+          }
+          } catch {
+            $_ | Out-String | Set-Content "$env:DEVICE_REPORT/gate-error.log"
+            throw
+          }
+      - name: Retain diagnostics and stop owned emulator
+        if: always()
+        timeout-minutes: 3
+        run: |
+          set -uo pipefail
+          mkdir -p "$DEVICE_REPORT"
+          exec > "$DEVICE_REPORT/teardown.log" 2>&1
+          status=0
+          adb="$ANDROID_HOME/platform-tools/adb"
+          pidfile="$DEVICE_REPORT/emulator.pid"
+          # Ownership starts only when this job launches its own process.
+          if [[ -f "$pidfile" ]]; then
+            pid=$(cat "$pidfile")
+            process_live() { kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; }
+            identity=$(timeout 15 "$adb" -s "$DEVICE_SERIAL" emu avd name 2>/dev/null | head -n 1 | tr -d '\r')
+            if [[ "$identity" == "$AVD_NAME" ]]; then
+            timeout 20 "$adb" -s "$DEVICE_SERIAL" logcat -d > "$DEVICE_REPORT/logcat.log" 2>&1 || status=1
+            timeout 20 "$adb" -s "$DEVICE_SERIAL" logcat -b crash -d > "$DEVICE_REPORT/crash.log" 2>&1 || status=1
+            timeout 15 "$adb" -s "$DEVICE_SERIAL" shell am force-stop com.cattailsw.nanidroid || status=1
+            timeout 15 "$adb" -s "$DEVICE_SERIAL" shell am force-stop com.cattailsw.nanidroid.test || status=1
+            timeout 15 "$adb" -s "$DEVICE_SERIAL" emu kill || status=1
+            else
+              echo "Owned emulator identity unavailable; using only recorded process teardown"; status=1
+            fi
+            for i in {1..10}; do process_live || break; sleep 1; done
+            if process_live; then
+              # Confirm the recorded process still names this job AVD before sending signals.
+              if ! grep -azFq -- "$AVD_NAME" "/proc/$pid/cmdline"; then echo "PID ownership mismatch"; exit 1; fi
+              kill -TERM "$pid" || status=1; sleep 2
+            fi
+            if process_live; then kill -KILL "$pid" || status=1; status=1; fi
+          fi
+          echo "$status" > "$DEVICE_REPORT/teardown-status.txt"
+          exit "$status"
+      - name: Device evidence
+        id: device-evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-self-contained-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: error
+      - name: Device summary
+        if: always()
+        shell: pwsh
+        env:
+          EVIDENCE_URL: ${{ steps.device-evidence.outputs.artifact-url }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = "$env:DEVICE_REPORT/runner/summary.json"
+          $lines = @('### Self-contained device tests', "Job: $env:JOB_STATUS; API 31 / x86_64; one first attempt")
+          if (Test-Path $path) {
+            $s = Get-Content $path -Raw | ConvertFrom-Json
+            $lines += "Selected $($s.expectedCount); executed $($s.observedCount); passed $($s.counts.passed); skipped $($s.counts.skipped); failed $($s.counts.failed); incomplete $($s.counts.incomplete); elapsed $([math]::Round($s.durationSeconds, 2)) seconds; runner cleanup $($s.cleanupStatus)."
+            $first = @($s.results | Where-Object status -CNE 'passed' | Select-Object -First 1)
+            if ($first.Count) { $lines += "First failure: $($first[0].methodId): $($first[0].reason)" }
+          } else {
+            $lines += 'Selected/executed/pass/skip/fail/incomplete counts unavailable: provisioning or runner preflight failed. Inspect the first failing step and retained boot/console logs.'
+          }
+          if (Test-Path "$env:DEVICE_REPORT/teardown-status.txt") { $lines += "Owned emulator teardown exit: $(Get-Content "$env:DEVICE_REPORT/teardown-status.txt")" }
+          if (Test-Path "$env:DEVICE_REPORT/gate-error.log") {
+            $lines += "Gate error: $((Get-Content "$env:DEVICE_REPORT/gate-error.log" -TotalCount 8) -join ' ')"
+          } elseif (!(Test-Path $path) -and (Test-Path "$env:DEVICE_REPORT/boot.log")) {
+            $lines += "Boot failure context: $((Get-Content "$env:DEVICE_REPORT/boot.log" -Tail 5) -join ' ')"
+          }
+          $lines += "[First-attempt evidence]($env:EVIDENCE_URL)"
+          $lines += 'One representative API/ABI only. M5 Compose/IME exceptions and LOBO Pixel evidence gap remain.'
+          $lines -join "`n`n" | Add-Content $env:GITHUB_STEP_SUMMARY

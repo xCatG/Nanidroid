@@ -75,6 +75,44 @@ separate. [Accepted M5 exception packet](testing/2026-10-01-m5-focused-acceptanc
 retains missing LOBO Pixel setting cycles and intermittent Compose wrong-thread/
 keyboard failures; this suite does not establish that those exceptions are fixed.
 
+## CI self-contained device gate
+
+`Android build` retains `Build and local checks` on its existing runner and all
+JVM/lint/debug/test/release assembly tasks. Its `android-apks` artifact includes
+schemaVersion 1 `artifact-provenance.json`: actual checkout HEAD plus exact
+relative debug app/test APK paths and SHA-256 hashes. `Self-contained device
+tests` depends on that build, downloads the same-run artifact, rejects wrong
+source/path/hash or linked paths before installation, and does no second APK or
+native build. Both jobs use JDK 17; the build keeps platform android-37.0,
+build tools 37.0.0, NDK 28.2.13676358 and CMake 3.22.1.
+
+The device job uses one ephemeral Ubuntu 24.04 Google APIs API 31 x86_64 AVD,
+explicit port/serial `5554`/`emulator-5554`, headless software rendering with
+required host acceleration, portrait 1080×2400/420 dpi and font scale 1.0.
+Boot, identity, actual settings and usable window viewport >=600 dp are checked
+before the portable runner's single `-SkipBuild` invocation. Linux list/self-check
+logs and the complete selection inventory are retained. The current selection
+is **117 of 163 inventoried methods**; CI derives and checks identities rather
+than freezing that count. No private fixture, bare connected task, retry or
+skip-as-pass is used. A missing/duplicate method, assumption skip, failed test,
+invalid summary/provenance or failed cleanup fails the gate.
+
+Always-run diagnostics/teardown and the unique
+`device-self-contained-<run-id>-<attempt>` artifact preserve available first raw
+instrumentation streams, method summary/results, selection, SDK/emulator/AVD,
+boot/display, runner console, logcat/crash and Gradle reports. Cleanup stops only
+the job-launched emulator and test apps with bounded commands; its failure cannot
+make an earlier failed step green. The 45-minute job deadline includes the
+30-minute runner limit. The Actions summary links evidence and reports actual
+selected/executed/pass/skip/fail/incomplete counts, elapsed time and cleanup;
+provisioning failures report unavailable counts honestly.
+
+This is one representative minimum-supported API/ABI gate. It does not establish
+API37/arm64/private-corpus parity or resolve accepted M5 Compose/IME exceptions
+and the LOBO Pixel setting-cycle evidence gap. Local workflow syntax/controlled
+failure checks are separate from an actual GitHub job; see the issue #433 report
+for execution status and evidence.
+
 ## Current native/corpus outcome policy
 
 Both host runners provide `-SelfCheck`, with no device, SDK, fixture, build or
