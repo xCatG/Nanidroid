@@ -272,12 +272,13 @@ class ImportCoordinatorTest {
             val runtime = runtime(root, scope, EventLog())
             runtime.start("ja")
             val cancelledWorker = CompletableDeferred<Boolean>()
+            val admittedWorker = java.util.concurrent.atomic.AtomicReference<Job>()
             lateinit var coordinator: ImportCoordinator
-            val importer = GhostImporter(root, afterMove = { cancelledWorker.complete(cancelRegisteredWorker(coordinator)) })
+            val importer = GhostImporter(root, afterMove = { cancelledWorker.complete(cancelRegisteredWorker(coordinator, admittedWorker)) })
             coordinator = ImportCoordinator(importer, runtime, scope)
             val bytes = archive("visitor")
             val id = coordinator.beginPicking()!!
-            acceptWithRegisteredWorker(coordinator, id, bytes)
+            acceptWithRegisteredWorker(coordinator, scope, admittedWorker, id, bytes)
             val done = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
             assertTrue("Fault hook did not cancel an active registered worker",
                 withTimeout(10_000) { cancelledWorker.await() })
@@ -294,12 +295,13 @@ class ImportCoordinatorTest {
             val runtime = runtime(root, scope, events)
             runtime.start("ja")
             val cancelledWorker = CompletableDeferred<Boolean>()
+            val admittedWorker = java.util.concurrent.atomic.AtomicReference<Job>()
             lateinit var coordinator: ImportCoordinator
-            val importer = GhostImporter(root, beforeMove = { cancelledWorker.complete(cancelRegisteredWorker(coordinator)) })
+            val importer = GhostImporter(root, beforeMove = { cancelledWorker.complete(cancelRegisteredWorker(coordinator, admittedWorker)) })
             coordinator = ImportCoordinator(importer, runtime, scope)
             val id = coordinator.beginPicking()!!
             val establishedJobs = scope.coroutineContext[Job]!!.children.toSet()
-            acceptWithRegisteredWorker(coordinator, id, archive("visitor"))
+            acceptWithRegisteredWorker(coordinator, scope, admittedWorker, id, archive("visitor"))
             val done = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
             assertTrue("Fault hook did not cancel an active registered worker",
                 withTimeout(10_000) { cancelledWorker.await() })
@@ -334,16 +336,17 @@ class ImportCoordinatorTest {
             val runtime = runtime(root, scope, events)
             runtime.start("ja")
             val cancelledWorker = CompletableDeferred<Boolean>()
+            val admittedWorker = java.util.concurrent.atomic.AtomicReference<Job>()
             lateinit var coordinator: ImportCoordinator
             val importer = GhostImporter(root, writeSourceChunk = { output, bytes, count ->
-                cancelledWorker.complete(cancelRegisteredWorker(coordinator))
+                cancelledWorker.complete(cancelRegisteredWorker(coordinator, admittedWorker))
                 output.write(bytes, 0, count)
             })
             coordinator = ImportCoordinator(importer, runtime, scope)
             val id = coordinator.beginPicking()!!
             val establishedJobs = scope.coroutineContext[Job]!!.children.toSet()
             holdLaunchReturn.set(true)
-            acceptWithRegisteredWorker(coordinator, id, archive("visitor"), providerEntered)
+            acceptWithRegisteredWorker(coordinator, scope, admittedWorker, id, archive("visitor"), providerEntered)
             val done = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
             assertTrue("Fault hook did not cancel an active registered worker",
                 withTimeout(10_000) { cancelledWorker.await() })
@@ -369,13 +372,14 @@ class ImportCoordinatorTest {
             val coordinator = ImportCoordinator(importer, runtime, scope)
             val bytes = archive("visitor")
             val id = coordinator.beginPicking()!!
+            val establishedJobs = scope.coroutineContext[Job]!!.children.toSet()
             coordinator.acceptResult(id) { ByteArrayInputStream(bytes) }
             assertTrue(withContext(Dispatchers.IO) { entered.await(10, java.util.concurrent.TimeUnit.SECONDS) })
             runtime.close()
             withTimeout(10_000) { runtime.state.first { it == com.cattailsw.nanidroid.runtime.StageState.Finished } }
             release.countDown()
             // The finished session's result is not reopened by a later launch in this process.
-            withTimeout(10_000) { coordinatorJob(coordinator)?.join() }
+            settleAcceptedWork(scope, establishedJobs)
             assertTrue(root.resolve("ghost/visitor/ghost/master/descript.txt").isFile)
             withTimeout(10_000) { coordinator.state.first { it == ImportState.Idle } }
         } finally { release.countDown(); scope.cancel() }
@@ -574,8 +578,10 @@ class ImportCoordinatorTest {
         }
     }
 
-    private fun acceptWithRegisteredWorker(coordinator: ImportCoordinator, id: String,
+    private fun acceptWithRegisteredWorker(coordinator: ImportCoordinator, scope: CoroutineScope,
+        admittedWorker: java.util.concurrent.atomic.AtomicReference<Job>, id: String,
         bytes: ByteArray, providerEntered: CountDownLatch? = null) {
+        val establishedJobs = scope.coroutineContext[Job]!!.children.toSet()
         val launchReturned = CountDownLatch(1)
         try {
             coordinator.acceptResult(id) {
@@ -585,7 +591,10 @@ class ImportCoordinatorTest {
                 }
                 ByteArrayInputStream(bytes)
             }
-            assertNotNull("acceptResult returned without registering its worker", coordinatorJob(coordinator))
+            val admitted = scope.coroutineContext[Job]!!.children
+                .filter { it !in establishedJobs && it.isActive }.toList()
+            assertEquals("Provider gate must hold exactly one newly admitted import child", 1, admitted.size)
+            admittedWorker.set(admitted.single())
         } finally {
             // Keep actual Default/IO execution, but don't let fault callbacks race the
             // coordinator's running = scope.launch assignment.
@@ -593,18 +602,13 @@ class ImportCoordinatorTest {
         }
     }
 
-    private fun cancelRegisteredWorker(coordinator: ImportCoordinator): Boolean {
-        val job = coordinatorJob(coordinator) ?: return false
+    private fun cancelRegisteredWorker(coordinator: ImportCoordinator,
+        admittedWorker: java.util.concurrent.atomic.AtomicReference<Job>): Boolean {
+        val job = admittedWorker.get() ?: return false
         val wasActive = job.isActive
         coordinator.cancelBeforePublication()
         return wasActive && job.isCancelled
     }
-
-    private fun coordinatorJob(coordinator: ImportCoordinator): Job? =
-        ImportCoordinator::class.java.getDeclaredField("running").let {
-            it.isAccessible = true
-            it.get(coordinator) as? Job
-        }
 
     private suspend fun settleAcceptedWork(scope: CoroutineScope, established: Set<Job>) {
         // Completed publication precedes launch completion. Snapshot includes the queued
