@@ -1,6 +1,8 @@
 package com.cattailsw.nanidroid.ui
 
 import android.graphics.Bitmap
+import android.os.SystemClock
+import androidx.compose.ui.platform.LocalViewConfiguration
 import android.view.ViewConfiguration
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.Box
@@ -360,35 +362,50 @@ class CharacterGestureTest {
     @Test fun pauseCancelsPendingSingleTap() {
         val active = mutableStateOf(true)
         var clicks = 0
+        var doubleTapTimeout = 0L
         compose.setContent {
+            doubleTapTimeout = LocalViewConfiguration.current.doubleTapTimeoutMillis
             GhostStage(stage, loader, {}, {}, {},
                 onCharacterClick = { _, _, _ -> clicks++ },
                 interactionActive = active.value)
         }
         compose.onNodeWithTag("kero").performTouchInput { click(center) }
         compose.runOnIdle { active.value = false }
-        Thread.sleep(400)
+        awaitDoubleTapDeadline(doubleTapTimeout)
         compose.runOnIdle { active.value = true }
-        Thread.sleep(400)
+        awaitDoubleTapDeadline(doubleTapTimeout)
         compose.waitForIdle()
         assertEquals(0, clicks)
+        compose.onNodeWithTag("kero").performTouchInput { click(center) }
+        compose.waitUntil(2_000) { clicks == 1 }
     }
 
     @Test fun sessionReplacementCancelsPendingSingleTap() {
         val first = stage.copy(dialogueToken = DialogueToken(7, 8))
         val current = mutableStateOf(first)
         var clicks = 0
+        var doubleTapTimeout = 0L
         compose.setContent {
+            doubleTapTimeout = LocalViewConfiguration.current.doubleTapTimeoutMillis
             GhostStage(current.value, loader, {}, {}, {},
                 onCharacterClick = { _, _, _ -> clicks++ })
         }
         compose.onNodeWithTag("kero").performTouchInput { click(center) }
         compose.runOnIdle { current.value = first.copy(dialogueToken = DialogueToken(9, 1)) }
-        Thread.sleep(400)
+        awaitDoubleTapDeadline(doubleTapTimeout)
         compose.waitForIdle()
         assertEquals(0, clicks)
         compose.onNodeWithTag("kero").performTouchInput { click(center) }
         compose.waitUntil(2_000) { clicks == 1 }
+    }
+
+    private fun awaitDoubleTapDeadline(timeoutMillis: Long) {
+        assertTrue("Compose double-tap timeout was not captured", timeoutMillis > 0)
+        // Pointer-input withTimeout uses real coroutine time. Keep the same real-time
+        // waitUntil mechanism as the positive tap cases and cross its configured deadline.
+        val deadline = SystemClock.elapsedRealtime() + timeoutMillis
+        compose.waitUntil(timeoutMillis + 2_000) { SystemClock.elapsedRealtime() > deadline }
+        compose.waitForIdle()
     }
 
     @Test fun translatedCanvasDistantScreenTapsAreTwoSingles() {

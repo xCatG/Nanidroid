@@ -16,7 +16,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -36,7 +39,7 @@ class ImportCoordinatorTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val root = folder.newFolder()
-            val coordinator = ImportCoordinator(GhostImporter(root), runtime(root, scope, mutableListOf()), scope)
+            val coordinator = ImportCoordinator(GhostImporter(root), runtime(root, scope, EventLog()), scope)
             val first = coordinator.beginPicking()!!
             coordinator.abandonPicking("wrong")
             assertEquals(ImportState.Picking(first), coordinator.state.value)
@@ -57,7 +60,7 @@ class ImportCoordinatorTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val root = folder.newFolder()
-            val events = mutableListOf<ShioriEvent>()
+            val events = EventLog()
             val runtime = runtime(root, scope, events)
             runtime.start("ja")
             val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
@@ -72,7 +75,7 @@ class ImportCoordinatorTest {
     }
 
     @Test fun cancelledPickerStartsNoImportAndEmitsNoEvent() = runBlocking {
-        val events = mutableListOf<ShioriEvent>()
+        val events = EventLog()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val root = folder.newFolder()
@@ -88,7 +91,7 @@ class ImportCoordinatorTest {
     }
 
     @Test fun successPublishesBeforePromptWithoutActivatingAndRejectsDuplicateCallback() = runBlocking {
-        val events = mutableListOf<ShioriEvent>()
+        val events = EventLog()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val root = folder.newFolder()
@@ -102,7 +105,7 @@ class ImportCoordinatorTest {
             coordinator.acceptResult(id) { error("duplicate opened") }
             val done = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>()
                 .first { it.promptResult == ImportPromptResult.Shown } }
-            withTimeout(10_000) { while (events.size < 3) delay(10) }
+            events.await { it.size >= 3 }
             assertEquals(ImportOutcome.Installed("visitor"), done.outcome)
             assertEquals(1, opens)
             assertTrue(root.resolve("ghost/visitor/ghost/master/descript.txt").isFile)
@@ -110,14 +113,13 @@ class ImportCoordinatorTest {
             val stage = runtime.state.value as com.cattailsw.nanidroid.runtime.StageState.Ready
             assertEquals("visitor", stage.switchPrompt?.directoryId)
             assertEquals("Nanidroid", stage.ghostName)
-            withTimeout(10_000) { while ((runtime.state.value as com.cattailsw.nanidroid.runtime.StageState.Ready)
-                    .installedGhosts.none { it.directoryId == "visitor" }) delay(10) }
+            awaitReady(runtime) { ready -> ready.installedGhosts.any { it.directoryId == "visitor" } }
             assertEquals(listOf("OnBoot", "OnInstallBegin", "OnInstallComplete"), events.map { it.id })
         } finally { scope.cancel() }
     }
 
     @Test fun blockedBeginCannotDelayPublicationAndCloseDropsQueuedComplete() = runBlocking {
-        val events = mutableListOf<ShioriEvent>()
+        val events = EventLog()
         val gate = CompletableDeferred<Unit>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
@@ -127,17 +129,18 @@ class ImportCoordinatorTest {
             val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
             val bytes = archive("visitor")
             val id = coordinator.beginPicking()!!
+            val establishedJobs = scope.coroutineContext[Job]!!.children.toSet()
             coordinator.acceptResult(id) { ByteArrayInputStream(bytes) }
             val done = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>()
                 .first { it.outcome is ImportOutcome.Installed } }
             assertEquals(ImportOutcome.Installed("visitor"), done.outcome)
             assertTrue(root.resolve("ghost/visitor/ghost/master/descript.txt").isFile)
-            withTimeout(10_000) { while (events.none { it.id == "OnInstallBegin" }) delay(10) }
+            events.await { observed -> observed.any { it.id == "OnInstallBegin" } }
             assertFalse(events.any { it.id == "OnInstallComplete" })
             runtime.close()
-            withTimeout(10_000) { while (runtime.state.value != com.cattailsw.nanidroid.runtime.StageState.Finished) delay(10) }
+            withTimeout(10_000) { runtime.state.first { it == com.cattailsw.nanidroid.runtime.StageState.Finished } }
             gate.complete(Unit)
-            delay(100)
+            settleAcceptedWork(scope, establishedJobs)
             assertFalse(events.any { it.id == "OnInstallComplete" })
         } finally { gate.complete(Unit); scope.cancel() }
     }
@@ -145,7 +148,7 @@ class ImportCoordinatorTest {
     @Test fun refusalAndFailureEventsFollowValidationBoundary() = runBlocking {
         val cases = listOf("reserved", "existing", "late", "invalid", "extraction")
         for (case in cases) {
-            val events = mutableListOf<ShioriEvent>()
+            val events = EventLog()
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             try {
                 val root = folder.newFolder()
@@ -166,9 +169,9 @@ class ImportCoordinatorTest {
                 val id = coordinator.beginPicking()!!
                 coordinator.acceptResult(id) { ByteArrayInputStream(bytes) }
                 val done = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
-                withTimeout(10_000) { while (events.none {
+                events.await { observed -> observed.any {
                     it.id == "OnInstallRefuse" || it.id == "OnInstallFailure"
-                }) delay(10) }
+                } }
                 val delivered = events.filter { it.id.startsWith("OnInstall") }.map { it.id }
                 when (case) {
                     "reserved", "existing" -> {
@@ -193,7 +196,7 @@ class ImportCoordinatorTest {
     }
 
     @Test fun pendingPromptRetriesOnActiveTransitionAndSurvivesAcknowledgmentUntilAsked() = runBlocking {
-        val events = mutableListOf<ShioriEvent>()
+        val events = EventLog()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val root = folder.newFolder()
@@ -227,7 +230,7 @@ class ImportCoordinatorTest {
             other.resolve("shell/master").mkdirs()
             other.resolve("ghost/master/descript.txt").writeText("name,Other\nshiori,Nanidroid\n")
             other.resolve("ghost/master/ja/content.txt").writeText("other")
-            val delivered = mutableListOf<Pair<String, String>>()
+            val delivered = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
             val runtime = GhostRuntime(
                 loadGhost = { BundledGhost("nanidroid", "Nanidroid", "", "", emptyMap(), "") },
                 engineFactory = { ghost -> object : ShioriEngine {
@@ -248,16 +251,15 @@ class ImportCoordinatorTest {
             val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
             val attempt = coordinator.beginPicking()!!
             runtime.selectGhost("other")
-            withTimeout(10_000) { while ((runtime.state.value as com.cattailsw.nanidroid.runtime.StageState.Ready)
-                    .switchPrompt?.directoryId != "other") delay(10) }
+            awaitReady(runtime) { it.switchPrompt?.directoryId == "other" }
             runtime.confirmSwitch()
-            withTimeout(10_000) { while ((runtime.state.value as com.cattailsw.nanidroid.runtime.StageState.Ready)
-                    .ghostName != "Other") delay(10) }
+            awaitReady(runtime) { it.ghostName == "Other" }
             val bytes = archive("visitor")
+            val establishedJobs = scope.coroutineContext[Job]!!.children.toSet()
             coordinator.acceptResult(attempt) { ByteArrayInputStream(bytes) }
             withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>()
                 .first { it.outcome is ImportOutcome.Installed } }
-            delay(100)
+            settleAcceptedWork(scope, establishedJobs)
             assertTrue(delivered.none { it.first == "other" && it.second.startsWith("OnInstall") })
             assertTrue(root.resolve("ghost/visitor/ghost/master/descript.txt").isFile)
         } finally { scope.cancel() }
@@ -267,7 +269,7 @@ class ImportCoordinatorTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val root = folder.newFolder()
-            val runtime = runtime(root, scope, mutableListOf())
+            val runtime = runtime(root, scope, EventLog())
             runtime.start("ja")
             lateinit var coordinator: ImportCoordinator
             val importer = GhostImporter(root, afterMove = { coordinator.cancelBeforePublication() })
@@ -282,7 +284,7 @@ class ImportCoordinatorTest {
     }
 
     @Test fun cancellationAfterInstallBeginEmitsFailureWithoutReferences() = runBlocking {
-        val events = mutableListOf<ShioriEvent>()
+        val events = EventLog()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val root = folder.newFolder()
@@ -295,7 +297,7 @@ class ImportCoordinatorTest {
             coordinator.acceptResult(id) { ByteArrayInputStream(archive("visitor")) }
             val done = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
             assertEquals(ImportOutcome.Cancelled, done.outcome)
-            withTimeout(10_000) { while (events.none { it.id == "OnInstallFailure" }) delay(10) }
+            events.await { observed -> observed.any { it.id == "OnInstallFailure" } }
             assertEquals(listOf("OnBoot", "OnInstallBegin", "OnInstallFailure"), events.map { it.id })
             assertTrue(events.single { it.id == "OnInstallFailure" }.references.isEmpty())
             assertFalse(root.resolve("ghost/visitor").exists())
@@ -303,7 +305,7 @@ class ImportCoordinatorTest {
     }
 
     @Test fun cancellationBeforeInstallBeginEmitsNoInstallEvent() = runBlocking {
-        val events = mutableListOf<ShioriEvent>()
+        val events = EventLog()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val root = folder.newFolder()
@@ -330,7 +332,7 @@ class ImportCoordinatorTest {
         val release = CountDownLatch(1)
         try {
             val root = folder.newFolder()
-            val runtime = runtime(root, scope, mutableListOf())
+            val runtime = runtime(root, scope, EventLog())
             runtime.start("ja")
             val importer = GhostImporter(root, beforeMove = {
                 entered.countDown()
@@ -340,12 +342,13 @@ class ImportCoordinatorTest {
             val bytes = archive("visitor")
             val id = coordinator.beginPicking()!!
             coordinator.acceptResult(id) { ByteArrayInputStream(bytes) }
-            withTimeout(10_000) { while (entered.count > 0) delay(10) }
+            assertTrue(withContext(Dispatchers.IO) { entered.await(10, java.util.concurrent.TimeUnit.SECONDS) })
             runtime.close()
-            withTimeout(10_000) { while (runtime.state.value != com.cattailsw.nanidroid.runtime.StageState.Finished) delay(10) }
+            withTimeout(10_000) { runtime.state.first { it == com.cattailsw.nanidroid.runtime.StageState.Finished } }
             release.countDown()
             // The finished session's result is not reopened by a later launch in this process.
-            withTimeout(10_000) { while (!root.resolve("ghost/visitor/ghost/master/descript.txt").isFile) delay(10) }
+            withTimeout(10_000) { coordinatorJob(coordinator)?.join() }
+            assertTrue(root.resolve("ghost/visitor/ghost/master/descript.txt").isFile)
             withTimeout(10_000) { coordinator.state.first { it == ImportState.Idle } }
         } finally { release.countDown(); scope.cancel() }
     }
@@ -360,14 +363,13 @@ class ImportCoordinatorTest {
             other.resolve("shell/master").mkdirs()
             other.resolve("ghost/master/descript.txt").writeText("name,Other\nshiori,Nanidroid\n")
             other.resolve("ghost/master/ja/content.txt").writeText("other")
-            val events = mutableListOf<ShioriEvent>()
+            val events = EventLog()
             val runtime = runtime(root, scope, events, changingGate = changing)
             runtime.start("ja")
             runtime.selectGhost("other")
-            withTimeout(10_000) { while ((runtime.state.value as com.cattailsw.nanidroid.runtime.StageState.Ready)
-                    .switchPrompt?.directoryId != "other") delay(10) }
+            awaitReady(runtime) { it.switchPrompt?.directoryId == "other" }
             runtime.confirmSwitch()
-            withTimeout(10_000) { while (events.none { it.id == "OnGhostChanging" }) delay(10) }
+            events.await { observed -> observed.any { it.id == "OnGhostChanging" } }
             val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
             val bytes = archive("visitor")
             val id = coordinator.beginPicking()!!
@@ -393,14 +395,13 @@ class ImportCoordinatorTest {
             other.resolve("shell/master").mkdirs()
             other.resolve("ghost/master/descript.txt").writeText("name,Other\nshiori,Nanidroid\n")
             other.resolve("ghost/master/ja/content.txt").writeText("other")
-            val events = mutableListOf<ShioriEvent>()
+            val events = EventLog()
             val runtime = runtime(root, scope, events, changingGate = changing, failChanging = true)
             runtime.start("ja")
             runtime.selectGhost("other")
-            withTimeout(10_000) { while ((runtime.state.value as com.cattailsw.nanidroid.runtime.StageState.Ready)
-                    .switchPrompt?.directoryId != "other") delay(10) }
+            awaitReady(runtime) { it.switchPrompt?.directoryId == "other" }
             runtime.confirmSwitch()
-            withTimeout(10_000) { while (events.none { it.id == "OnGhostChanging" }) delay(10) }
+            events.await { observed -> observed.any { it.id == "OnGhostChanging" } }
             val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
             val id = coordinator.beginPicking()!!
             coordinator.acceptResult(id) { ByteArrayInputStream(archive("visitor")) }
@@ -420,7 +421,7 @@ class ImportCoordinatorTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val root = folder.newFolder()
-            val runtime = runtime(root, scope, mutableListOf())
+            val runtime = runtime(root, scope, EventLog())
             runtime.start("ja")
             val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
             val id = coordinator.beginPicking()!!
@@ -436,7 +437,7 @@ class ImportCoordinatorTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val root = folder.newFolder()
-            val runtime = runtime(root, scope, mutableListOf())
+            val runtime = runtime(root, scope, EventLog())
             runtime.start("ja")
             val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
             val id = coordinator.beginPicking()!!
@@ -458,14 +459,13 @@ class ImportCoordinatorTest {
             other.resolve("shell/master").mkdirs()
             other.resolve("ghost/master/descript.txt").writeText("name,Other\nshiori,Nanidroid\n")
             other.resolve("ghost/master/ja/content.txt").writeText("other")
-            val events = mutableListOf<ShioriEvent>()
+            val events = EventLog()
             val runtime = runtime(root, scope, events, changingGate = changing)
             runtime.start("ja")
             runtime.selectGhost("other")
-            withTimeout(10_000) { while ((runtime.state.value as com.cattailsw.nanidroid.runtime.StageState.Ready)
-                    .switchPrompt?.directoryId != "other") delay(10) }
+            awaitReady(runtime) { it.switchPrompt?.directoryId == "other" }
             runtime.confirmSwitch()
-            withTimeout(10_000) { while (events.none { it.id == "OnGhostChanging" }) delay(10) }
+            events.await { observed -> observed.any { it.id == "OnGhostChanging" } }
             val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
             val id = coordinator.beginPicking()!!
             coordinator.acceptResult(id) { ByteArrayInputStream(archive("visitor")) }
@@ -474,10 +474,7 @@ class ImportCoordinatorTest {
             coordinator.acknowledge(id)
             assertEquals(ImportState.Idle, coordinator.state.value)
             changing.complete(Unit)
-            withTimeout(10_000) {
-                while ((runtime.state.value as? com.cattailsw.nanidroid.runtime.StageState.Ready)
-                        ?.switchPrompt?.directoryId != "visitor") delay(10)
-            }
+            awaitReady(runtime) { it.switchPrompt?.directoryId == "visitor" }
         } finally { changing.complete(Unit); scope.cancel() }
     }
 
@@ -486,10 +483,10 @@ class ImportCoordinatorTest {
         val boot = CompletableDeferred<Unit>()
         try {
             val root = folder.newFolder()
-            val events = mutableListOf<ShioriEvent>()
+            val events = EventLog()
             val runtime = runtime(root, scope, events, bootGate = boot, failBoot = true)
             val starting = scope.launch { runtime.start("ja") }
-            withTimeout(10_000) { while (runtime.state.value !is com.cattailsw.nanidroid.runtime.StageState.Ready) delay(10) }
+            awaitReady(runtime) { true }
             val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
             val id = coordinator.beginPicking()!!
             coordinator.acceptResult(id) { ByteArrayInputStream(archive("visitor")) }
@@ -505,7 +502,38 @@ class ImportCoordinatorTest {
         } finally { boot.complete(Unit); scope.cancel() }
     }
 
-    private fun runtime(root: File, scope: CoroutineScope, events: MutableList<ShioriEvent>,
+    private class EventLog : AbstractList<ShioriEvent>() {
+        private val observed = MutableStateFlow<List<ShioriEvent>>(emptyList())
+        override val size get() = observed.value.size
+        override fun get(index: Int) = observed.value[index]
+        override fun iterator() = observed.value.iterator()
+        fun record(event: ShioriEvent) { observed.update { it + event } }
+        suspend fun await(predicate: (List<ShioriEvent>) -> Boolean) =
+            withTimeout(10_000) { observed.first(predicate) }
+    }
+
+    private suspend fun awaitReady(runtime: GhostRuntime,
+        predicate: (com.cattailsw.nanidroid.runtime.StageState.Ready) -> Boolean) {
+        withTimeout(10_000) {
+            runtime.state.filterIsInstance<com.cattailsw.nanidroid.runtime.StageState.Ready>().first(predicate)
+        }
+    }
+
+    private fun coordinatorJob(coordinator: ImportCoordinator): Job? =
+        ImportCoordinator::class.java.getDeclaredField("running").let {
+            it.isAccessible = true
+            it.get(coordinator) as? Job
+        }
+
+    private suspend fun settleAcceptedWork(scope: CoroutineScope, established: Set<Job>) {
+        // Completed publication precedes launch completion. Snapshot includes the queued
+        // install-event chain; joining it waits for the released request and dropped successor.
+        withTimeout(10_000) {
+            scope.coroutineContext[Job]!!.children.filter { it !in established }.toList().forEach { it.join() }
+        }
+    }
+
+    private fun runtime(root: File, scope: CoroutineScope, events: EventLog,
                         gate: CompletableDeferred<Unit>? = null,
                         changingGate: CompletableDeferred<Unit>? = null,
                         failChanging: Boolean = false,
@@ -515,7 +543,7 @@ class ImportCoordinatorTest {
             loadGhost = { BundledGhost("nanidroid", "Nanidroid", "", "", emptyMap(), "") },
             engineFactory = { object : ShioriEngine {
                 override suspend fun request(event: ShioriEvent): ShioriReply {
-                    synchronized(events) { events += event }
+                    events.record(event)
                     if (event.id == "OnInstallBegin") gate?.await()
                     if (event.id == "OnGhostChanging") changingGate?.await()
                     if (event.id == "OnGhostChanging" && failChanging) error("Changing failed")

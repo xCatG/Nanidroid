@@ -23,8 +23,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
@@ -85,7 +87,9 @@ class StageViewModelTest {
             }
             model.acceptPickerResult(source)
             model.acceptPickerResult(source)
-            withTimeout(10_000) { while (coordinator.state.value !is ImportState.Completed) delay(10) }
+            withContext(Dispatchers.Default) {
+                withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
+            }
             assertEquals(1, opens)
         } finally { scope.cancel() }
     }
@@ -154,7 +158,9 @@ class StageViewModelTest {
             assertEquals(0, opens)
             gate.complete(Unit)
             receiving.join()
-            withTimeout(10_000) { while (coordinator.state.value !is ImportState.Completed) delay(10) }
+            withContext(Dispatchers.Default) {
+                withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
+            }
             assertEquals(1, opens)
         } finally { scope.cancel() }
     }
@@ -182,7 +188,9 @@ class StageViewModelTest {
             assertEquals(ImportState.Picking(id), coordinator.state.value)
             assertEquals(0, opens)
             model.setImportActivityStarted(newHost, true)
-            withTimeout(10_000) { while (coordinator.state.value !is ImportState.Completed) delay(10) }
+            withContext(Dispatchers.Default) {
+                withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
+            }
             assertEquals(1, opens)
         } finally { scope.cancel() }
     }
