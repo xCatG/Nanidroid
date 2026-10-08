@@ -115,3 +115,69 @@ run. No push, PR, merge or user-device installation was performed here.
 
 M5's accepted Compose/IME exceptions and missing LOBO Pixel setting cycles remain
 accepted exceptions; no API37/arm64/private-corpus or screenshot parity is claimed.
+
+## Review fix round 1 — bounded failure before evidence deadline
+
+Input review: `.superpowers/sdd/issue-426/review-433.md`; input revision
+`b5b624caa7ce8bb8007de339cbc95e5dbcb245f1`. The Important timeout finding and
+same-file Minor identity finding are addressed in the owned workflow/docs/report.
+The original 45-minute limit described above is superseded by the budget below.
+No runner, instrumentation predicate, APK/native build, dependency or retry changes.
+
+The stable runner's existing process bounds can total 2400 seconds: five
+30-second preflight calls, two 180-second installations, 1800-second instrumentation
+and three 30-second logcat/cleanup/health calls. A 2460-second GNU `timeout` wrapper
+with 10-second kill escalation allows those existing bounds plus 60 seconds of
+host/reap overhead; the execution step itself is bounded at 42 minutes. An
+unexpected runner/process stall fails this step and leaves the subsequent
+always-run job teardown responsible for the owned emulator.
+
+Every device-job step now has an explicit supported step timeout. All steps
+before teardown total at most 75 minutes. The outer job safety limit is 90 minutes,
+reserving 15 minutes: bounded teardown3, upload5, summary1 and scheduling margin6.
+The SDK installation command has a 300-second timeout plus 10-second kill
+escalation inside an eight-minute step; other setup commands are bounded too.
+This lets normal process/step timeouts fail earlier than job cancellation and
+leaves time for the diagnostics artifact attempt. The outer deadline remains a
+final safety limit, not the primary SDK/test timeout.
+
+Boot records captured API/ABI into `verified-device.json` only after AVD, API,
+ABI and qemu checks pass. The Actions summary reads those actual values. Before
+identity verification it states `unavailable`, while API31/x86_64 is explicitly
+labeled as requested configuration. Device identity does not imply test success.
+
+Command:
+
+```powershell
+wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/yenchi/.codex/worktrees/bd56/Nanidroid/.superpowers/sdd/issue-426/433-evidence/round1/check.sh
+```
+
+The saved driver parses the amended YAML, Bash and PowerShell bodies, asserts
+75+9+6=90 minutes and the exact production process deadlines, then executes actual
+installation/execution/summary bodies with fake SDK/runner inputs. A timeout test
+double records the production timeout arguments and shortens only the exact
+300s/2460s intervals to 0.5 seconds; real GNU `timeout` terminates sleeping test
+processes. This is an accelerated local control, not a real SDK install or hosted
+step cancellation. Linux host checks were not repeated because runner/manifest
+and list/self-check invocation bodies did not change.
+
+Observed controls (all driver assertions passed; driver exit0):
+
+- SDK install body exit124; first stdout and stderr remain in `sdk-install.log`.
+- Runner execution body exit1 after the outer process timeout; first console
+  stdout/stderr and `gate-error.log` remain. The logged timeout arguments confirm
+  the unchanged one-runner `-SkipBuild` invocation is wrapped at 2460 seconds.
+- Subsequent bounded teardown body exits0 in both no-emulator controls; it cannot
+  erase either failed step. `timeout-artifact-inputs.tar.gz` retains report inputs
+  for the always-run upload. Hosted upload remains unverified.
+- Early-failure summary exit0 and labels verified identity unavailable. Verified
+  API31/qemu control writes actual API31/x86_64 record and summary. API37 mismatch
+  and non-qemu controls each exit1 and write no verified record. An independent
+  API34/arm64-v8a record control appears as those actual values in the summary,
+  proving the summary does not hardcode requested identity.
+
+Raw drivers/output/archive: ignored
+`.superpowers/sdd/issue-426/433-evidence/round1/`, including `results.log`, the
+per-control logs and `timeout-artifact-inputs.tar.gz`. No real suite/device/build
+was repeated. Actual integrated first-attempt device/GitHub gates remain
+controller-owned and pending; M5 exceptions and parity gaps are unchanged.

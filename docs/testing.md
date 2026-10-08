@@ -102,10 +102,19 @@ Always-run diagnostics/teardown and the unique
 instrumentation streams, method summary/results, selection, SDK/emulator/AVD,
 boot/display, runner console, logcat/crash and Gradle reports. Cleanup stops only
 the job-launched emulator and test apps with bounded commands; its failure cannot
-make an earlier failed step green. The 45-minute job deadline includes the
-30-minute runner limit. The Actions summary links evidence and reports actual
+make an earlier failed step green. The 90-minute job safety limit reserves
+15 minutes after the 75-minute
+maximum provisioning/execution step budget: three for teardown, five for upload,
+one for summary and six for scheduling margin. The 42-minute execution step
+wraps the stable runner with a 2460-second process deadline, covering its unchanged
+1800-second instrumentation and 600 seconds of bounded preflight/install/diagnostic/
+cleanup work plus 60 seconds of host overhead. SDK installation has a five-minute
+process bound inside its eight-minute step. There are no retries. The Actions
+summary links evidence and reports actual
 selected/executed/pass/skip/fail/incomplete counts, elapsed time and cleanup;
-provisioning failures report unavailable counts honestly.
+provisioning failures report unavailable counts honestly. API/ABI comes from the
+boot-verified device record; earlier failures label identity unavailable and show
+the requested configuration separately.
 
 This is one representative minimum-supported API/ABI gate. It does not establish
 API37/arm64/private-corpus parity or resolve accepted M5 Compose/IME exceptions

@@ -60,31 +60,39 @@ jobs:
     name: Self-contained device tests
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # Pre-teardown step budgets total 75m; teardown/upload/summary total 9m.
+    # Reserve those 9m plus 6m scheduling margin before this outer safety limit.
+    timeout-minutes: 90
     env:
       DEVICE_REPORT: app/build/reports/device-self-contained
       DEVICE_SERIAL: emulator-5554
       AVD_NAME: nanidroid-ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
+        timeout-minutes: 2
       - name: Initialize diagnostics
+        timeout-minutes: 1
         run: |
           mkdir -p "$DEVICE_REPORT"
           date -u +%FT%TZ > "$DEVICE_REPORT/start-time.txt"
           git rev-parse HEAD > "$DEVICE_REPORT/source-commit.txt"
           cp docs/testing/device-suites.json "$DEVICE_REPORT/selection-inventory.json"
       - uses: actions/setup-java@v4
+        timeout-minutes: 3
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        timeout-minutes: 3
         with:
           packages: platform-tools
       - uses: actions/download-artifact@v4
+        timeout-minutes: 3
         with:
           name: android-apks
           path: app/build/outputs/apk/
       - name: Verify same-run APKs and host selection
+        timeout-minutes: 3
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -128,16 +136,18 @@ jobs:
             throw
           }
       - name: Install emulator and image
+        timeout-minutes: 8
         run: |
           set -euo pipefail
-          sdkmanager "emulator" "system-images;android-31;google_apis;x86_64" > "$DEVICE_REPORT/sdk-install.log" 2>&1
-          "$ANDROID_HOME/emulator/emulator" -version > "$DEVICE_REPORT/emulator-version.log" 2>&1
-          "$ANDROID_HOME/platform-tools/adb" version > "$DEVICE_REPORT/adb-version.log" 2>&1
-          java -version > "$DEVICE_REPORT/java-version.log" 2>&1
-          sdkmanager --list_installed > "$DEVICE_REPORT/sdk-components.log" 2>&1
-          sudo chmod 666 /dev/kvm
-          "$ANDROID_HOME/emulator/emulator" -accel-check > "$DEVICE_REPORT/acceleration.log" 2>&1
+          timeout --kill-after=10s 300s sdkmanager "emulator" "system-images;android-31;google_apis;x86_64" > "$DEVICE_REPORT/sdk-install.log" 2>&1
+          timeout 30 "$ANDROID_HOME/emulator/emulator" -version > "$DEVICE_REPORT/emulator-version.log" 2>&1
+          timeout 15 "$ANDROID_HOME/platform-tools/adb" version > "$DEVICE_REPORT/adb-version.log" 2>&1
+          timeout 15 java -version > "$DEVICE_REPORT/java-version.log" 2>&1
+          timeout 30 sdkmanager --list_installed > "$DEVICE_REPORT/sdk-components.log" 2>&1
+          timeout 15 sudo chmod 666 /dev/kvm
+          timeout 30 "$ANDROID_HOME/emulator/emulator" -accel-check > "$DEVICE_REPORT/acceleration.log" 2>&1
       - name: Boot owned API 31 emulator
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           exec > "$DEVICE_REPORT/boot.log" 2>&1
@@ -150,7 +160,7 @@ jobs:
           if grep -Eq "^${DEVICE_SERIAL}[[:space:]]" "$DEVICE_REPORT/initial-devices.log"; then
             echo 'Assigned serial already exists'; exit 1
           fi
-          printf 'no\n' | avdmanager create avd -n "$AVD_NAME" -k 'system-images;android-31;google_apis;x86_64'
+          printf 'no\n' | timeout --kill-after=10s 45s avdmanager create avd -n "$AVD_NAME" -k 'system-images;android-31;google_apis;x86_64'
           config="$HOME/.android/avd/$AVD_NAME.avd/config.ini"
           printf '\nhw.lcd.width=1080\nhw.lcd.height=2400\nhw.lcd.density=420\nhw.initialOrientation=portrait\n' >> "$config"
           cp "$config" "$DEVICE_REPORT/avd-config.ini"
@@ -170,9 +180,12 @@ jobs:
           [[ "$ready" == true ]] || { echo 'Boot deadline expired'; exit 1; }
           timeout 15 "$adb" -s "$DEVICE_SERIAL" shell getprop > "$DEVICE_REPORT/device-properties.log"
           [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" emu avd name | head -n 1 | tr -d '\r')" == "$AVD_NAME" ]]
-          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell getprop ro.build.version.sdk | tr -d '\r')" == 31 ]]
-          [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell getprop ro.product.cpu.abi | tr -d '\r')" == x86_64 ]]
+          api=$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell getprop ro.build.version.sdk | tr -d '\r')
+          [[ "$api" == 31 ]]
+          abi=$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell getprop ro.product.cpu.abi | tr -d '\r')
+          [[ "$abi" == x86_64 ]]
           [[ "$(timeout 15 "$adb" -s "$DEVICE_SERIAL" shell getprop ro.kernel.qemu | tr -d '\r')" == 1 ]]
+          printf '{"api":%s,"abi":"%s"}\n' "$api" "$abi" > "$DEVICE_REPORT/verified-device.json"
           timeout 15 "$adb" -s "$DEVICE_SERIAL" shell wm size 1080x2400
           timeout 15 "$adb" -s "$DEVICE_SERIAL" shell wm density 420
           timeout 15 "$adb" -s "$DEVICE_SERIAL" shell settings put system accelerometer_rotation 0
@@ -201,12 +214,15 @@ jobs:
           (root / 'viewport.log').write_text(f'API=31 ABI=x86_64 portrait font=1.0 density=420 usable={match[1]}x{match[2]}dp\n')
           PY
       - name: Execute first-attempt self-contained suite
+        # 2400s existing runner process bounds plus 60s host/reap overhead.
+        # The 2460s wrapper ends before this 42m step limit; no test retry.
+        timeout-minutes: 42
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           try {
           $adb = Join-Path $env:ANDROID_HOME 'platform-tools/adb'
-          & pwsh -NoProfile -File tools/test-device-suite.ps1 -Suite self-contained -Serial emulator-5554 -Adb $adb -OutputDirectory "$env:DEVICE_REPORT/runner" -SkipBuild *> "$env:DEVICE_REPORT/runner-console.log"
+          & timeout --kill-after=10s 2460s pwsh -NoProfile -File tools/test-device-suite.ps1 -Suite self-contained -Serial emulator-5554 -Adb $adb -OutputDirectory "$env:DEVICE_REPORT/runner" -SkipBuild *> "$env:DEVICE_REPORT/runner-console.log"
           if ($LASTEXITCODE -ne 0) { throw 'First-attempt device suite failed; retained runner diagnostics' }
           $summary = Get-Content "$env:DEVICE_REPORT/runner/summary.json" -Raw | ConvertFrom-Json
           $provenance = Get-Content "$env:DEVICE_REPORT/artifact-provenance.json" -Raw | ConvertFrom-Json
@@ -281,6 +297,7 @@ jobs:
           echo "$status" > "$DEVICE_REPORT/teardown-status.txt"
           exit "$status"
       - name: Device evidence
+        timeout-minutes: 5
         id: device-evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -291,6 +308,7 @@ jobs:
             app/build/test-results/
           if-no-files-found: error
       - name: Device summary
+        timeout-minutes: 1
         if: always()
         shell: pwsh
         env:
@@ -299,7 +317,13 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $path = "$env:DEVICE_REPORT/runner/summary.json"
-          $lines = @('### Self-contained device tests', "Job: $env:JOB_STATUS; API 31 / x86_64; one first attempt")
+          $identity = 'unavailable (boot identity verification did not complete)'
+          $identityPath = "$env:DEVICE_REPORT/verified-device.json"
+          if (Test-Path $identityPath) {
+            $verified = Get-Content $identityPath -Raw | ConvertFrom-Json
+            $identity = "API $($verified.api) / $($verified.abi)"
+          }
+          $lines = @('### Self-contained device tests', "Job: $env:JOB_STATUS; verified device: $identity; one first attempt", 'Requested configuration: API 31 / x86_64.')
           if (Test-Path $path) {
             $s = Get-Content $path -Raw | ConvertFrom-Json
             $lines += "Selected $($s.expectedCount); executed $($s.observedCount); passed $($s.counts.passed); skipped $($s.counts.skipped); failed $($s.counts.failed); incomplete $($s.counts.incomplete); elapsed $([math]::Round($s.durationSeconds, 2)) seconds; runner cleanup $($s.cleanupStatus)."
