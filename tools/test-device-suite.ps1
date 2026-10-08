@@ -27,6 +27,15 @@ function Resolve-SuiteAdb([string]$Explicit) {
     throw 'Cannot resolve adb: supply -Adb or ANDROID_SDK_ROOT/ANDROID_HOME, or put adb on PATH'
 }
 
+function Get-CleanSuiteCommit([string]$Repository) {
+    $state = @(& git -C $Repository status --porcelain=v1 --untracked-files=all)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot verify suite source: Git status failed' }
+    if ($state.Count) { throw 'Suite execution requires a clean Git worktree (including staged and untracked files); commit or preserve changes before execution' }
+    $commit = (& git -C $Repository rev-parse HEAD | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') { throw 'Cannot verify suite source commit' }
+    return $commit
+}
+
 function Read-DeviceInventory([string]$SourceRoot, $Manifest) {
     if ($Manifest.schemaVersion -ne 1) { throw 'Unsupported device manifest schemaVersion' }
     $discovered = @()
@@ -121,6 +130,19 @@ function Read-SuiteTranscript([string]$Text, [string[]]$Selected, [int]$ExitCode
     return [ordered]@{observedMethods=$observed;observedCount=$observed.Count;results=$records;counts=$counts;outcome=$outcome}
 }
 
+function Set-SuiteDiagnosticFailure($Summary, [string]$Reason) {
+    foreach ($record in $Summary.results) {
+        if ($record.status -eq 'passed') {
+            $record.status='incomplete'
+            $record.reason="Suite diagnostics unavailable: $Reason"
+            $Summary.counts.passed--
+            $Summary.counts.incomplete++
+        }
+    }
+    if ($Summary.outcome -ne 'failed') { $Summary.outcome='incomplete' }
+    # cleanupStatus describes force-stop/device health, independently of capture.
+}
+
 function Invoke-SuiteProcess([string]$Executable, [string[]]$Arguments, [int]$Seconds, [string]$Prefix) {
     $start = [Diagnostics.ProcessStartInfo]::new($Executable)
     $start.UseShellExecute=$false; $start.CreateNoWindow=$true
@@ -146,6 +168,7 @@ $selected = @(Select-DeviceSuite $inventory $Suite)
 if ($ListOnly) { $selected; Write-Host "Selected count: $($selected.Count)"; return }
 if ($Suite -cne 'self-contained') { throw 'Only self-contained is executable; use the documented fixture/host tools for other suites' }
 if ($Serial -notmatch '^emulator-[0-9]+$') { throw 'Execution requires explicit -Serial emulator-<port> for an authorized disposable emulator' }
+$sourceCommit = Get-CleanSuiteCommit $repo
 $Adb = Resolve-SuiteAdb $Adb
 # A normal SDK adb path also supplies the SDK for Gradle when no local.properties
 # or SDK environment was configured. Explicit -Adb takes precedence.
@@ -158,7 +181,7 @@ if (Test-Path -LiteralPath $OutputDirectory) { throw "Output directory already e
 [IO.Directory]::CreateDirectory([IO.Path]::GetFullPath($OutputDirectory)) | Out-Null
 $OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
 $watch = [Diagnostics.Stopwatch]::StartNew()
-$summary = [ordered]@{schemaVersion=1;suite=$Suite;sourceCommit=(& git -C $repo rev-parse HEAD | Out-String).Trim();serial=$Serial;appApkSha256='';testApkSha256='';device=@{api=0;abi=''};selectedMethods=$selected;expectedCount=$selected.Count;observedMethods=@();observedCount=0;results=@();counts=@{passed=0;skipped=0;failed=0;incomplete=$selected.Count};durationSeconds=0;cleanupStatus='not-run';outcome='incomplete'}
+$summary = [ordered]@{schemaVersion=1;suite=$Suite;sourceCommit=$sourceCommit;serial=$Serial;appApkSha256='';testApkSha256='';device=@{api=0;abi=''};selectedMethods=$selected;expectedCount=$selected.Count;observedMethods=@();observedCount=0;results=@();counts=@{passed=0;skipped=0;failed=0;incomplete=$selected.Count};durationSeconds=0;cleanupStatus='not-run';outcome='incomplete'}
 $verifiedDevice=$false; $primary=$null
 function Invoke-Device([string[]]$Arguments, [string]$Name, [int]$Seconds=30) {
     $r = Invoke-SuiteProcess $Adb (@('-s',$Serial)+$Arguments) $Seconds (Join-Path $OutputDirectory $Name)
@@ -181,6 +204,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw 'APK build failed; inspect build.log' }
         } finally { Pop-Location }
     }
+    if ((Get-CleanSuiteCommit $repo) -cne $sourceCommit) { throw 'Suite source commit changed during execution; refusing APK installation' }
     $appApk=Join-Path $repo 'app/build/outputs/apk/debug/app-debug.apk'
     $testApk=Join-Path $repo 'app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'
     foreach ($apk in @($appApk,$testApk)) { if (!(Test-Path -LiteralPath $apk -PathType Leaf)) { throw "APK missing: $apk" } }
@@ -199,15 +223,15 @@ finally {
     }
     if ($verifiedDevice) {
         # A diagnostic capture failure must not prevent releasing the test process.
-        $diagnosticFailure=$false
+        $diagnosticReason=$null
         try { Invoke-Device @('logcat','-d') 'logcat' 30 | Out-Null }
-        catch { $_ | Out-String | Set-Content (Join-Path $OutputDirectory 'diagnostic-error.log'); $diagnosticFailure=$true }
+        catch { $_ | Out-String | Set-Content (Join-Path $OutputDirectory 'diagnostic-error.log'); $diagnosticReason=$_.Exception.Message }
         try {
             Invoke-Device @('shell','am','force-stop','com.cattailsw.nanidroid') 'cleanup' | Out-Null
             if ((Invoke-Device @('get-state') 'cleanup-state') -cne 'device') { throw 'Device unavailable after cleanup' }
             $summary.cleanupStatus='passed'
         } catch { $_ | Out-String | Set-Content (Join-Path $OutputDirectory 'cleanup-error.log'); $summary.cleanupStatus='failed'; $summary.outcome='failed' }
-        if ($diagnosticFailure) { $summary.cleanupStatus='failed'; $summary.outcome='failed' }
+        if ($diagnosticReason) { Set-SuiteDiagnosticFailure $summary $diagnosticReason }
     }
     $summary.durationSeconds=$watch.Elapsed.TotalSeconds
     $summary | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'summary.json') -Encoding utf8

@@ -20,7 +20,13 @@ Linux uses `bash ./gradlew` for the same tasks and `platform-tools/adb`.
 Offline execution requires the dependency cache; an empty host must resolve its
 own dependencies first. Omit `-SkipBuild` to build both debug APKs in the runner.
 The runner resolves paths from its own location and adb from `-Adb`, SDK
-environment variables, then PATH. Execution verifies the named booted emulator,
+environment variables, then PATH. Execution requires a clean Git checkout,
+including the index and untracked files, before output/build/adb work; list and
+self-check modes need no Git. The runner rechecks unchanged clean source before
+installation and records that commit. `-SkipBuild` assumes the caller supplies
+APKs built for that commit: hashes identify the supplied APK bytes, and this
+option does not independently derive their source revision. CI must validate
+same-run artifact provenance before using it. Execution verifies the named booted emulator,
 API >=31 and x86_64 before installing. Provision portrait 1080×2400 at 420 dpi,
 font scale 1 (usable test viewport >=600 dp) for viewport-dependent regressions.
 Do not use an unrestricted connected Gradle task with attached user devices.

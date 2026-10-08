@@ -82,9 +82,14 @@ class GhostImportInstrumentationTest {
     private val context by lazy { ApplicationProvider.getApplicationContext<android.content.Context>() }
 
     @Before fun createDisposableRoot() {
-        if (InstrumentationRegistry.getArguments().containsKey("phase")) return
+        val args = InstrumentationRegistry.getArguments()
+        if (args.containsKey("phase") || args.containsKey("runId")) {
+            Log.i("NanidroidTestFixtures", "IMPORT_DEVICE_SETUP_SKIPPED runId=${args.getString("runId")} rootInitialized=${::root.isInitialized}")
+            return
+        }
         root = File(context.cacheDir, "import-device-${UUID.randomUUID()}/files")
         assertTrue(root.mkdirs())
+        Log.i("NanidroidTestFixtures", "IMPORT_DEVICE_FIXTURE_CREATED runId=${args.getString("runId")} path=$root")
     }
 
     @After fun removeDisposableRoot() {
