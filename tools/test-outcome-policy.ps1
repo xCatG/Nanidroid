@@ -30,8 +30,8 @@ function Get-InstrumentationOutcome([string]$Text, [int]$ExitCode, [string]$Clas
     }
     $terminal = @($events | Where-Object { $_.code -ne 1 })
     $target = @($terminal | Where-Object { $_.class -ceq $Class -and $_.method -ceq $Method })
-    if (@($target | Where-Object { $_.code -in @(-3,-4) }).Count -or $Text -match '(?i)assumption|AssumptionViolated|\bignored\b') { return 'skipped' }
     if (@($target | Where-Object { $_.code -in @(-1,-2) }).Count -or $ExitCode -ne 0 -or $Text -match 'FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED|Process crashed') { return 'failed' }
+    if (@($target | Where-Object { $_.code -in @(-3,-4) }).Count -or $Text -match '(?i)assumption|AssumptionViolated|\bignored\b') { return 'skipped' }
     if ($target.Count -ne 1 -or $terminal.Count -ne 1 -or $target[0].code -ne 0 -or $Text -notmatch 'OK \(1 test\)') { return 'incomplete' }
     return 'passed'
 }

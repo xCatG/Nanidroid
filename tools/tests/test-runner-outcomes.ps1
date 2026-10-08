@@ -99,6 +99,14 @@ Check ((Get-InstrumentationOutcome ($text+"`nAssumptionViolatedException") 0 C m
 Check ((Get-InstrumentationOutcome 'OK (1 test)' 0 C m) -eq 'incomplete') 'OK alone incomplete'
 Check ((Get-InstrumentationOutcome $text 1 C m) -eq 'failed') 'transport failure'
 Check ((Get-InstrumentationOutcome ($text+"`n"+$text) 0 C m) -eq 'incomplete') 'duplicate terminal'
+foreach ($word in @('assumption','ignored')) {
+    foreach ($code in @(-1,-2)) {
+        $failureText=($text -replace 'CODE: 0',"CODE: $code")+"`nAssertionError: $word expectation failed"
+        Check ((Get-InstrumentationOutcome $failureText 0 C m) -eq 'failed') "terminal $code failure precedes $word assertion text"
+    }
+    Check ((Get-InstrumentationOutcome ($text+"`n$word") 1 C m) -eq 'failed') "nonzero exit precedes $word text"
+    Check ((Get-InstrumentationOutcome ($text+"`nProcess crashed: $word") 0 C m) -eq 'failed') "crash precedes $word text"
+}
 Assert-NativeMethodCompleteness @('C#m') @(@{methodId='C#m';status='passed'})
 Check $true 'native method complete'
 Reject { Assert-NativeMethodCompleteness @('C#m') @() } 'missing native method'
@@ -146,6 +154,10 @@ switch ($Case) {
  'mixed' { & $Runner -Only @('satori','unknown') -OutputDirectory $Output }
  'empty' { & $Runner -Only @() -OutputDirectory $Output }
  'duplicate-positive' { & $Runner -Only @('satori','satori') -OutputDirectory $Output }
+ 'double-failure' {
+     function global:Get-FileHash { [pscustomobject]@{Path='synthetic';Hash=('a'*64)} }
+     & $Runner -Only satori -SkipBuild -OutputDirectory $Output
+ }
  'unknown-corpus' { & $Runner -DeviceSerial emulator-5554 -Label unknown -OutputDirectory $Output }
  'missing-map' { & $Runner -DeviceSerial emulator-5554 -Mode Acceptance -OutputDirectory $Output }
 }
@@ -169,6 +181,33 @@ switch ($Case) {
         $summary=Get-Content (Join-Path $root 'probe-output/summary.json') -Raw | ConvertFrom-Json
         Check ($summary.selectedCount -eq 1 -and $summary.counts.incomplete -eq 1 -and $summary.outcome -eq 'failed') 'early failure summary and duplicate selection'
         Remove-Item -LiteralPath $sentinel
+        # Exercise the runner's real scenario catch/finally/summary path. Only
+        # device and fixture functions are replaced in the temporary copy.
+        $doubleText=Get-Content $mirrorNative -Raw
+        $doubleAst=[Management.Automation.Language.Parser]::ParseInput($doubleText,[ref]$tokens,[ref]$errors)
+        $replacements=@{
+            'Assert-DeviceHealth'='function Assert-DeviceHealth { }'
+            'Stage-Fixture'="function Stage-Fixture { throw 'SYNTHETIC PRIMARY FAILURE' }"
+            'Invoke-Adb'="function Invoke-Adb { param([string[]]`$Arguments,[int]`$TimeoutSeconds=30) if (`$Arguments -contains 'force-stop') { throw 'SYNTHETIC CLEANUP FAILURE' } }"
+        }
+        $functions=@($doubleAst.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in @('Assert-DeviceHealth','Stage-Fixture','Invoke-Adb')},$true) | Sort-Object { $_.Extent.StartOffset } -Descending)
+        Check ($functions.Count -eq 3) 'double-failure probe replaces only three external-operation functions'
+        foreach ($function in $functions) {
+            $doubleText=$doubleText.Remove($function.Extent.StartOffset,$function.Extent.EndOffset-$function.Extent.StartOffset).Insert($function.Extent.StartOffset,$replacements[$function.Name])
+        }
+        $doubleRunner=Join-Path $mirrorTools 'double-native.ps1'
+        Set-Content $doubleRunner $doubleText
+        & $pwsh -NoProfile -File $probe $doubleRunner double-failure $sentinel (Join-Path $root 'double-output') *> (Join-Path $root 'double.log')
+        Check ($LASTEXITCODE -ne 0) 'operation plus cleanup failure exits nonzero'
+        $doubleSummary=Get-Content (Join-Path $root 'double-output/summary.json') -Raw | ConvertFrom-Json
+        Check ($doubleSummary.scenarios[0].reason -eq 'SYNTHETIC PRIMARY FAILURE') 'double-failure scenario preserves primary reason'
+        Check ($doubleSummary.scenarios[0].cleanupReason -eq 'SYNTHETIC CLEANUP FAILURE') 'double-failure scenario preserves cleanup reason'
+        Check ($doubleSummary.outcome -eq 'failed' -and $doubleSummary.scenarios[0].cleanupStatus -eq 'failed') 'double-failure stays failed with unsafe cleanup'
+        Check ($doubleSummary.reasons -contains 'SYNTHETIC PRIMARY FAILURE' -and $doubleSummary.reasons -contains 'SYNTHETIC CLEANUP FAILURE') 'double-failure summary preserves both reasons'
+        Check ((Get-Content (Join-Path $root 'double.log') -Raw) -match 'SYNTHETIC PRIMARY FAILURE') 'double-failure rethrows primary error'
+        $rawScenario=Get-Content (Get-ChildItem (Join-Path $root 'double-output') -Filter '*-scenario.json').FullName -Raw | ConvertFrom-Json
+        Check ($rawScenario.reason -eq 'SYNTHETIC PRIMARY FAILURE' -and $rawScenario.cleanupReason -eq 'SYNTHETIC CLEANUP FAILURE') 'double-failure raw scenario preserves both errors'
+        Check (!(Test-Path $sentinel)) 'double-failure never starts external process'
         "@echo started>>`"$sentinel`"`r`n@exit /b 99" | Set-Content $fake
         $native=Join-Path $PSScriptRoot '../test-native-persistence.ps1'
         $corpus=Join-Path $PSScriptRoot '../test-milestone5-corpus.ps1'

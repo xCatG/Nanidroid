@@ -268,7 +268,13 @@ foreach ($source in $sources) {
         Assert-DeviceHealth "$runId-health.log"
         "$(Get-Date -Format o) CLEANUP $($source.name) runId=$runId" | Add-Content (Join-Path $OutputDirectory 'run.log')
         $scenario.cleanupStatus='passed'
-        } catch { $scenario.status='failed'; $scenario.cleanupStatus='failed'; $scenario.reason=$_.Exception.Message; throw }
+        } catch {
+            $scenario.status='failed'; $scenario.cleanupStatus='failed'
+            $scenario.cleanupReason=$_.Exception.Message
+            if (!$scenario.reason) { $scenario.reason=$scenario.cleanupReason; throw }
+            # The operation catch is already rethrowing its primary ErrorRecord.
+            # Completing this finally preserves that throw; cleanup stays failed.
+        }
         finally { $scenario | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDirectory "$runId-scenario.json") }
     }
     $scenario.status='passed'
@@ -279,6 +285,11 @@ Invoke-Adb -Arguments @('logcat','-d','-s','System.out:I') -TimeoutSeconds 30 | 
     ForEach-Object { $_.Line } | Set-Content -Encoding utf8 (Join-Path $OutputDirectory 'fixture-logcat.log')
 } catch {
     $runReasons += $_.Exception.Message
+    foreach ($scenario in $scenarioRecords) {
+        if ($scenario.cleanupReason -and $scenario.cleanupReason -cne $scenario.reason) {
+            $runReasons += $scenario.cleanupReason
+        }
+    }
     throw
 } finally {
     if (Test-Path -LiteralPath $OutputDirectory) { Write-NativeSummary }
