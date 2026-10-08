@@ -87,7 +87,9 @@ native build. Both jobs use JDK 17; the build keeps platform android-37.0,
 build tools 37.0.0, NDK 28.2.13676358 and CMake 3.22.1.
 
 The device job uses one ephemeral Ubuntu 24.04 Google APIs API 31 x86_64 AVD,
-explicit port/serial `5554`/`emulator-5554`, headless software rendering with
+explicit port/serial `5554`/`emulator-5554`, shared job-owned Android user/emulator/
+AVD homes under `RUNNER_TEMP`, and an explicit `avdmanager -p` content path.
+The emulator uses that registry, with headless software rendering and
 required host acceleration, portrait 1080×2400/420 dpi and font scale 1.0.
 Boot, identity, actual settings and usable window viewport >=600 dp are checked
 before the portable runner's single `-SkipBuild` invocation. Linux list/self-check

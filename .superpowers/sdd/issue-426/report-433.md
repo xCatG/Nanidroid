@@ -334,3 +334,62 @@ No full build, app/native build, device suite, emulator boot, push or workflow
 retry was performed for this correction. The earlier local 117/117 gate remains
 valid for its recorded 8df2d74d source; a corrected hosted job is still pending
 controller publication/review/execution. M5 exceptions and parity gaps remain.
+
+## Second hosted failure — explicit job-owned AVD location
+
+[Hosted run 37733916735](https://github.com/xCatG/Nanidroid/actions/runs/37733916735)
+passed Build/local checks and emulator/image installation, confirming the
+`libpulse0` correction on the hosted runner. `emulator-version.log` reports
+37.2.12.0/build 16428233. Boot preparation then failed exit 1 before emulator
+launch or instrumentation. Same-run checkout source was
+`8f52fc38cdeb224ae2304f23377a2e38411f9a9f`.
+
+The first boot failure is retained in
+`.superpowers/sdd/issue-426/ci-440-37733916735-failed.log` and actual downloaded
+`device-self-contained-37733916735-1` artifact id 11530834559, under ignored
+`.superpowers/sdd/issue-426/433-evidence/hosted-37733916735/reports/device-self-contained/`.
+`boot.log` shows successful AVD creation, followed by Bash line 14 failing to
+append hardware settings at the workflow's assumed path:
+
+```text
+/home/runner/.android/avd/nanidroid-ci-37733916735-1.avd/config.ini: No such file or directory
+```
+
+The artifact establishes that the expected config was absent after the creator
+succeeded; the creator's actual default location was not logged. The failing
+workflow assumed that SDK tool creation and emulator discovery always use
+`$HOME/.android/avd`. No emulator PID was recorded, teardown exited 0, and no
+runner result counts were produced. Both earlier hosted failures remain retained
+and failed; no unchanged retry was performed.
+
+The workflow now sets shared job-owned `ANDROID_USER_HOME`,
+`ANDROID_EMULATOR_HOME` and `ANDROID_AVD_HOME` under `RUNNER_TEMP`, logs those
+paths, passes the exact AVD content directory through `avdmanager -p`, and reads
+`config.ini` from that directory. The background emulator inherits the same
+registry settings. The documented
+[AVD path option](https://developer.android.com/tools/avdmanager) and
+[Android environment variables](https://developer.android.com/tools/variables)
+provide these explicit creation/discovery inputs. Port/serial, image, toolchain,
+display checks, one runner invocation and timeout/evidence reserve are unchanged.
+
+Focused validation command:
+
+```powershell
+wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/yenchi/.codex/worktrees/bd56/Nanidroid/.superpowers/sdd/issue-426/433-evidence/avd-path-fix/check.sh
+```
+
+The saved driver parses amended YAML/Bash/PowerShell and executes the actual old
+and fixed preparation boundaries through config copy, stopping before emulator
+launch. An explicit avdmanager test double models successful creation at a
+non-HOME default path and honors `-p`; this is a **synthetic path control**, not an
+actual SDK AVD/image creation or boot. Old body exits 1 with the missing config
+error; fixed body exits 0, uses the explicit shared registry/content path, and
+retains 1080×2400/420dpi/portrait settings. A creator failure exits 42 before
+configuration, with its first error retained in `boot.log`. Driver exit 0;
+raw scripts/logs remain in ignored `433-evidence/avd-path-fix/`.
+
+No local build, device suite, emulator launch, runner/test/product/native change,
+push or workflow retry was performed. Corrected hosted boot/instrumentation and
+job-owned emulator cleanup remain pending controller publication/review/execution.
+Build reports remain in `android-reports`; device setup/test diagnostics remain
+in the unique device artifact. M5 exceptions and parity limits are unchanged.

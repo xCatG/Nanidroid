@@ -156,14 +156,21 @@ jobs:
           trap 'echo "Boot/configuration failure at line $LINENO: $BASH_COMMAND" >&2' ERR
           adb="$ANDROID_HOME/platform-tools/adb"
           emulator="$ANDROID_HOME/emulator/emulator"
+          # Give both tools the same job-owned registry and explicit AVD content path.
+          export ANDROID_USER_HOME="$RUNNER_TEMP/$AVD_NAME-android"
+          export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          avd_dir="$ANDROID_AVD_HOME/$AVD_NAME.avd"
+          printf 'user=%s\nemulator=%s\navd=%s\ncontent=%s\n' "$ANDROID_USER_HOME" "$ANDROID_EMULATOR_HOME" "$ANDROID_AVD_HOME" "$avd_dir" > "$DEVICE_REPORT/avd-paths.log"
           # Never adopt an existing emulator on the assigned port.
           timeout 20 "$adb" start-server
           timeout 15 "$adb" devices > "$DEVICE_REPORT/initial-devices.log"
           if grep -Eq "^${DEVICE_SERIAL}[[:space:]]" "$DEVICE_REPORT/initial-devices.log"; then
             echo 'Assigned serial already exists'; exit 1
           fi
-          printf 'no\n' | timeout --kill-after=10s 45s avdmanager create avd -n "$AVD_NAME" -k 'system-images;android-31;google_apis;x86_64'
-          config="$HOME/.android/avd/$AVD_NAME.avd/config.ini"
+          printf 'no\n' | timeout --kill-after=10s 45s avdmanager create avd -n "$AVD_NAME" -p "$avd_dir" -k 'system-images;android-31;google_apis;x86_64'
+          config="$avd_dir/config.ini"
           printf '\nhw.lcd.width=1080\nhw.lcd.height=2400\nhw.lcd.density=420\nhw.initialOrientation=portrait\n' >> "$config"
           cp "$config" "$DEVICE_REPORT/avd-config.ini"
           "$emulator" -avd "$AVD_NAME" -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader -accel on > "$DEVICE_REPORT/emulator.log" 2>&1 &
