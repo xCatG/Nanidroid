@@ -12,9 +12,12 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class NarArchiveReaderTest {
+    @get:Rule val temporaryFolder = TemporaryFolder()
     private val reader = NarArchiveReader()
     private val descriptor = "type,ghost\r\ndirectory,example\r\n".toByteArray(charset("windows-31j"))
 
@@ -433,14 +436,20 @@ class NarArchiveReaderTest {
         }
     }
 
-    @Test fun extractionStreamsEachPayloadOnceAfterInspection() {
-        val zip = archive("install.txt" to descriptor, "large.bin" to ByteArray(100_000) { 7 })
+    @Test fun extractionPreservesExactPayloadBytesAfterInspection() {
+        // Offset-dependent bytes distinguish adjacent bytes and successive streaming chunks.
+        val payload = ByteArray(100_000) { offset ->
+            ((offset * 31) xor (offset ushr 8) xor (offset ushr 16)).toByte()
+        }.apply {
+            // Explicit zero and signed-byte boundaries straddle the 8 KiB buffer boundary.
+            byteArrayOf(0, 127, -128, -1).copyInto(this, 8_190)
+        }
+        val zip = archive("install.txt" to descriptor, "large.bin" to payload)
         val metadata = reader.inspect(zip)
-        val target = Files.createTempDirectory("nar-single-pass").toFile()
-        var checks = 0
-        reader.extract(zip, metadata, target) { checks++ }
-        assertEquals(100_000L, File(target, "large.bin").length())
-        assertTrue("extraction checks $checks suggest a second content pass", checks <= 20)
+        val target = temporaryFolder.newFolder("nar-exact-payload")
+        reader.extract(zip, metadata, target) {}
+        assertArrayEquals(descriptor, File(target, "install.txt").readBytes())
+        assertArrayEquals(payload, File(target, "large.bin").readBytes())
     }
 
     @Test fun extractionStillEnforcesExpandedByteLimit() {
