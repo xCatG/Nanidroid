@@ -181,3 +181,63 @@ Raw drivers/output/archive: ignored
 per-control logs and `timeout-artifact-inputs.tar.gz`. No real suite/device/build
 was repeated. Actual integrated first-attempt device/GitHub gates remain
 controller-owned and pending; M5 exceptions and parity gaps are unchanged.
+
+## Controller final local gates — tested source 8df2d74d
+
+The controller supplied the following actual first-attempt integrated evidence,
+then this implementer read the retained build/count/provenance/summary/sentinel
+files and verified the summary's exact identity set, 117 passing result records,
+and source/APK hash correspondence without executing tests or touching a device.
+Tested source was clean `8df2d74d4a2bf65b1a8f161a89796f1b09dc5caa`.
+The later report-only commit records this evidence; it is **not** the source hash
+recorded in the executed suite. Production/test/runner/workflow inputs are
+unchanged by that metadata commit.
+
+Controller build command (JDK17 and the pinned local Android SDK):
+
+```powershell
+./gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain --rerun-tasks
+```
+
+Actual build result: successful in 33 seconds, all 85 actionable tasks executed.
+JUnit reports contain 26 classes and 380 total cases: 376 passed, four Windows
+symlink prerequisite skips, zero failures/errors. Lint: zero errors, 26 warnings.
+These four host/JVM skips are distinct from the device gate's zero skips.
+`final-local-apk-provenance.json` binds the debug APKs to tested source `8df2d74d`:
+
+| APK path relative to APK root | SHA-256 |
+| --- | --- |
+| `debug/app-debug.apk` | `e03ae86f3897576808e14210d46b95700ea7dfcd0caeb7a4190046c204942906` |
+| `androidTest/debug/app-debug-androidTest.apk` | `8b52bc20de266d568eb912e21cfbc7c5e58e8af390f5d1c21ba733928abcdbac` |
+
+The controller invoked the stable runner **once**, with `-Suite self-contained`,
+`-Serial emulator-5580`, explicit installed SDK adb, fresh output directory
+`.superpowers/sdd/issue-426/device-final-8df2d74d`, and `-SkipBuild`.
+Actual API 31/x86_64 result: 117 selected, 117 observed, 117 passed, zero skipped,
+failed or incomplete; elapsed 148.7149062 seconds; cleanupStatus/outcome passed.
+Sorted observed identities equal selected identities exactly once, all 117 result
+records passed, and summary source/app/test hashes match the local provenance.
+There is no first failure in this final first-attempt device run.
+
+Before/after fixture sentinel hashes are identical. The retained
+`final-owned-roots-after.log` is empty (zero bytes), confirming the final
+invocation-owned fixture-root listing has no entries; the controller recorded
+adb exit zero for that read-only listing. The stable runner's
+cleanup result covers its app force-stop/health contract. This local existing
+emulator remains controller-owned; this evidence does not claim execution of the
+CI job's separate job-owned emulator teardown. Git status was clean after the
+controller's gates and before this report-only change.
+
+Retained ignored evidence under `.superpowers/sdd/issue-426/`:
+`final-build-gate.ps1`, `final-build.log`, `final-jvm-counts.json`,
+`final-lint-counts.json`, `final-local-apk-provenance.json`,
+`final-device-console.log`, `device-final-8df2d74d/summary.json` and its first raw
+runner streams/diagnostics, and `final-sentinels-before.log` /
+`final-sentinels-after.log` and empty `final-owned-roots-after.log`. No build, test or device invocation was repeated for this
+metadata reconciliation.
+
+The final local first-attempt suite gate is now passed on the source above.
+Actual GitHub job execution, image/KVM provisioning, same-run hosted artifact
+consumption/upload and CI job-owned emulator cleanup remain pending. The local
+run and controlled failure inputs do not establish those hosted results. M5
+accepted exceptions, LOBO Pixel setting-cycle gap and parity limits remain.
