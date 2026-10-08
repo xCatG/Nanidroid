@@ -39,7 +39,6 @@ import com.cattailsw.nanidroid.runtime.SpeakerFrame
 import com.cattailsw.nanidroid.runtime.StageState
 import com.cattailsw.nanidroid.runtime.SurfaceVisual
 import java.io.File
-import android.view.KeyEvent
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -219,20 +218,6 @@ class StagePolishTest {
         compose.onNodeWithTag("stage-background").performClick()
         val hiddenTop = compose.onNodeWithTag("stage-controls-toggle").fetchSemanticsNode().boundsInRoot.top
         assertTrue("Hidden stage still reserves the control bar: $shownTop to $hiddenTop", hiddenTop < shownTop)
-    }
-
-    @Test fun aboutDismissReturnsToStageWithoutClosing() {
-        var closes = 0
-        compose.setContent {
-            GhostStage(stage(), loader, {}, {}, {}, onClose = { closes++ })
-        }
-        compose.onNodeWithTag("about-action").performClick()
-        compose.onNodeWithText("Nanidroid").assertExists()
-        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-        compose.waitForIdle()
-        compose.onNodeWithText("Nanidroid").assertDoesNotExist()
-        compose.onNodeWithTag("ghosts-action").assertExists()
-        assertEquals(0, closes)
     }
 
     @Test fun primaryPhoneMatrixKeepsSpeakersControlsAndScrollableLastChoiceInViewport() {

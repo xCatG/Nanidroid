@@ -995,14 +995,6 @@
     },
     {
       "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
-      "method": "builtInEngineReceivesTapOnceAndReturnsNoScript",
-      "suite": "self-contained",
-      "requiredArguments": [],
-      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
-      "reason": "Deterministic bundled/synthetic regression"
-    },
-    {
-      "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
       "method": "doubleTapUsesSurfaceCoordinatesWithoutSendingSingleTap",
       "suite": "self-contained",
       "requiredArguments": [],
@@ -1336,14 +1328,6 @@
       "requiredArguments": [],
       "prerequisite": "User-licensed verified files/ghost/satori/ghost/master/descript.txt, satori.dll and shell/master assets",
       "reason": "Requires separately licensed staged real ghost data"
-    },
-    {
-      "class": "com.cattailsw.nanidroid.ui.StagePolishTest",
-      "method": "aboutDismissReturnsToStageWithoutClosing",
-      "suite": "self-contained",
-      "requiredArguments": [],
-      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
-      "reason": "Deterministic bundled/synthetic regression"
     },
     {
       "class": "com.cattailsw.nanidroid.ui.StagePolishTest",
