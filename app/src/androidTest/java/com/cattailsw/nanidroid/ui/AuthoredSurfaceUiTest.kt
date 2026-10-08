@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.cattailsw.nanidroid.ghost.ShellCatalog
@@ -18,6 +19,8 @@ import com.cattailsw.nanidroid.runtime.StageState
 import com.cattailsw.nanidroid.runtime.SurfaceVisual
 import java.io.File
 import java.util.Collections
+import kotlinx.coroutines.CompletableDeferred
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import com.cattailsw.nanidroid.testing.OwnedFixtureDirectoryRule
 import org.junit.rules.RuleChain
@@ -135,8 +138,14 @@ class AuthoredSurfaceUiTest {
         val state = StageState.Ready(
             PlaybackFrame(SpeakerFrame(0, true, "", false, due), SpeakerFrame(10, true, "", false), false),
             "Ghost", "Sakura", "Kero", numbered, shell = catalog)
+        val loadEntered = CompletableDeferred<Unit>()
+        val releaseLoad = CompletableDeferred<Unit>()
         compose.setContent {
             GhostStage(state, SurfaceImageLoader { file ->
+                if (elementId == 0) {
+                    loadEntered.complete(Unit)
+                    releaseLoad.await()
+                }
                 val color = when (file.name) {
                     "surface1001.png" -> Color.BLUE
                     "badge.png" -> Color.GREEN
@@ -146,6 +155,20 @@ class AuthoredSurfaceUiTest {
                     Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
                     .asImageBitmap()
             }) { _, _, _ -> }
+        }
+        if (elementId == 0) {
+            compose.waitUntil(2_000) { loadEntered.isCompleted }
+            val premature = runCatching { compose.onNodeWithTag("sakura").assertExists() }.exceptionOrNull()
+            assertTrue("The suspended loader must prevent the original immediate assertion", premature is AssertionError)
+        }
+        compose.waitUntil(2_000) {
+            val nodes = compose.onAllNodesWithTag("sakura").fetchSemanticsNodes()
+            if (elementId == 0 && !releaseLoad.isCompleted) {
+                assertTrue("The readiness predicate must observe loading before release", nodes.isEmpty())
+                println("SURFACE_PUBLICATION_CONTROL pending loader, merged sakura absent; releasing")
+                releaseLoad.complete(Unit)
+            }
+            nodes.singleOrNull()?.boundsInRoot?.let { it.width > 0f && it.height > 0f } == true
         }
         compose.onNodeWithTag("sakura").assertExists()
         val displayed = compose.onNodeWithTag("sakura").captureToImage().asAndroidBitmap()

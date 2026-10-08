@@ -14,6 +14,9 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.lifecycle.Lifecycle
+import android.os.SystemClock
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
@@ -53,14 +56,25 @@ class AboutDialogTest {
             it.text.contains("Stephen Colebourne") })
         assertTrue(notices.any { it.title == "Kotlin standard library Boost terms" &&
             it.text.contains("Boost Software License") })
-        val originalOrientation = compose.activity.requestedOrientation
+        val originalActivity = compose.activity
+        val originalOrientation = originalActivity.requestedOrientation
+        val originalConfiguration = originalActivity.resources.configuration.orientation
         try {
-            compose.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            compose.activityRule.scenario.onActivity {
+                it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
+            awaitOrientation(Configuration.ORIENTATION_LANDSCAPE,
+                replaced = originalActivity.takeIf { originalConfiguration != Configuration.ORIENTATION_LANDSCAPE })
+            println("ABOUT_CONTENT_INSTALL elapsedRealtime=${SystemClock.elapsedRealtime()}")
             compose.setContent {
                 val density = LocalDensity.current
                 CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
                     AboutDialog("test-version-42", notices) {}
                 }
+            }
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("about-version").fetchSemanticsNodes(atLeastOneRootRequired = false)
+                    .singleOrNull()?.boundsInRoot?.let { it.width > 0f && it.height > 0f } == true
             }
             compose.onNodeWithTag("about-version").assertTextEquals("Version test-version-42")
             for (index in notices.indices) {
@@ -72,7 +86,31 @@ class AboutDialogTest {
             compose.onNodeWithTag("notice-end").assertIsDisplayed()
             compose.onNodeWithTag("about-close").assertIsDisplayed()
         } finally {
-            compose.activity.requestedOrientation = originalOrientation
+            compose.activityRule.scenario.onActivity { it.requestedOrientation = originalOrientation }
+            awaitOrientation(originalConfiguration)
+        }
+    }
+
+    private fun awaitOrientation(orientation: Int, replaced: ComponentActivity? = null) {
+        compose.waitUntil(10_000) {
+            var ready = false
+            compose.activityRule.scenario.onActivity { activity ->
+                val decor = activity.window.decorView
+                ready = activity !== replaced &&
+                    activity.resources.configuration.orientation == orientation &&
+                    activity.lifecycle.currentState == Lifecycle.State.RESUMED && activity.hasWindowFocus() &&
+                    decor.width > 0 && decor.height > 0 &&
+                    if (orientation == Configuration.ORIENTATION_LANDSCAPE) decor.width > decor.height
+                    else decor.height > decor.width
+            }
+            ready
+        }
+        compose.activityRule.scenario.onActivity { activity ->
+            println("ABOUT_ORIENTATION elapsedRealtime=${SystemClock.elapsedRealtime()} " +
+                "activity=${System.identityHashCode(activity)} orientation=$orientation " +
+                "lifecycle=${activity.lifecycle.currentState} focus=${activity.hasWindowFocus()} " +
+                "window=${activity.window.decorView.width}x${activity.window.decorView.height} " +
+                "replaced=${replaced != null}")
         }
     }
 
