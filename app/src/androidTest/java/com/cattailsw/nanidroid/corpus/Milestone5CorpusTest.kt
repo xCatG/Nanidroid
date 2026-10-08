@@ -8,6 +8,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.cattailsw.nanidroid.MainActivity
 import com.cattailsw.nanidroid.NanidroidApplication
 import com.cattailsw.nanidroid.data.PreferencesLastGhostStore
+import com.cattailsw.nanidroid.engine.EngineSelector
 import com.cattailsw.nanidroid.engine.NativeShioriHost
 import com.cattailsw.nanidroid.engine.ShioriEvent
 import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
@@ -129,6 +130,7 @@ class Milestone5CorpusTest {
                 result.put("directoryId", descriptor.directoryId)
                     .put("displayName", descriptor.displayName)
                     .put("engineDeclaration", descriptor.engineDeclaration)
+                    .put("detectedEngineKind", EngineSelector.select(descriptor).name)
                 PreferencesLastGhostStore(context.getSharedPreferences("last_ghost", 0))
                     .write(imported.directoryId)
                 phaseFile.appendText("phase=activating id=${imported.directoryId} name=${descriptor.displayName}\n")
