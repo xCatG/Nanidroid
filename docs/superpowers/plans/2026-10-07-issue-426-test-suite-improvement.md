@@ -104,5 +104,3 @@ Task 7 preserves build/check/artifact names, writes `app/build/outputs/apk/artif
 - [ ] Validate Linux host checks and first-attempt fixture-free emulator execution. Run GitHub CI only under existing publication/dispatch authorization; otherwise report that gate unverified.
 
 Each task ends with actual check evidence, independent review, responsible-worker fixes and a focused local commit when authorized; move to the next task only after that gate. Finish with full JVM/local checks and one self-contained device suite on unchanged integrated code; repeat only for new failures/changes, never erase a first red.
-
-

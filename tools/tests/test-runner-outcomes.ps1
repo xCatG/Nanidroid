@@ -196,4 +196,3 @@ switch ($Case) {
         Write-Host "Runner preflight/selfcheck sentinels passed; total host assertions=$script:checks"
     } finally { Remove-Item -LiteralPath $root -Recurse -Force }
 }
-
