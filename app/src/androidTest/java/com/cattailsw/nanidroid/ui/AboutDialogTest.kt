@@ -110,10 +110,14 @@ class NativeDialogSessionTest {
 
     @Test fun dialogsDismissOnRotationWithoutReplacingNativeChoiceSession() {
         val args = InstrumentationRegistry.getArguments()
-        assumeTrue("Host fixture arguments absent", args.containsKey("fixtureId") || args.containsKey("fixtureSha256"))
-        require(args.getString("fixtureId") == "earthquake_duo")
+        org.junit.Assume.assumeTrue("Run host-staged verified Earthquake dialog probe; required arguments: fixtureId, fixtureSha256",
+            listOf("fixtureId", "fixtureSha256").any { args.containsKey(it) })
+        require(listOf("fixtureId", "fixtureSha256").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId, fixtureSha256"
+        }
+        require(args.getString("fixtureId") == "earthquake_duo") { "fixtureId must be earthquake_duo" }
         require(args.getString("fixtureSha256")?.equals(
-            "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538", true) == true)
+            "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538", true) == true) { "fixtureSha256 must match the original Earthquake archive" }
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as NanidroidApplication
         check(File(app.filesDir, "ghost/earthquake_duo/ghost/master/descript.txt").isFile)
         check(File(app.filesDir, "ghost/earthquake_duo/shell/master/surfaces.txt").isFile)

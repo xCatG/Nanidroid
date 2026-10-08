@@ -57,8 +57,14 @@ class NativeTalkProbeTest {
     @Test fun nativeAboutBackKeepsSameReadyLeaseWithoutBootOrClose() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        val fixtureId = requireNotNull(InstrumentationRegistry.getArguments().getString("fixtureId"))
-        require(fixtureId == "earthquake_duo")
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("Run host-staged native interaction probe; required arguments: fixtureId",
+            listOf("fixtureId").any { args.containsKey(it) })
+        require(listOf("fixtureId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId"
+        }
+        val fixtureId = requireNotNull(args.getString("fixtureId"))
+        require(fixtureId == "earthquake_duo") { "fixtureId must be earthquake_duo" }
         assertTrue("Exact Earthquake corpus row was not imported",
             File(context.filesDir, "ghost/$fixtureId/ghost/master/descript.txt").isFile)
         assertTrue(context.getSharedPreferences("last_ghost", 0).edit()
@@ -117,7 +123,13 @@ class NativeTalkProbeTest {
     @Test fun groupBDeepInteraction() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        val id = requireNotNull(InstrumentationRegistry.getArguments().getString("fixtureId"))
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("Run host-staged native interaction probe; required arguments: fixtureId",
+            listOf("fixtureId").any { args.containsKey(it) })
+        require(listOf("fixtureId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId"
+        }
+        val id = requireNotNull(args.getString("fixtureId"))
         val expectedName = when (id) {
             "Nanika_Atsume" -> "Nanika Atsume"
             "Snake_Otacon" -> "Snake and Otacon"
@@ -247,7 +259,13 @@ class NativeTalkProbeTest {
 
     @Test fun groupBRecordedNativeReplyMatchesVisibleState() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val id = requireNotNull(InstrumentationRegistry.getArguments().getString("fixtureId"))
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("Run host-staged native interaction probe; required arguments: fixtureId",
+            listOf("fixtureId").any { args.containsKey(it) })
+        require(listOf("fixtureId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId"
+        }
+        val id = requireNotNull(args.getString("fixtureId"))
         val expectedName = when (id) {
             "Nanika_Atsume" -> "Nanika Atsume"
             "Snake_Otacon" -> "Snake and Otacon"
@@ -370,8 +388,14 @@ class NativeTalkProbeTest {
     @Test fun groupADeepInteraction() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        val id = requireNotNull(InstrumentationRegistry.getArguments().getString("fixtureId"))
-        require(id in setOf("2elf", "earthquake_duo", "lobo_okuajub", "big_red_button"))
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("Run host-staged native interaction probe; required arguments: fixtureId",
+            listOf("fixtureId").any { args.containsKey(it) })
+        require(listOf("fixtureId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId"
+        }
+        val id = requireNotNull(args.getString("fixtureId"))
+        require(id in setOf("2elf", "earthquake_duo", "lobo_okuajub", "big_red_button")) { "Invalid group A fixtureId: $id" }
         assertTrue("Freshly imported ghost missing: $id", File(context.filesDir, "ghost/$id/ghost/master/descript.txt").isFile)
         val app = context.applicationContext as NanidroidApplication
         val runtime = app.runtime
@@ -725,7 +749,7 @@ class NativeTalkProbeTest {
     @Test fun loboRuntimeChoiceDisplaysItsNativeOnAITalkReply() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val master = File(context.filesDir, "ghost/lobo_okuajub/ghost/master")
-        assertTrue("Fresh LOBO import missing", File(master, "descript.txt").isFile)
+        assumeTrue("Verified staged LOBO corpus unavailable: $master", File(master, "descript.txt").isFile)
         val host = NativeShioriHost.process
         host.trackEventsForTest(setOf("OnAITalk")).use {
         assertEquals(NativeAvailability.Available, host.availability.value)

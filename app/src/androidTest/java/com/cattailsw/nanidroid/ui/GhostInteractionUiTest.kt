@@ -334,14 +334,17 @@ class GhostActivityRecreationTest {
     /** Each invocation is a fresh instrumentation process; the host runs the fixed 20-case set. */
     @Test fun fixedTwoRecreationInputCase() {
         val args = InstrumentationRegistry.getArguments()
-        assumeTrue("Host fixture arguments absent", listOf("variant", "repetition", "draft")
-            .any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue("Run host fixed two-recreation probe; required arguments: variant, repetition, draft",
+            listOf("variant", "repetition", "draft").any { args.containsKey(it) })
+        require(listOf("variant", "repetition", "draft").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: variant, repetition, draft"
+        }
         val variant = requireNotNull(args.getString("variant")) { "variant required" }
         require(variant == "immediate" || variant == "verified") { "Unexpected variant: $variant" }
         val repetition = requireNotNull(args.getString("repetition")) { "repetition required" }.toInt()
         require(repetition in 1..5) { "repetition must be 1..5" }
         val draft = requireNotNull(args.getString("draft")) { "draft required" }
-        require(draft.isNotEmpty()) { "draft must be nonempty" }
+        require(draft.isNotBlank()) { "draft must be nonblank" }
         runRecreationCase(variant, draft, 2)
     }
 

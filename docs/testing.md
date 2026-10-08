@@ -1,5 +1,80 @@
 # Testing and toolchain
 
+## Current local and explicit device checks
+
+Use PowerShell 7, JDK 17 and the pinned Android SDK/NDK/CMake. Set
+`ANDROID_HOME` and `ANDROID_SDK_ROOT` to your SDK. On Windows:
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain
+$adb = Join-Path $env:ANDROID_SDK_ROOT 'platform-tools/adb.exe'
+pwsh -NoProfile -File tools/test-device-suite.ps1 -ListOnly -Suite self-contained
+pwsh -NoProfile -File tools/test-device-suite.ps1 -SelfCheck
+pwsh -NoProfile -File tools/tests/test-device-suite.ps1
+# Set $serial to the exact authorized, disposable emulator-<port>, and $output
+# to a new ignored directory. No default or first-attached-device selection.
+pwsh -NoProfile -File tools/test-device-suite.ps1 -Suite self-contained -Serial $serial -Adb $adb -OutputDirectory $output -SkipBuild
+```
+
+Linux uses `bash ./gradlew` for the same tasks and `platform-tools/adb`.
+Offline execution requires the dependency cache; an empty host must resolve its
+own dependencies first. Omit `-SkipBuild` to build both debug APKs in the runner.
+The runner resolves paths from its own location and adb from `-Adb`, SDK
+environment variables, then PATH. Execution requires a clean Git checkout,
+including the index and untracked files, before output/build/adb work; list and
+self-check modes need no Git. The runner rechecks unchanged clean source before
+installation and records that commit. `-SkipBuild` assumes the caller supplies
+APKs built for that commit: hashes identify the supplied APK bytes, and this
+option does not independently derive their source revision. CI must validate
+same-run artifact provenance before using it. Execution verifies the named booted emulator,
+API >=31 and x86_64 before installing. Provision portrait 1080×2400 at 420 dpi,
+font scale 1 (usable test viewport >=600 dp) for viewport-dependent regressions.
+Do not use an unrestricted connected Gradle task with attached user devices.
+
+[device-suites.json](testing/device-suites.json) is the complete schemaVersion 1
+method inventory. Each entry gives exact class/method selectors, suite,
+required key/value shapes, staged-file prerequisites and classification reason.
+List-only works for all four suites, validates all source methods and inventory
+entries, and needs no device/build/SDK/private data. Unknown, duplicate, missing,
+stale or unsupported discovery syntax fails. The Java provider is infrastructure.
+
+The initial executable `self-contained` suite selects **119 of 165 methods**;
+`host-orchestrated` has 29, `corpus-fixture` 16 and `diagnostic-device` one.
+One raw `am instrument -w -r` invocation runs sorted exact selectors sequentially,
+with a 30-minute instrumentation deadline and bounded adb operations. It performs
+no fixture staging or app-data clear. It retains first stdout/stderr, device
+identity, logcat, APK hashes, source commit and cleanup diagnostics in the new
+output directory. `summary.json` records selected IDs, actual terminal IDs in
+JUnit order (including duplicates), result statuses and counts. Only exact
+identity completeness, all selected passes and successful cleanup exit zero;
+selected assumption/ignored skips are visible and make the outcome incomplete.
+Timeout/crash/missing terminal records cannot pass. Cleanup force-stops only the
+named test app and checks the emulator, preserving existing files.
+
+Host probes skip with an explicit prerequisite when all relevant arguments are
+absent during accidental broad discovery. Partial, blank or malformed arguments
+fail before host fixture mutation or hold. Optional arguments count as supplied
+configuration, so they cannot hide a missing required key. Staged-default corpus
+assumptions remain; no general `fixtureId` can substitute for all fixed paths.
+The manifest documents `native-fixtures/{satori,kawari,yaya}/master`, fixed
+`satori`, `Snake_Otacon`, `lobo_okuajub`, `task7-lobo` and `task7-earthquake`
+staged trees and per-entry overrides. Real inputs must be licensed by the user;
+retain private archives/evidence outside Git and use the original archive hashes.
+The self-contained suite establishes no private real-ghost parity.
+
+For host orchestration, preserve the outcome policy below. Both real corpus
+runners require explicit `-CorpusRoot`; their fixed relative archive paths and
+SHA contracts remain authoritative. Native persistence requires explicit
+`-Serial` and accepts `-Adb`; corpus uses its existing `-DeviceSerial` and now
+accepts `-Adb`. Process-death uses explicit `-Serial`/portable `-Adb` and synthetic
+fixtures. Both native/corpus `-SelfCheck` modes need no CorpusRoot or device.
+Native/real-corpus cohorts require separate staging authorization and a reviewed
+acceptance map where applicable. The notification-shade probe remains diagnostic
+because PAUSE without STOP depends on the environment. Screenshot issue #425 is
+separate. [Accepted M5 exception packet](testing/2026-10-01-m5-focused-acceptance-packet.md)
+retains missing LOBO Pixel setting cycles and intermittent Compose wrong-thread/
+keyboard failures; this suite does not establish that those exceptions are fixed.
+
 ## Current native/corpus outcome policy
 
 Both host runners provide `-SelfCheck`, with no device, SDK, fixture, build or
@@ -63,7 +138,7 @@ The explicitly serial API 31 x86_64 instrumentation gate selected 147 methods: *
 
 ## Milestone 4 integrated gate, 2026-09-26
 
-Run the approved offline tasks, then the full connected task sequentially on one healthy API 31+ emulator:
+Historical commands and dated evidence below are retained for provenance. Broad connected snippets are historical only; use the current explicit device runner above.
 
 ```powershell
 .\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease --offline --console=plain
@@ -84,7 +159,7 @@ To close the rendered-scene evidence gap without changing production code, `Mile
 
 ## Milestone 3 import gate, 2026-09-25
 
-Build and lint first, then run the connected suite on a healthy API 31+ emulator:
+Historical broad connected commands (do not use as the current suite interface):
 
 ```powershell
 .\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain
@@ -124,6 +199,6 @@ The untouched template build was completed during setup and is recorded in [scaf
 
 ## Milestone 1 device proof, 2026-09-23
 
-From the repository root, run `./gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest` followed by `./gradlew.bat :app:connectedDebugAndroidTest` with an API 31+ emulator. The connected suite includes Compose stage tests and `WalkingSkeletonInstrumentationTest`. Its test-only composition uses `ActivityScenario`, a retained ViewModel, the production runtime and bundled archive, and an event-recording engine decorator. It checks one first-boot dispatch after loading recreation, dialogue progress after recreation and orientation change, and no duplicate boot event.
+Historical Milestone 1 instructions: from the repository root, run `./gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest` followed by `./gradlew.bat :app:connectedDebugAndroidTest` with an API 31+ emulator. The connected suite includes Compose stage tests and `WalkingSkeletonInstrumentationTest`. Its test-only composition uses `ActivityScenario`, a retained ViewModel, the production runtime and bundled archive, and an event-recording engine decorator. It checks one first-boot dispatch after loading recreation, dialogue progress after recreation and orientation change, and no duplicate boot event.
 
 Manual APK checks and exact evidence are in [milestone-1-evidence.md](milestone-1-evidence.md). Generated screenshots, layout dumps, reports, and APKs stay under `app/build` and are excluded from Git.

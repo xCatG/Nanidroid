@@ -33,8 +33,15 @@ class NativeRotationTest {
 
     private fun runtimeSwitchAndBack(kind: String) = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val id = InstrumentationRegistry.getArguments().getString("fixtureId")
-        assumeTrue("Run via tools/test-native-persistence.ps1", !id.isNullOrBlank())
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId, runId"
+        }
+        val id = args.getString("fixtureId")
+        require(id!!.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid fixtureId" }
+        require(args.getString("runId")!!.matches(Regex("[0-9a-f]{32}"))) { "Invalid runId" }
         val save = if (kind == "lobo") File(context.filesDir, "ghost/$id/ghost/master/profile/dict-savedata.txt")
             else File(context.filesDir, "ghost/$id/ghost/master/yaya_variable.cfg")
         val initialHash = baselineHash(save)
@@ -91,8 +98,15 @@ class NativeRotationTest {
 
     private fun freshRead(kind: String) = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val id = InstrumentationRegistry.getArguments().getString("fixtureId")
-        assumeTrue("Run via tools/test-native-persistence.ps1", !id.isNullOrBlank())
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId, runId"
+        }
+        val id = args.getString("fixtureId")
+        require(id!!.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid fixtureId" }
+        require(args.getString("runId")!!.matches(Regex("[0-9a-f]{32}"))) { "Invalid runId" }
         val master = File(context.filesDir, "ghost/$id/ghost/master")
         val save = if (kind == "lobo") File(master, "profile/dict-savedata.txt") else File(master, "yaya_variable.cfg")
         val marker = readSaveMarker(kind)
@@ -115,8 +129,15 @@ class NativeRotationTest {
 
     @Test fun twoelfRuntimeSwitchBackAndCloseWritesFlag() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val id = InstrumentationRegistry.getArguments().getString("fixtureId")
-        assumeTrue("Run via tools/test-native-persistence.ps1", !id.isNullOrBlank())
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId, runId"
+        }
+        val id = args.getString("fixtureId")
+        require(id!!.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid fixtureId" }
+        require(args.getString("runId")!!.matches(Regex("[0-9a-f]{32}"))) { "Invalid runId" }
         val saved = File(context.filesDir, "ghost/$id/ghost/master/satori_savedata.txt")
         val initialHash = baselineHash(saved)
         assertTrue(context.getSharedPreferences("last_ghost", 0).edit().putString("last_ghost", id).commit())
@@ -168,8 +189,15 @@ class NativeRotationTest {
 
     @Test fun twoelfReadsAfterRuntimeBackInFreshProcess() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val id = InstrumentationRegistry.getArguments().getString("fixtureId")
-        assumeTrue("Run via tools/test-native-persistence.ps1", !id.isNullOrBlank())
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId, runId"
+        }
+        val id = args.getString("fixtureId")
+        require(id!!.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid fixtureId" }
+        require(args.getString("runId")!!.matches(Regex("[0-9a-f]{32}"))) { "Invalid runId" }
         val master = File(context.filesDir, "ghost/$id/ghost/master")
         val save = File(master, "satori_savedata.txt")
         val marker = readSaveMarker("satori")
@@ -189,8 +217,15 @@ class NativeRotationTest {
     @Test fun twoelfKeepsFlagAndLeaseAcrossRecreationAndDisplayRotation() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        val id = InstrumentationRegistry.getArguments().getString("fixtureId")
-        assumeTrue("Run via tools/test-native-persistence.ps1", !id.isNullOrBlank())
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId, runId"
+        }
+        val id = args.getString("fixtureId")
+        require(id!!.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid fixtureId" }
+        require(args.getString("runId")!!.matches(Regex("[0-9a-f]{32}"))) { "Invalid runId" }
         val master = File(context.filesDir, "ghost/$id/ghost/master/descript.txt")
         assertTrue("2elf fixture missing: $master", master.isFile)
         assertTrue(context.getSharedPreferences("last_ghost", 0).edit().putString("last_ghost", id).commit())

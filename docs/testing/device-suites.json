@@ -1,0 +1,1413 @@
+{
+  "schemaVersion": 1,
+  "methods": [
+    {
+      "class": "com.cattailsw.nanidroid.StartupRecoveryTest",
+      "method": "failedRecoveryDoesNotPreventReadingPublishedGhost",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.StartupRecoveryTest",
+      "method": "startupRemovesAbandonedImportWithoutTouchingPublishedGhost",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.WalkingSkeletonInstrumentationTest",
+      "method": "bundledKeroTapDispatchesOnceWithSurfaceCoordinatesAndNoReply",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.WalkingSkeletonInstrumentationTest",
+      "method": "recreationMidDialogueKeepsPlaybackAndDoesNotBootAgain",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.WalkingSkeletonInstrumentationTest",
+      "method": "recreationWhileLoadingStartsGhostOnlyOnce",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.WalkingSkeletonInstrumentationTest",
+      "method": "rotationMidDialogueKeepsPlaybackAndDoesNotBootAgain",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.corpus.Milestone5CorpusTest",
+      "method": "rootOnlyDirectoryRegression",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.corpus.Milestone5CorpusTest",
+      "method": "smokeArchive",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "corpusLabel=[A-Za-z0-9_-]{1,100}",
+        "corpusSha256=64 hex characters",
+        "corpusPath=[A-Za-z0-9_.-]{1,100}"
+      ],
+      "prerequisite": "tools/test-milestone5-corpus.ps1; unchanged archive at files/<corpusPath>; optional corpusKind=[A-Za-z0-9_-]{1,100} (exact manifest packageKind; defaults ghost)",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.corpus.Milestone5CorpusTest",
+      "method": "unsafeRootEntryVariantsStayRejected",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.engine.NativePersistenceTest",
+      "method": "abruptReadUsesFreshProcessAndSavedBytes",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.engine.NativePersistenceTest",
+      "method": "abruptWriteWaitsForHostKill",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.engine.NativePersistenceTest",
+      "method": "loboDestroyWritesNestedProfile",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.engine.NativePersistenceTest",
+      "method": "loboMinuteSaveRestoresTalkInterval",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.engine.NativePersistenceTest",
+      "method": "satoriOrderlyUnloadRestoresChangedFlag",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.engine.NativePersistenceTest",
+      "method": "yayaOrderlyUnloadRestoresChangedName",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.engine.NativeShioriRealTest",
+      "method": "aya5InstalledCorpusDiagnostic",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}"
+      ],
+      "prerequisite": "Host prior corpus import; files/ghost/<fixtureId>/ghost/master/descript.txt",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.engine.NativeShioriRealTest",
+      "method": "kawari",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/native-fixtures/kawari/master/descript.txt and shiori.dll",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.engine.NativeShioriRealTest",
+      "method": "satori",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/native-fixtures/satori/master/descript.txt and satori.dll",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.engine.NativeShioriRealTest",
+      "method": "yaya",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/native-fixtures/yaya/master/descript.txt and yaya.dll",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.Milestone4CorpusSurfaceTest",
+      "method": "earthquakeStaticPartsAndAuthoredMoveSequence",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/ghost/task7-earthquake/shell/master/surfaces.txt and authored image assets; optional fixtureId overrides staged ID",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.Milestone4CorpusSurfaceTest",
+      "method": "loboElementOnlyZeroAndTenUseTheirAuthoredImages",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/ghost/task7-lobo/shell/master/surfaces.txt and authored image assets; optional fixtureId overrides staged ID",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.NativeProfileDirectoryDeviceTest",
+      "method": "escapingProfileSymlinkIsRejected",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.NativeProfileDirectoryDeviceTest",
+      "method": "existingUnwritableProfileIsRejected",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.SurfaceComposerTest",
+      "method": "elementOnlyBaseKeepsNegativeOriginAndSkipsUnsafeParts",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.SurfaceComposerTest",
+      "method": "elementZeroReplacesNumberedAndLaterElementsLayerInNumericOrder",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.SurfaceComposerTest",
+      "method": "linkedNestedPnaPreventsLoadingElement",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.SurfaceComposerTest",
+      "method": "unknownAndOversizedSurfacesReturnNull",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.SurfaceImageLoaderTest",
+      "method": "companionPnaSymlinkOutsideShellIsRejected",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.SurfaceImageLoaderTest",
+      "method": "indexedPnaControlsAlphaIncludingOpaqueTopLeftColor",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.SurfaceImageLoaderTest",
+      "method": "opaqueIndexedPngUsesTopLeftColorKeyWithoutPna",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ghost.SurfaceImageLoaderTest",
+      "method": "pngAlphaSurvivesEvenWhenTopLeftMatchesAnotherPixel",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "activityRotationDuringGrowingExtractionCompletesOneAttempt",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "activityRotationKeepsBlockedCopyAndPublishesOnce",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "cancellationAndMalformedArchiveDoNotPublish",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "cancellationInsideProviderReadClosesSourceAndRemovesStaging",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "duplicateAndCaseCollisionPreserveEveryExistingFile",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "explicitScreenOffStopCancelsBlockedCopyAndClosesStream",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "holdAtProcessDeathBoundary",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "phase=copy|extract|pre|post",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-import-process-death.ps1 stages synthetic input and kills only after readiness marker",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "homeStopCancelsBlockedCopyAndClosesStream",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "importedAya5RootEntryGhostUsesOwnUnsupportedStageWithoutNativeLease",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=trimmed [A-Za-z0-9 _-]{1,100}"
+      ],
+      "prerequisite": "Host prior unchanged AYA5 root-entry import; files/ghost/<fixtureId> installed tree",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "importedBuiltInGhostSwitchesAfterPrompt",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "measureCorpusImport",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "measurePath=[A-Za-z0-9_.-]{1,100}",
+        "measureLabel=[A-Za-z0-9_-]{1,100}",
+        "measureSha256=64 hex characters"
+      ],
+      "prerequisite": "Host measurement; unchanged archive at files/<measurePath>",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "notificationShadePauseKeepsCopyRunningWhenActivityRemainsStarted",
+      "suite": "diagnostic-device",
+      "requiredArguments": [],
+      "prerequisite": "Disposable emulator supporting notification shade PAUSE without STOP; environment-dependent assumption",
+      "reason": "Environment-dependent lifecycle diagnostic"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "pauseWithoutStopKeepsActiveProviderCopyAndCompletesOnce",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "repeatedPickerCallbackAndImportClickPublishAndNotifyOnce",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "slowAndUnreadableProvidersLeaveNoPartialInstall",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "unknownSizeProviderSuppliesExactBytesForFreshInstall",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.install.GhostImportInstrumentationTest",
+      "method": "verifyProcessDeathRecovery",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "phase=copy|extract|pre|post",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-import-process-death.ps1; matching prior kill marker/sentinel and published tree",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AboutDialogTest",
+      "method": "aboutFromControlsDismissesToSameReadyStageWithoutClose",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AboutDialogTest",
+      "method": "suppliedVersionAndEveryBundledNoticeAreVisibleAndLastIsReachableAtLargeFontsInLandscape",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AnimatedSurfaceTest",
+      "method": "authoredElementAndDueStaticOverlayBothRender",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AnimatedSurfaceTest",
+      "method": "elementOnlyBaseAndDueOverlayRemainVisibleTogether",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AnimatedSurfaceTest",
+      "method": "fullyOffCanvasLayerCannotHideAuthoredBase",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AnimatedSurfaceTest",
+      "method": "missingAnimationBaseKeepsLogicalBaseAndCollisions",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AnimatedSurfaceTest",
+      "method": "moveKeepsUnshiftedAuthoredCoordinatesForPlacementAndTouch",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AnimatedSurfaceTest",
+      "method": "protrudingOverlayChangesTheAuthoredTransform",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AnimatedSurfaceTest",
+      "method": "translucentInterpolateMatchesExistingStaticBlend",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AnimatedSurfaceTest",
+      "method": "translucentOverlayfastMatchesExistingStaticBlend",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AuthoredSurfaceUiTest",
+      "method": "elementOnlySakuraAndKeroAreRenderedWithoutNumberedFallback",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AuthoredSurfaceUiTest",
+      "method": "missingNumberedStaticAssetDoesNotSuppressValidLaterElement",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AuthoredSurfaceUiTest",
+      "method": "numberedBaseAlsoLoadsLaterAuthoredElements",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AuthoredSurfaceUiTest",
+      "method": "numberedElementZeroReplacesBaseWithoutStaticLayer",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AuthoredSurfaceUiTest",
+      "method": "numberedStaticAlwaysRemainsVisibleWhenElementZeroIsAuthored",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AuthoredSurfaceUiTest",
+      "method": "numberedStaticAlwaysRemainsVisibleWhenLaterElementIsAuthored",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AuthoredSurfaceUiTest",
+      "method": "offCanvasStaticAssetDoesNotSuppressLaterElement",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AuthoredSurfaceUiTest",
+      "method": "undecodableStaticAssetDoesNotSuppressElementZero",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.AuthoredSurfaceUiTest",
+      "method": "unsafeStaticAssetDoesNotSuppressLaterElement",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "balloonScrollDoesNotTriggerCharacterActions",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "doubleTapSurvivesMoveOnlyVisualTick",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "doubleTapUsesDoubleClickCallbackOnly",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "doubleTapWithSecondPressAcrossBaseSwapStillDoubleClicks",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "dragReportsImmutableRenderedMoveIdentity",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "dragSendsMovesWithoutTapOrDoubleTap",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "heldDragCancelsWhenMoveOffsetChangesCoordinateSpace",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "heldPressKeepsAuthoredCenterWhenDialogueChangesAtLargeFont",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "missingLogicalImageReportsDisplayedFallbackCollisionSurface",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "pauseCancelsPendingSingleTap",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "pendingSingleTapSurvivesMoveOnlyVisualTick",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "removingCharacterDuringDragCancelsPendingMove",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "sameBoundsBaseSwapCancelsHeldDrag",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "sameBoundsOverlayTickKeepsHeldDragActive",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "secondHeldTapAcrossTranslationStillDoubleClicksAtPressCoordinates",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "sessionReplacementCancelsPendingSingleTap",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "singleTapUsesClickCallback",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "stationaryScreenPointerAcrossCanvasTranslationKeepsPressCoordinates",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "stationaryScreenPointerAcrossViewportResizeKeepsPressCoordinates",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "tapPressedAcrossBaseSwapStillClicks",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "translatedCanvasDistantScreenTapsAreTwoSingles",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "translatedCanvasSameScreenPointIsDoubleTap",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.CharacterGestureTest",
+      "method": "viewportResizeCancelsHeldDragAndPendingMove",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostActivityRecreationTest",
+      "method": "fixedTwoRecreationInputCase",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "variant=immediate|verified",
+        "repetition=integer 1..5",
+        "draft=nonblank string"
+      ],
+      "prerequisite": "Host-controlled fixed two-recreation probe",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostActivityRecreationTest",
+      "method": "inputDraftSurvivesRealActivityRecreationAndSubmitsOnce",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostImportUiTest",
+      "method": "backDuringRunningRequestsCloseButOutsideTapDoesNot",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostImportUiTest",
+      "method": "completedImportShowsResultAndExplicitSwitchPrompt",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostImportUiTest",
+      "method": "consumedIdSurvivesStoreRecreation",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostImportUiTest",
+      "method": "failedImportDialogShowsArchiveByteLimitReason",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostImportUiTest",
+      "method": "idleGhostsFlowLaunchesImportOnce",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostImportUiTest",
+      "method": "importActionAndRunningCancelAreAccessible",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostImportUiTest",
+      "method": "screenStaysOnOnlyDuringRunning",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostImportUiTest",
+      "method": "unavailablePromptExplainsImportedGhostCannotBeUsedYet",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "annotatedLinkCallsOnlyExplicitLauncherCallback",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "capturesChoiceLayoutAtNormalAndLargeFont",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "choicesStayInTextOrderWrapAndHaveSeparateTouchTargets",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "finalChoiceCanBeReachedByScrolling",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "focusedUserClearStillUpdatesDraftToEmpty",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "inputDraftSurvivesRecompositionForSameTokenAndResetsForNextToken",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "inputImeAndOkConsumeTheSameRequestOnlyOnce",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "invalidPastedInputCanBeCorrectedAndSubmitted",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "invalidPastedInputCanStillBeCancelled",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "ordinaryInputBackCancelsButFarewellInputBackSkipsClose",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "realImeAtLargeFontLeavesInputActionsReachableAndDispatchesOnce",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostInteractionUiTest",
+      "method": "stageChoiceAndLinkDoNotBecomeCharacterTaps",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageAlwaysLayersTest",
+      "method": "stageIgnoresLayerFileOutsideSurfaceIndex",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageAlwaysLayersTest",
+      "method": "stageLoadsAlwaysLayerOnceWhileDialogueChanges",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageAlwaysLayersTest",
+      "method": "stageReadsDefinitionsWhateverTheirNameCase",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageAlwaysLayersTest",
+      "method": "unreadableDefinitionsStillShowBaseImages",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
+      "method": "activationErrorIsVisibleAndAccessible",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
+      "method": "balloonTapDoesNotDispatchCharacterClick",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
+      "method": "blockedImageLoadShowsLoadingThenBothCharacters",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
+      "method": "builtInEngineReceivesTapOnceAndReturnsNoScript",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
+      "method": "doubleTapUsesSurfaceCoordinatesWithoutSendingSingleTap",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
+      "method": "failedImageLoadShowsMissingSurfaceMessage",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
+      "method": "ghostSelectionWaitsForConfirmationAndCancelKeepsCurrentGhost",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
+      "method": "ghostsActionDoesNotCoverVisibleDialogue",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
+      "method": "keroTapSendsOneUnscaledMouseClick",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.GhostStageTest",
+      "method": "nonstandardShellSurfaceIdsStillRenderBothCharacters",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.Milestone4CorpusDynamicUiTest",
+      "method": "authoredMoveChangesRenderedEarthquakeScene",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/ghost/task7-earthquake/shell/master/surfaces.txt and authored image assets; optional fixtureId overrides staged ID",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.Milestone4CorpusDynamicUiTest",
+      "method": "authoredStaticPartsChangeBothRenderedEarthquakeCharacters",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/ghost/task7-earthquake/shell/master/surfaces.txt and authored image assets; optional fixtureId overrides staged ID",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeDialogSessionTest",
+      "method": "dialogsDismissOnRotationWithoutReplacingNativeChoiceSession",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=earthquake_duo",
+        "fixtureSha256=06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538"
+      ],
+      "prerequisite": "Host verified Earthquake; files/ghost/earthquake_duo/ghost/master/descript.txt and shell/master/surfaces.txt",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeRotationTest",
+      "method": "loboReadsAfterRuntimeBackInFreshProcess",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeRotationTest",
+      "method": "loboRuntimeSwitchBackAndCloseWritesInterval",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeRotationTest",
+      "method": "twoelfKeepsFlagAndLeaseAcrossRecreationAndDisplayRotation",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeRotationTest",
+      "method": "twoelfReadsAfterRuntimeBackInFreshProcess",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeRotationTest",
+      "method": "twoelfRuntimeSwitchBackAndCloseWritesFlag",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeRotationTest",
+      "method": "yayaReadsAfterRuntimeBackInFreshProcess",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeRotationTest",
+      "method": "yayaRuntimeSwitchBackAndCloseWritesName",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=[A-Za-z0-9_-]{1,100}",
+        "runId=32 lowercase hex characters"
+      ],
+      "prerequisite": "tools/test-native-persistence.ps1; host SHA-verified invocation-owned files/ghost/<fixtureId>/ghost/master and shell/master; abrupt/fresh-read methods require matching prior save/readiness markers files/native-persistence-<runId>*",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "earthquakeRuntimeChoiceDispatchesNativeOnAiTalk",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/ghost/task7-earthquake/ghost/master/descript.txt and shell/master assets; optional fixtureId=task7-earthquake|earthquake_duo",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "groupADeepInteraction",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=2elf|earthquake_duo|lobo_okuajub|big_red_button"
+      ],
+      "prerequisite": "Host fresh unchanged group A import files/ghost/<fixtureId>/ghost/master/descript.txt",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "groupBDeepInteraction",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=Nanika_Atsume|Snake_Otacon|bancho_jet|Yes_Man"
+      ],
+      "prerequisite": "Host fresh unchanged group B import files/ghost/<fixtureId>/ghost/master/descript.txt",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "groupBRecordedNativeReplyMatchesVisibleState",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=Nanika_Atsume|Snake_Otacon|bancho_jet|Yes_Man"
+      ],
+      "prerequisite": "Host fresh unchanged group B import files/ghost/<fixtureId>/ghost/master/descript.txt",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "kawariAiTalk",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/native-fixtures/kawari/master/descript.txt,shiori.dll",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "loboRuntimeChoiceDisplaysItsNativeOnAITalkReply",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/ghost/lobo_okuajub/ghost/master/descript.txt and full unchanged LOBO tree",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "nativeAboutBackKeepsSameReadyLeaseWithoutBootOrClose",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=earthquake_duo"
+      ],
+      "prerequisite": "Host unchanged Earthquake import files/ghost/earthquake_duo/ghost/master/descript.txt",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "satoriDoubleClick",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/native-fixtures/satori/master/descript.txt,satori.dll",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "satoriDoubleClickWithoutCollision",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/native-fixtures/satori/master/descript.txt,satori.dll",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "snakeV132SingleCloseDiagnostic",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/ghost/Snake_Otacon/ghost/master/descript.txt and original V1.3.2 corpus tree",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "yayaAiTalk",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/native-fixtures/yaya/master/descript.txt,yaya.dll",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.NativeTalkProbeTest",
+      "method": "yayaDoubleClickWithoutCollision",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/native-fixtures/yaya/master/descript.txt,yaya.dll",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.RealCorpusImportUiTest",
+      "method": "cancelRealImportThroughVisibleDialog",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "uiProbePath=[A-Za-z0-9_.-]{1,100}",
+        "uiProbeSha256=64 hex characters"
+      ],
+      "prerequisite": "Host corpus cancellation probe; unchanged archive at files/<uiProbePath>",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.RealCorpusImportUiTest",
+      "method": "importedCorpusRendersOwnStageAndClosesThroughVisibleControls",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "uiCorpusPath=[A-Za-z0-9_.-]{1,100}",
+        "uiCorpusSha256=64 hex characters",
+        "uiCorpusGhostId=trimmed [A-Za-z0-9 _-]{1,100}",
+        "uiCorpusMode=aya5-only|yaya"
+      ],
+      "prerequisite": "Host corpus UI probe; unchanged archive at files/<uiCorpusPath>",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.RealGhostInteractionTest",
+      "method": "authoredEightFamilyJourney",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=satori|earthquake_duo|lobo_okuajub|big_red_button|Nanika_Atsume|Snake_Otacon|bancho_jet|Yes_Man",
+        "fixtureSha256=exact JOURNEYS hash for fixtureId"
+      ],
+      "prerequisite": "Host identity-verified original archive files/fixture-identity/<fixtureId>.nar and unchanged installed files/ghost/<fixtureId>/ghost/master/descript.txt, shell/master/surfaces.txt; optional landscapeChoice=true|false (true only earthquake_duo)",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.RealGhostInteractionTest",
+      "method": "fixtureIdentityRejectsTamperingAndAllowsRuntimeSaves",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.RealGhostInteractionTest",
+      "method": "readyPollingTimeoutReportsLastState",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.RealGhostInteractionTest",
+      "method": "readyPollingWaitsThroughTransientStates",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.RealGhostInteractionTest",
+      "method": "satoriAuthoredInputWithImeAndRotation",
+      "suite": "host-orchestrated",
+      "requiredArguments": [
+        "fixtureId=satori",
+        "fixtureSha256=a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0",
+        "submitMode=ok|done|cancel",
+        "inputName=[A-Za-z0-9]{4,24}"
+      ],
+      "prerequisite": "Host original files/fixture-identity/satori.nar, files/ghost/satori/ghost/master/descript.txt,satori.dll and shell/master/surfaces.txt; optional landscapeSubmit=true|false (true only done)",
+      "reason": "Requires host arguments, staging or process lifecycle orchestration"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.RealSatoriDoubleTapUiTest",
+      "method": "doubleTapDisplaysNativeResponse",
+      "suite": "corpus-fixture",
+      "requiredArguments": [],
+      "prerequisite": "User-licensed verified files/ghost/satori/ghost/master/descript.txt, satori.dll and shell/master assets",
+      "reason": "Requires separately licensed staged real ghost data"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.StagePolishTest",
+      "method": "aboutDismissReturnsToStageWithoutClosing",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.StagePolishTest",
+      "method": "balloonTailsPointTowardRenderedSpeakersInBothLayouts",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.StagePolishTest",
+      "method": "characterChoiceLinkAndScrollDoNotToggleControls",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.StagePolishTest",
+      "method": "debugBoundsDrawsBothAuthoredCollisionsAndTracksDisplayedBase",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.StagePolishTest",
+      "method": "debugTouchBoundsToggleOutlinesCharacterWithoutChangingTapCoordinates",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.StagePolishTest",
+      "method": "emptyStageAndInertBalloonToggleInitiallyVisibleControls",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.StagePolishTest",
+      "method": "hiddenControlsSurviveSavedStateRecreationAndCanBeShownAccessibly",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.StagePolishTest",
+      "method": "hidingControlsReclaimsTheirMeasuredHeight",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.StagePolishTest",
+      "method": "primaryPhoneMatrixKeepsSpeakersControlsAndScrollableLastChoiceInViewport",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Deterministic bundled/synthetic regression"
+    }
+  ]
+}
