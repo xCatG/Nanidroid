@@ -271,13 +271,16 @@ class ImportCoordinatorTest {
             val root = folder.newFolder()
             val runtime = runtime(root, scope, EventLog())
             runtime.start("ja")
+            val cancelledWorker = CompletableDeferred<Boolean>()
             lateinit var coordinator: ImportCoordinator
-            val importer = GhostImporter(root, afterMove = { coordinator.cancelBeforePublication() })
+            val importer = GhostImporter(root, afterMove = { cancelledWorker.complete(cancelRegisteredWorker(coordinator)) })
             coordinator = ImportCoordinator(importer, runtime, scope)
             val bytes = archive("visitor")
             val id = coordinator.beginPicking()!!
-            coordinator.acceptResult(id) { ByteArrayInputStream(bytes) }
+            acceptWithRegisteredWorker(coordinator, id, bytes)
             val done = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
+            assertTrue("Fault hook did not cancel an active registered worker",
+                withTimeout(10_000) { cancelledWorker.await() })
             assertEquals(ImportOutcome.Installed("visitor"), done.outcome)
             assertTrue(root.resolve("ghost/visitor/ghost/master/descript.txt").isFile)
         } finally { scope.cancel() }
@@ -290,12 +293,17 @@ class ImportCoordinatorTest {
             val root = folder.newFolder()
             val runtime = runtime(root, scope, events)
             runtime.start("ja")
+            val cancelledWorker = CompletableDeferred<Boolean>()
             lateinit var coordinator: ImportCoordinator
-            val importer = GhostImporter(root, beforeMove = { coordinator.cancelBeforePublication() })
+            val importer = GhostImporter(root, beforeMove = { cancelledWorker.complete(cancelRegisteredWorker(coordinator)) })
             coordinator = ImportCoordinator(importer, runtime, scope)
             val id = coordinator.beginPicking()!!
-            coordinator.acceptResult(id) { ByteArrayInputStream(archive("visitor")) }
+            val establishedJobs = scope.coroutineContext[Job]!!.children.toSet()
+            acceptWithRegisteredWorker(coordinator, id, archive("visitor"))
             val done = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
+            assertTrue("Fault hook did not cancel an active registered worker",
+                withTimeout(10_000) { cancelledWorker.await() })
+            settleAcceptedWork(scope, establishedJobs)
             assertEquals(ImportOutcome.Cancelled, done.outcome)
             events.await { observed -> observed.any { it.id == "OnInstallFailure" } }
             assertEquals(listOf("OnBoot", "OnInstallBegin", "OnInstallFailure"), events.map { it.id })
@@ -306,20 +314,40 @@ class ImportCoordinatorTest {
 
     @Test fun cancellationBeforeInstallBeginEmitsNoInstallEvent() = runBlocking {
         val events = EventLog()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val launchingThread = Thread.currentThread()
+        val providerEntered = CountDownLatch(1)
+        val holdLaunchReturn = java.util.concurrent.atomic.AtomicBoolean(false)
+        val dispatcher = object : kotlinx.coroutines.CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+                Dispatchers.Default.dispatch(context, block)
+                // Force the real IO provider to enter before acceptResult can register its
+                // launched job. The provider gate must protect the later cancellation hook.
+                if (Thread.currentThread() === launchingThread && holdLaunchReturn.compareAndSet(true, false)) {
+                    assertTrue("Controlled provider did not enter",
+                        providerEntered.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                }
+            }
+        }
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
         try {
             val root = folder.newFolder()
             val runtime = runtime(root, scope, events)
             runtime.start("ja")
+            val cancelledWorker = CompletableDeferred<Boolean>()
             lateinit var coordinator: ImportCoordinator
             val importer = GhostImporter(root, writeSourceChunk = { output, bytes, count ->
-                coordinator.cancelBeforePublication()
+                cancelledWorker.complete(cancelRegisteredWorker(coordinator))
                 output.write(bytes, 0, count)
             })
             coordinator = ImportCoordinator(importer, runtime, scope)
             val id = coordinator.beginPicking()!!
-            coordinator.acceptResult(id) { ByteArrayInputStream(archive("visitor")) }
+            val establishedJobs = scope.coroutineContext[Job]!!.children.toSet()
+            holdLaunchReturn.set(true)
+            acceptWithRegisteredWorker(coordinator, id, archive("visitor"), providerEntered)
             val done = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>().first() }
+            assertTrue("Fault hook did not cancel an active registered worker",
+                withTimeout(10_000) { cancelledWorker.await() })
+            settleAcceptedWork(scope, establishedJobs)
             assertEquals(ImportOutcome.Cancelled, done.outcome)
             assertEquals(listOf("OnBoot"), events.map { it.id })
             assertFalse(root.resolve("ghost/visitor").exists())
@@ -517,6 +545,32 @@ class ImportCoordinatorTest {
         withTimeout(10_000) {
             runtime.state.filterIsInstance<com.cattailsw.nanidroid.runtime.StageState.Ready>().first(predicate)
         }
+    }
+
+    private fun acceptWithRegisteredWorker(coordinator: ImportCoordinator, id: String,
+        bytes: ByteArray, providerEntered: CountDownLatch? = null) {
+        val launchReturned = CountDownLatch(1)
+        try {
+            coordinator.acceptResult(id) {
+                providerEntered?.countDown()
+                check(launchReturned.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                    "Provider admission timed out awaiting worker registration"
+                }
+                ByteArrayInputStream(bytes)
+            }
+            assertNotNull("acceptResult returned without registering its worker", coordinatorJob(coordinator))
+        } finally {
+            // Keep actual Default/IO execution, but don't let fault callbacks race the
+            // coordinator's running = scope.launch assignment.
+            launchReturned.countDown()
+        }
+    }
+
+    private fun cancelRegisteredWorker(coordinator: ImportCoordinator): Boolean {
+        val job = coordinatorJob(coordinator) ?: return false
+        val wasActive = job.isActive
+        coordinator.cancelBeforePublication()
+        return wasActive && job.isCancelled
     }
 
     private fun coordinatorJob(coordinator: ImportCoordinator): Job? =

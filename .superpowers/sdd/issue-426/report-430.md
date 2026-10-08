@@ -80,3 +80,37 @@ No private fixture/native cohort was run or counted as passing. No JVM, gesture 
 APK/source evidence: base `9547ff3d39801cd1b41c71e95d77b9a42f7145a9` plus final NativeTalkProbeTest working diff at build time, captured in ignored `430-evidence/fix1-source-base.txt` and `fix1-source-working.diff`; only this report was appended afterward. App APK hash unchanged `99a25e4d0c597b32787e1a3cbaac8850589cbb54c6c682eb13bfa0923fba2c59`; rebuilt test APK SHA256 `bd66bc389a3c434eb59886b006f5fee50a04242d7ef02facd52baab10dc1a6d8`. Raw assembly/instrumentation/diagnostic/timing/hash evidence is ignored under `430-evidence/fix1-*`. This is base-plus-working-diff verification, not the later clean integrated committed gate.
 
 Working and full-range `git diff --check d5d99cf52685bb01c035f306007d6cacb0abeb2b..HEAD` return exit 0; clean local status is checked at fix commit closeout. Independent scoped re-review remains controller work.
+
+## CI regression: registered worker boundary
+
+Resumed sequentially on clean branch430 revision `5269f58448b2face5a92c5bf7e99216ca3a3a5da`, after the controller's issue432 local gate. Only `ImportCoordinatorTest.kt` and this report changed. First CI failure remains retained: PR437 run `37727440576`, source `5269f584`, log `.superpowers/sdd/issue-426/ci-437-37727440576-failed.log` and HTML under `ci-437-37727440576-reports/tests/testDebugUnitTest/com.cattailsw.nanidroid.install.ImportCoordinatorTest/cancellationBeforeInstallBeginEmitsNoInstallEvent.html`. CI logged `380 tests completed, 1 failed`; the HTML's exact assertion was `expected:<Cancelled> but was:<Installed(directoryId=visitor)>`. No unchanged CI retry occurred.
+
+Diagnosis from the current accepted source: `ImportCoordinator.acceptResult` sets Running, then executes `running = scope.launch { ... }`. Default/IO may execute the fake provider's `writeSourceChunk` callback before launch returns and assigns `running`. The test's early callback then calls `cancelBeforePublication` while `running` is null; that cancellation cannot cancel the intended job. The failure is a test admission-order assumption. This change establishes the needed provider/registered-worker boundary without changing production/runtime, swallowing failures, adding sleeps/retries, or weakening cancellation/event assertions.
+
+A temporary deterministic old-order control delegated actual work to Default but held the launching thread inside dispatch until the original write hook attempted cancellation. The hook asserted `coordinatorJob == null` and emitted `CONTROL_EARLY_CANCEL runningJob=null cancellationAttempted=true`. The single selected test failed exactly `Cancelled` versus `Installed(visitor)`, matching CI (1 executed/0 passed/1 failed/0 skipped/0 incomplete; JUnit 0.298 s, Gradle 17 s). The retained source/log/XML are `430-evidence/ci-regression/control-old-order.kt`, `.log`, `.xml`. This temporary unsafe callback-before-registration control was removed by restoring the captured pre-control test source before implementing the fix; it is not committed.
+
+The permanent regression now forces real IO provider entry before acceptResult returns, then blocks provider admission on a bounded CountDownLatch until the launched job has been registered. This tests the same early-worker scheduling while preventing the fault callback from outrunning registration. The class-local `acceptWithRegisteredWorker` gate applies to the three callback-driven cancellation methods only. Each records and asserts that its fault hook cancelled an active registered job. `cancellationBeforeInstallBeginEmitsNoInstallEvent` still cancels in the first source write before validation/install-begin and asserts Cancelled, exactly OnBoot, and no installed visitor. `cancellationAfterInstallBeginEmitsFailureWithoutReferences` still asserts Cancelled, exact begin/failure order, empty failure references and no installed visitor. `cancellationAfterMoveStillReportsInstalled` still asserts Installed and published files; its explicit cancellation observation prevents a no-op cancel from passing, including when afterMove's production fault wrapper catches an exception. The latter two share the identical callback/registration race and are the only justified sibling adjustments. The pre-begin and post-begin negative assertions now join newly admitted operation/event work after Completed, before asserting absence/exact events. Actual Default/IO execution remains; no virtual dispatcher replaces provider IO.
+
+Covering commands, explicit existing JDK17/SDK environment:
+
+```powershell
+# Temporary deterministic old ordering: expected red, retained once.
+.\gradlew.bat :app:testDebugUnitTest --tests 'com.cattailsw.nanidroid.install.ImportCoordinatorTest.cancellationBeforeInstallBeginEmitsNoInstallEvent' --rerun-tasks --offline --console=plain
+# Corrected full affected class.
+.\gradlew.bat :app:testDebugUnitTest --tests 'com.cattailsw.nanidroid.install.ImportCoordinatorTest' --offline --console=plain
+# One forced full JVM execution on final source.
+.\gradlew.bat :app:testDebugUnitTest --rerun-tasks --offline --console=plain
+```
+
+Corrected focused output: `BUILD SUCCESSFUL in 6s`; XML 18 executed/18 passed/0 skipped/0 failed/0 incomplete, class duration 1.637 s. A newly introduced unnecessary-safe-call warning was removed before the full run; final full run covered that cleanup. Forced full output: `BUILD SUCCESSFUL in 27s`, all 24 actionable tasks executed, exit 0. Final XML totals: 26 classes, 380 executed/376 passed/4 skipped/0 failed/0 incomplete. The three cancellation methods took 0.015 s (before begin), 0.055 s (after begin), 0.057 s (after move). No reliability rate or Linux result is inferred.
+
+Four full-run skips retain their actual Windows symlink-privilege assumptions and are not passes:
+
+- `InstalledGhostRepositoryTest#symlinkCandidatesCannotEscapePrivateRoot`.
+- `NativeProfileDirectoryTest#rejectsEscapingProfileSymlink`.
+- `ImportStagingTest#linkedRootAndLinkedAttemptAreRejectedWithoutTraversal`.
+- `ImportStagingTest#linkedChildInsideAttemptBlocksRecoveryWithoutDeletingOutside`.
+
+Existing nullable-file/compiler warnings outside the owned test remain visible in the retained full log; no unrelated files were edited. The final ImportCoordinatorTest introduces no compiler warning. All @Test method identities and original outcome/file/event assertions are preserved. Windows host-only JVM verification used temporary JUnit roots; no device/APK/gesture/private fixture operations or global cleanup occurred. Linux/updated CI execution was not performed by this worker and remains controller evidence, distinct from the successful Windows gate.
+
+Raw control/focused/full logs, separate control/focused XML, all final full XML, pre-control source and aggregate counts remain ignored under `.superpowers/sdd/issue-426/430-evidence/ci-regression/`. No raw evidence is staged. Working/full-range `git diff --check 7cb7106a..HEAD` return exit 0 at local commit closeout; clean status and focused local commit are reported to the controller for independent scoped review.
