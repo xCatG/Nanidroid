@@ -99,6 +99,45 @@ Check ((Get-InstrumentationOutcome ($text+"`nAssumptionViolatedException") 0 C m
 Check ((Get-InstrumentationOutcome 'OK (1 test)' 0 C m) -eq 'incomplete') 'OK alone incomplete'
 Check ((Get-InstrumentationOutcome $text 1 C m) -eq 'failed') 'transport failure'
 Check ((Get-InstrumentationOutcome ($text+"`n"+$text) 0 C m) -eq 'incomplete') 'duplicate terminal'
+# Controller-observed harmless root-method output contract, emulator-5580:
+# -w -r supplies method bundles; -w alone supplies only pretty stream/OK.
+$rawContract=@'
+INSTRUMENTATION_STATUS: class=com.cattailsw.nanidroid.corpus.Milestone5CorpusTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+com.cattailsw.nanidroid.corpus.Milestone5CorpusTest:
+INSTRUMENTATION_STATUS: test=rootOnlyDirectoryRegression
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.cattailsw.nanidroid.corpus.Milestone5CorpusTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=rootOnlyDirectoryRegression
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+Time: 0.311
+OK (1 test)
+INSTRUMENTATION_CODE: -1
+'@
+Check ((Get-InstrumentationOutcome $rawContract 0 'com.cattailsw.nanidroid.corpus.Milestone5CorpusTest' rootOnlyDirectoryRegression) -eq 'passed') 'observed raw instrumentation contract passes exact method'
+Check ((Get-InstrumentationOutcome "com.cattailsw.nanidroid.corpus.Milestone5CorpusTest:.`nTime: 0.359`nOK (1 test)" 0 'com.cattailsw.nanidroid.corpus.Milestone5CorpusTest' rootOnlyDirectoryRegression) -eq 'incomplete') 'observed pretty instrumentation contract cannot pass'
+foreach ($entry in @(@{name='test-native-persistence.ps1';count=2},@{name='test-milestone5-corpus.ps1';count=1})) {
+    $tokens=$null; $errors=$null
+    $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot "../$($entry.name)"),[ref]$tokens,[ref]$errors)
+    Check (!$errors.Count) "parse actual instrumentation args $($entry.name)"
+    $calls=@($ast.FindAll({param($node)
+        $node -is [Management.Automation.Language.ArrayLiteralAst] -and
+        @($node.Elements | Where-Object { $_ -is [Management.Automation.Language.StringConstantExpressionAst] -and $_.Value -ceq 'instrument' }).Count
+    },$true))
+    Check ($calls.Count -eq $entry.count) "actual instrumentation invocation inventory $($entry.name)"
+    foreach ($call in $calls) {
+        $literalArgs=@($call.Elements | Where-Object { $_ -is [Management.Automation.Language.StringConstantExpressionAst] } | ForEach-Object Value)
+        Check ($literalArgs -contains '-w' -and $literalArgs -contains '-r') "actual instrumentation invocation requests raw bundles $($entry.name)"
+    }
+}
 foreach ($word in @('assumption','ignored')) {
     foreach ($code in @(-1,-2)) {
         $failureText=($text -replace 'CODE: 0',"CODE: $code")+"`nAssertionError: $word expectation failed"

@@ -188,7 +188,7 @@ function Invoke-Row($row, [string]$source, [bool]$expectedPass, [bool]$wrongHash
         $passHash = if ($wrongHash) { '0' * 64 } else { $actual }
         $stdout = Join-Path $rowDir 'instrument.stdout.log'
         $stderr = Join-Path $rowDir 'instrument.stderr.log'
-        $arguments = @('-s',$DeviceSerial,'shell','am','instrument','-w','-e','corpusPath','corpus-input.nar',
+        $arguments = @('-s',$DeviceSerial,'shell','am','instrument','-w','-r','-e','corpusPath','corpus-input.nar',
             '-e','corpusSha256',$passHash,'-e','corpusLabel',$row.label,
             '-e','corpusKind',$row.packageKind,'-e','class',$class,$runner)
         $process = Start-Process -FilePath $adb -ArgumentList $arguments -PassThru -WindowStyle Hidden `

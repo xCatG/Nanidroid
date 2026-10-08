@@ -119,7 +119,7 @@ function Stage-Fixture($source, [string]$runId) {
 
 function Run-Instrumentation([string]$fixtureId, [string]$method, [string]$runId, [string]$logName, [string]$className = $testClass) {
     $stdout = Join-Path $OutputDirectory $logName
-    $arguments = @('shell','am','instrument','-w','-e','fixtureId',$fixtureId,'-e','runId',$runId,'-e','class',"$className#$method",$runner)
+    $arguments = @('shell','am','instrument','-w','-r','-e','fixtureId',$fixtureId,'-e','runId',$runId,'-e','class',"$className#$method",$runner)
     try { $result = Invoke-BoundedAdb -Arguments $arguments -TimeoutSeconds 180 }
     catch {
         $_.Exception.Message | Set-Content -LiteralPath $stdout
@@ -143,7 +143,7 @@ function Run-KillScenario([string]$fixtureId, [string]$runId) {
         Add-Content -LiteralPath $scenarioLog -Value $entry
         Write-Host $entry
     }
-    $args = @('-s',$Serial,'shell','am','instrument','-w','-e','fixtureId',$fixtureId,'-e','runId',$runId,'-e','class',"$testClass#abruptWriteWaitsForHostKill",$runner)
+    $args = @('-s',$Serial,'shell','am','instrument','-w','-r','-e','fixtureId',$fixtureId,'-e','runId',$runId,'-e','class',"$testClass#abruptWriteWaitsForHostKill",$runner)
     $process = Start-Process -FilePath $Adb -ArgumentList $args -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     Write-KillTrace "write-start runId=$runId fixtureId=$fixtureId adbPid=$($process.Id) readinessDeadlineSeconds=45 exitDeadlineSeconds=15"
     try {
