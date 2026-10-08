@@ -73,7 +73,7 @@ Gradle/native build or real device suite occurs. Controlled results:
 - Boot process exits deliberately: actual boot step exits1, emulator/boot logs
   remain. Unknown owned-AVD identity also makes teardown exit1; the boot failure
   remains the primary failure.
-- First instrumentation invocation exits42 with one synthetic assertion failure:
+- First instrumentation invocation exits 42 with one synthetic assertion failure:
   workflow exits1. Selected117, observed1, passed0, skipped0, failed1,
   incomplete116; runner cleanup passed. Raw stdout/stderr, summary and logcat
   remain. Later workflow teardown exits0 and cannot erase the original failure.
@@ -161,7 +161,7 @@ processes. This is an accelerated local control, not a real SDK install or hoste
 step cancellation. Linux host checks were not repeated because runner/manifest
 and list/self-check invocation bodies did not change.
 
-Observed controls (all driver assertions passed; driver exit0):
+Observed controls (all driver assertions passed; driver exit 0):
 
 - SDK install body exit124; first stdout and stderr remain in `sdk-install.log`.
 - Runner execution body exit1 after the outer process timeout; first console
@@ -170,7 +170,7 @@ Observed controls (all driver assertions passed; driver exit0):
 - Subsequent bounded teardown body exits0 in both no-emulator controls; it cannot
   erase either failed step. `timeout-artifact-inputs.tar.gz` retains report inputs
   for the always-run upload. Hosted upload remains unverified.
-- Early-failure summary exit0 and labels verified identity unavailable. Verified
+- Early-failure summary exit 0 and labels verified identity unavailable. Verified
   API31/qemu control writes actual API31/x86_64 record and summary. API37 mismatch
   and non-qemu controls each exit1 and write no verified record. An independent
   API34/arm64-v8a record control appears as those actual values in the summary,
@@ -241,3 +241,94 @@ Actual GitHub job execution, image/KVM provisioning, same-run hosted artifact
 consumption/upload and CI job-owned emulator cleanup remain pending. The local
 run and controlled failure inputs do not establish those hosted results. M5
 accepted exceptions, LOBO Pixel setting-cycle gap and parity limits remain.
+
+## First hosted failure and host-runtime correction
+
+[Hosted run 37732038414](https://github.com/xCatG/Nanidroid/actions/runs/37732038414)
+failed at `Install emulator and image`, exit 127. The first red is retained in
+`.superpowers/sdd/issue-426/ci-440-37732038414-failed.log` and the downloaded
+`device-self-contained-37732038414-1` artifact (id 11529837764), under ignored
+`.superpowers/sdd/issue-426/433-evidence/hosted-37732038414/reports/device-self-contained/`.
+That unique diagnostic artifact was actually uploaded and downloaded; this is
+hosted failure-retention evidence, not a successful hosted device gate.
+
+The exact failing command was:
+
+```bash
+timeout 30 "$ANDROID_HOME/emulator/emulator" -version > "$DEVICE_REPORT/emulator-version.log" 2>&1
+```
+
+`emulator-version.log` retains the actual dynamic-loader error:
+
+```text
+/usr/local/lib/android/sdk/emulator/qemu/linux-x86_64/qemu-system-x86_64: error while loading shared libraries: libpulse.so.0: cannot open shared object file: No such file or directory
+```
+
+`sdk-install.log` reached 100%; the emulator/image download was not the failing
+operation. Host list/self-check and same-run APK verification had passed.
+The checkout/provenance source was the PR merge revision
+`67fcae53f4e3973f55b3f4577507c9634c3058e9`, not the local report-only branch head.
+The artifact contains the 117-method selection and no instrumentation summary:
+execution/pass/skip/test-failure/incomplete result counts were not produced,
+because the infrastructure failure occurred before emulator boot or tests.
+Owned-emulator teardown had no launched emulator to stop and recorded exit 0.
+This first failed run remains failed; no unchanged retry was requested.
+
+Root-cause fix: the device setup installs Ubuntu `libpulse0` before invoking the
+emulator. This is an ephemeral CI host runtime library, not an Android product,
+catalog or native-source dependency. Ubuntu's
+[libpulse0 package](https://packages.ubuntu.com/en/noble/libs/libpulse0) provides
+the missing client runtime. The combined apt update/install command has a
+90-second process deadline plus five-second kill escalation and its own retained
+`emulator-runtime-install.log`. SDK installation keeps its 300-second deadline
+plus ten-second kill escalation; six metadata commands now have ten-second
+bounds. Their total worst-case process allocation is 465 seconds inside the
+existing 480-second setup step. Pre-teardown 75 / evidence 9 / scheduling 6 still
+fit the 90-minute outer safety limit. Test predicates, one runner invocation,
+read-only repository permissions and pinned Android/JDK toolchain are unchanged.
+
+Review P3 inline 4215139203 is also corrected: this fresh device job downloads
+only `android-apks`. Build-job Gradle/JVM/lint reports live in the separate
+`android-reports` artifact (first hosted run id 11530068181), while
+`device-self-contained-<run-id>-<attempt>` holds device/host-selection/setup
+and instrumentation diagnostics. Docs/report now direct readers to both rather
+than claiming the device artifact contains build-job reports.
+
+Focused validation commands:
+
+```powershell
+wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/yenchi/.codex/worktrees/bd56/Nanidroid/.superpowers/sdd/issue-426/433-evidence/hosted-fix/runtime-real.sh
+wsl -d Ubuntu-24.04 -- bash /mnt/c/Users/yenchi/.codex/worktrees/bd56/Nanidroid/.superpowers/sdd/issue-426/433-evidence/hosted-fix/check.sh
+```
+
+The first driver downloaded the official stable Linux emulator archive, verified
+its repository-published SHA1, and ran only `-version` and linked-library checks.
+Actual emulator 37.2.12.0/build 16428233 version command exited0; `ldd` resolved
+`libpulse.so.0` to `/lib/x86_64-linux-gnu/libpulse.so.0`. The Ubuntu validation host
+already has real `libpulse0` version 1:16.1+dfsg1-2ubuntu10.1 installed. This
+version-only check is not an emulator boot, system-image install or hosted run,
+and does not claim identical emulator bytes to the earlier hosted failure.
+
+The second driver parses the amended workflow YAML/Bash/PowerShell, validates
+setup ordering and 465<480-second allocation, and executes the actual old/fixed
+install-step bodies. Explicit test doubles cover apt/image/adb/JDK/KVM operations
+to avoid host mutation and image/device provisioning. The emulator's version
+operation invokes the actual downloaded ELF executable after the control confirms
+real `libpulse0` package availability. Results:
+
+- Old body with an empty-runtime marker reproduces the retained loader error and
+  exit 127; the original hosted red remains unchanged. This local empty-runtime
+  marker is a synthetic prerequisite control, not removal of a host library.
+- Fixed body performs the bounded libpulse install call before emulator invocation,
+  then the real emulator version operation passes; whole step exit 0.
+- A controlled apt failure exits 42 before emulator invocation and retains first
+  package-error output in `emulator-runtime-install.log`.
+- YAML/Bash/PowerShell parsing, command ordering and time-budget assertions pass.
+
+Raw output and saved drivers are ignored under
+`.superpowers/sdd/issue-426/433-evidence/hosted-fix/`, including old/fixed-step logs,
+`actual-emulator-version.log`, `actual-qemu-ldd.log` and package-failure logs.
+No full build, app/native build, device suite, emulator boot, push or workflow
+retry was performed for this correction. The earlier local 117/117 gate remains
+valid for its recorded 8df2d74d source; a corrected hosted job is still pending
+controller publication/review/execution. M5 exceptions and parity gaps remain.
