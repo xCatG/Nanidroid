@@ -42,11 +42,15 @@ import android.view.KeyEvent
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import com.cattailsw.nanidroid.testing.OwnedFixtureDirectoryRule
+import org.junit.rules.RuleChain
 import org.junit.Rule
 import org.junit.Test
 
 class StagePolishTest {
-    @get:Rule val compose = createComposeRule()
+    private val fixtures = OwnedFixtureDirectoryRule()
+    val compose = createComposeRule()
+    @get:Rule val rules: RuleChain = RuleChain.outerRule(fixtures).around(compose)
     private val dialogue = DialogueToken(7, 11)
     private val surface = Bitmap.createBitmap(160, 200, Bitmap.Config.ARGB_8888).asImageBitmap()
     private val loader = SurfaceImageLoader { surface }
@@ -87,8 +91,7 @@ class StagePolishTest {
     }
 
     @Test fun debugBoundsDrawsBothAuthoredCollisionsAndTracksDisplayedBase() {
-        val shellDir = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "bounds-shell-${System.nanoTime()}").apply { mkdirs() }
+        val shellDir = fixtures.directory("bounds-shell-${System.nanoTime()}")
         val numbered = listOf(0, 2, 10).associateWith { id ->
             File(shellDir, "surface$id.png").apply { writeBytes(byteArrayOf(1)) }
         }

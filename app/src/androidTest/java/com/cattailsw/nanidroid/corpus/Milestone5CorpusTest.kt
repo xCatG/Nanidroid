@@ -26,27 +26,35 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Rule
+import com.cattailsw.nanidroid.testing.OwnedFixtureDirectoryRule
 import org.junit.runner.RunWith
 
 /** One process and one app-data reset per host row; results precede assertions. */
 @RunWith(AndroidJUnit4::class)
 class Milestone5CorpusTest {
-    /** Red until Task 2 permits only the harmless root directory record. */
+    @get:Rule val fixtures = OwnedFixtureDirectoryRule()
+    /** The harmless separator installs only in invocation-owned storage. */
     @Test fun rootOnlyDirectoryRegression() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val root = File(context.cacheDir, "corpus-root-positive-${System.nanoTime()}").apply { mkdirs() }
+        val root = fixtures.directory("positive")
         try {
             val source = File(root, "input.nar")
             rootFixture(source, "\\", UnixStat.DIR_FLAG, byteArrayOf())
-            val result = (context.applicationContext as NanidroidApplication).ghostImporter
+            val filesRoot = fixtures.directory("importer-files")
+            val result = com.cattailsw.nanidroid.install.GhostImporter(filesRoot)
                 .importArchive({ source.inputStream() }) {}
             assertTrue("Empty root-directory record must be ignored: $result", result is ImportOutcome.Installed)
+            val installed = File(filesRoot, "ghost/" + (result as ImportOutcome.Installed).directoryId)
+            assertTrue("Installed payload missing from owned root: $installed", installed.isDirectory)
+            assertTrue("Installed payload escaped owned root: $installed",
+                installed.canonicalPath.startsWith(filesRoot.canonicalPath + File.separator))
         } finally { root.deleteRecursively() }
     }
 
     @Test fun unsafeRootEntryVariantsStayRejected() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val root = File(context.cacheDir, "corpus-root-negative-${System.nanoTime()}").apply { mkdirs() }
+        val root = fixtures.directory("negative")
         try {
             val cases = listOf(
                 Triple("root-file", "\\", UnixStat.FILE_FLAG to byteArrayOf(1)),

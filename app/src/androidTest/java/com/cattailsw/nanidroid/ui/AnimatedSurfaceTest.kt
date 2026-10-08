@@ -9,7 +9,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import com.cattailsw.nanidroid.ghost.ShellCatalog
 import com.cattailsw.nanidroid.ghost.ComposedSurface
 import com.cattailsw.nanidroid.ghost.SurfaceDefinitions
@@ -22,6 +21,8 @@ import com.cattailsw.nanidroid.runtime.SurfaceVisual
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import com.cattailsw.nanidroid.testing.OwnedFixtureDirectoryRule
+import org.junit.rules.RuleChain
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,7 +30,9 @@ import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
 class AnimatedSurfaceTest {
-    @get:Rule val compose = createComposeRule()
+    private val fixtures = OwnedFixtureDirectoryRule()
+    val compose = createComposeRule()
+    @get:Rule val rules: RuleChain = RuleChain.outerRule(fixtures).around(compose)
 
     @Test fun fullyOffCanvasLayerCannotHideAuthoredBase() {
         val image = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_8888).asImageBitmap()
@@ -80,8 +83,7 @@ class AnimatedSurfaceTest {
     }
 
     @Test fun authoredElementAndDueStaticOverlayBothRender() {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "animated-combined-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("animated-combined-${System.nanoTime()}")
         val files = listOf(0, 10, 1001).associateWith { id ->
             File(shell, "surface$id.png").apply { writeBytes(byteArrayOf(1)) }
         }
@@ -107,8 +109,7 @@ class AnimatedSurfaceTest {
     }
 
     @Test fun elementOnlyBaseAndDueOverlayRemainVisibleTogether() {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "element-only-animated-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("element-only-animated-${System.nanoTime()}")
         val files = listOf(10, 1001).associateWith { id ->
             File(shell, "surface$id.png").apply { writeBytes(byteArrayOf(1)) }
         }
@@ -136,8 +137,7 @@ class AnimatedSurfaceTest {
     @Test fun translucentInterpolateMatchesExistingStaticBlend() = compareStaticBlend("interpolate")
 
     private fun compareStaticBlend(method: String) {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "animated-blend-$method-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("animated-blend-$method-${System.nanoTime()}")
         val files = listOf(0, 10, 1001).associateWith { id ->
             File(shell, "surface$id.png").apply { writeBytes(byteArrayOf(1)) }
         }
