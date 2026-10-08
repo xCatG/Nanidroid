@@ -445,20 +445,42 @@ class ImportCoordinatorTest {
         } finally { changing.complete(Unit); scope.cancel() }
     }
 
-    @Test fun resolvingShownPromptCompletesAttempt() = runBlocking<Unit> {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Test fun resolvingShownPromptCompletesAttempt() = runBlocking<Unit>(Dispatchers.Default.limitedParallelism(1)) {
+        // The application owns runtime state on Main.immediate. Use one real Default
+        // lane for the caller and scope jobs; IO stays real and install requests may suspend.
+        val owner = coroutineContext[kotlin.coroutines.ContinuationInterceptor]!!
+        val scope = CoroutineScope(SupervisorJob() + owner)
+        val installGate = CompletableDeferred<Unit>()
+        val events = EventLog()
         try {
             val root = folder.newFolder()
-            val runtime = runtime(root, scope, EventLog())
+            val runtime = runtime(root, scope, events, gate = installGate)
             runtime.start("ja")
             val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
             val id = coordinator.beginPicking()!!
+            val establishedJobs = scope.coroutineContext[Job]!!.children.toSet()
             coordinator.acceptResult(id) { ByteArrayInputStream(archive("visitor")) }
-            withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>()
+            events.await { observed -> observed.any { it.id == "OnInstallBegin" } }
+            val shown = withTimeout(10_000) { coordinator.state.filterIsInstance<ImportState.Completed>()
                 .first { it.promptResult == ImportPromptResult.Shown } }
+            assertEquals(id, shown.attemptId)
+            assertEquals(ImportOutcome.Installed("visitor"), shown.outcome)
+            awaitReady(runtime) { it.switchPrompt?.directoryId == "visitor" }
+            assertFalse("Install request must still be in flight at dismissal", installGate.isCompleted)
+            assertFalse(events.any { it.id == "OnInstallComplete" })
+
+            // Exercise immediate Shown -> dismiss -> Idle, without waiting for install
+            // work to finish. A later request publication must not restore the prompt.
             runtime.dismissSwitch()
+            awaitReady(runtime) { it.switchPrompt == null }
             withTimeout(10_000) { coordinator.state.first { it == ImportState.Idle } }
-        } finally { scope.cancel() }
+            installGate.complete(Unit)
+            events.await { observed -> observed.any { it.id == "OnInstallComplete" } }
+            settleAcceptedWork(scope, establishedJobs)
+            assertEquals(ImportState.Idle, coordinator.state.value)
+            assertEquals(null, (runtime.state.value as com.cattailsw.nanidroid.runtime.StageState.Ready).switchPrompt)
+            assertEquals(listOf("OnBoot", "OnInstallBegin", "OnInstallComplete"), events.map { it.id })
+        } finally { installGate.complete(Unit); scope.cancel() }
     }
 
     @Test fun finishedRuntimeClearsCompletedResult() = runBlocking<Unit> {
