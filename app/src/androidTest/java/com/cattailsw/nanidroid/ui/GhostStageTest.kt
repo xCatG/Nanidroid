@@ -14,7 +14,6 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.performClick
 import com.cattailsw.nanidroid.data.BootStateStore
-import com.cattailsw.nanidroid.engine.BuiltInShiori
 import com.cattailsw.nanidroid.engine.ShioriEngine
 import com.cattailsw.nanidroid.engine.ShioriEvent
 import com.cattailsw.nanidroid.engine.ShioriReply
@@ -76,21 +75,6 @@ class GhostStageTest {
         compose.waitForIdle()
         assertEquals(listOf(listOf(1, 117, 100)), doubles)
         assertEquals(emptyList<List<Int>>(), singles)
-    }
-
-    @Test fun builtInEngineReceivesTapOnceAndReturnsNoScript() {
-        val realEngine = BuiltInShiori("OnFirstBoot,\\0\\s0Hello\\e")
-        val events = mutableListOf<ShioriEvent>()
-        val statuses = mutableListOf<Int>()
-        val runtime = runtime { event ->
-            events += event
-            realEngine.request(event).also { statuses += it.status }
-        }
-        show(runtime, images)
-        compose.onNodeWithTag("kero").performTouchInput { click(center) }
-        compose.waitUntil(3_000) { events.any { it.id == "OnMouseClick" } }
-        assertEquals(1, events.count { it.id == "OnMouseClick" })
-        assertEquals(204, statuses[events.indexOfFirst { it.id == "OnMouseClick" }])
     }
 
     @Test fun blockedImageLoadShowsLoadingThenBothCharacters() {

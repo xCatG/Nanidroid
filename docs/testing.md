@@ -38,7 +38,7 @@ List-only works for all four suites, validates all source methods and inventory
 entries, and needs no device/build/SDK/private data. Unknown, duplicate, missing,
 stale or unsupported discovery syntax fails. The Java provider is infrastructure.
 
-The initial executable `self-contained` suite selects **119 of 165 methods**;
+The executable `self-contained` suite selects **117 of 163 methods**;
 `host-orchestrated` has 29, `corpus-fixture` 16 and `diagnostic-device` one.
 One raw `am instrument -w -r` invocation runs sorted exact selectors sequentially,
 with a 30-minute instrumentation deadline and bounded adb operations. It performs
