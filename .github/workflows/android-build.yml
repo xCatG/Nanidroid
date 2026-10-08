@@ -140,7 +140,7 @@ jobs:
         timeout-minutes: 8
         run: |
           set -euo pipefail
-          timeout --kill-after=5s 90s sudo bash -c 'export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --no-install-recommends libpulse0' > "$DEVICE_REPORT/emulator-runtime-install.log" 2>&1
+          timeout --kill-after=5s 90s sudo bash -c 'export DEBIAN_FRONTEND=noninteractive; apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 install -y --no-install-recommends libpulse0' > "$DEVICE_REPORT/emulator-runtime-install.log" 2>&1
           timeout --kill-after=10s 300s sdkmanager "emulator" "system-images;android-31;google_apis;x86_64" > "$DEVICE_REPORT/sdk-install.log" 2>&1
           timeout 10 "$ANDROID_HOME/emulator/emulator" -version > "$DEVICE_REPORT/emulator-version.log" 2>&1
           timeout 10 "$ANDROID_HOME/platform-tools/adb" version > "$DEVICE_REPORT/adb-version.log" 2>&1
