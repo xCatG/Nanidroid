@@ -134,4 +134,12 @@ Tests:
 1. Lead writes and self-reviews this plan.
 2. Fresh Astra (`gpt-6-astra`, `fork_turns: none`) reviews this plan read-only, as explicitly requested by the author. Save its findings and resolution alongside the plan; revise before branching.
 3. Create `codex/default-ghost-assistant` in the current isolated worktree. Commit the reviewed plan/review record there; if permissions block Git metadata updates, request only the narrowly scoped authorized Git operation.
-4. The present request is planning, Astra review, and branch preparation. Product implementation starts after the plan handoff, with sequential GPT-6.1-Sol implementers and independent GPT-6-Sol reviewers per AGENTS.md. No implementation, push, or public PR is part of the planning deliverable.
+4. Planning, Astra review, and branch preparation are complete. Execute Tasks 1–4 on `codex/default-ghost-assistant` under the author approval below, with sequential GPT-6.1-Sol implementers and independent GPT-6-Sol reviewers per AGENTS.md.
+
+## Author execution approval
+
+**Status:** Approved for execution by Yenchi on 2026-10-11 (America/Los_Angeles).
+
+**Author instruction:** “approve execution in the md”
+
+This approval authorizes implementation and local verification of Tasks 1–4 in the Astra-reviewed, amended plan, using the sequential implementation/review workflow above. All global constraints remain in force, including preserving artwork and installed files and excluding push, public PR, merge, publication, signing-key work, and user-device installation. Approval does not mark any implementation or verification task complete.
