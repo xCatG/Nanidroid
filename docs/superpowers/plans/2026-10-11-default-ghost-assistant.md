@@ -122,13 +122,13 @@ Tests:
 
 ## Task 4: Integration evidence and documentation
 
-**Ownership:** README, focused acceptance record at `docs/testing/2026-10-11-default-ghost-assistant.md`, any fixes returned to their responsible implementer.
+**Ownership:** README, current device-inventory count statements in `docs/testing.md`, focused acceptance record at `docs/testing/2026-10-11-default-ghost-assistant.md`, any fixes returned to their responsible implementer. Preserve historical acceptance packets.
 
 - [ ] Run `./gradlew.bat testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease`. Require successful exit codes and record report paths/counts. Do not label release assembly as release readiness.
 - [ ] Run the focused connected instrumentation using `ANDROID_SERIAL` set to a discovered disposable emulator. Exercise first boot, subsequent boot, each character's tap/menu, all help topics/back/dismiss, Ghosts/import entry, About/licenses, debug toggle/close, hidden top controls, rotation, and return from another ghost. Test existing installed default files with the new APK; no reinstall that would erase the condition under test. Record emulator/API/APK provenance and any unavailable fixture separately.
 - [ ] Confirm release debug exclusion through the debug-disabled policy tests and, if a disposable release-build runtime is available, manual UI evidence. Report exactly which evidence exists; a debug build alone cannot demonstrate release behavior.
 - [ ] Record before/after hashes of `nanidroid.zip` and both embedded PNGs and show no tracked native/build config changes. Verify installed-file preservation from Task 2 tests.
-- [ ] Update README with the two character roles, language fallback, and initial debug tools scope. Save actual acceptance evidence, failures, and limitations in the dated testing record.
+- [ ] Update README with the two character roles, language fallback, and initial debug tools scope; refresh current `docs/testing.md` method counts from the validated inventory. Save actual acceptance evidence, failures, and limitations in the dated testing record.
 - [ ] Request an independent whole-branch GPT-6-Sol review, resolve actionable findings through the responsible workers, and rerun only affected checks. Commit documentation as `docs: record default assistant behavior and verification`.
 
 ## Execution and branch handoff

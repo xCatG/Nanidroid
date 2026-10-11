@@ -69,6 +69,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.ghost.SurfaceImageLoader
+import com.cattailsw.nanidroid.ghost.BundledAssistantContent
+import com.cattailsw.nanidroid.engine.BuiltInAppAction
 import com.cattailsw.nanidroid.ghost.ShellFiles
 import com.cattailsw.nanidroid.ghost.ShellCatalog
 import com.cattailsw.nanidroid.ghost.SurfaceComposer
@@ -178,6 +180,8 @@ fun GhostStage(
     interactionActive: Boolean = true,
     versionName: String = "Unknown",
     notices: List<Notice> = emptyList(),
+    onClaimAppAction: (Long) -> BuiltInAppAction? = { null },
+    assistantLabels: BundledAssistantContent? = null,
 ) {
     val view = LocalView.current
     val debugBuild = view.context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
@@ -199,8 +203,29 @@ fun GhostStage(
             is StageState.Error -> StageMessage(state.message)
             StageState.Finished -> Unit
             is StageState.Ready -> {
-                var showGhosts by remember { mutableStateOf(false) }
-                var showAbout by remember { mutableStateOf(false) }
+                // Dialogs are intentionally unsaved: consumed actions never replay on recreation.
+                val sessionId = state.dialogueToken?.sessionId
+                var showGhosts by remember(sessionId) { mutableStateOf(false) }
+                var showAbout by remember(sessionId) { mutableStateOf(false) }
+                var showDebugTools by remember(sessionId) { mutableStateOf(false) }
+                val claimAppAction by rememberUpdatedState(onClaimAppAction)
+                LaunchedEffect(state.appAction?.requestId, interactionActive) {
+                    val request = state.appAction ?: return@LaunchedEffect
+                    if (!interactionActive) return@LaunchedEffect
+                    // Claim first, then deliver exactly once within the current session.
+                    when (claimAppAction(request.requestId)) {
+                        BuiltInAppAction.Ghosts -> { showGhosts = true; showAbout = false; showDebugTools = false }
+                        BuiltInAppAction.About -> { showGhosts = false; showAbout = true; showDebugTools = false }
+                        BuiltInAppAction.DebugTools -> if (debugBuild) {
+                            showGhosts = false; showAbout = false; showDebugTools = true
+                        }
+                        null -> Unit
+                    }
+                }
+                val modalVisible = showGhosts || showAbout || showDebugTools || state.switchPrompt != null ||
+                    state.input != null || importState is ImportState.Running ||
+                    importState is ImportState.Completed || importInterrupted
+                val stageInteractionActive = interactionActive && !modalVisible
                 var controlsVisible by rememberSaveable { mutableStateOf(true) }
                 var controlsHeightPx by remember { mutableStateOf(0) }
                 val controlsHeight = with(LocalDensity.current) { controlsHeightPx.toDp() }
@@ -220,7 +245,9 @@ fun GhostStage(
                     LoadedImages.Loading -> StageMessage("Loading ghost…")
                     is LoadedImages.Error -> StageMessage(images.message)
                     is LoadedImages.Ready -> ReadyStage(state, images.images, callbacks,
-                        onChoose, onOpenLink, toggleControls, interactionActive,
+                        { if (stageInteractionActive) onChoose(it) },
+                        { token, url -> if (stageInteractionActive) onOpenLink(token, url) },
+                        toggleControls, stageInteractionActive,
                         debugBuild && showTouchBounds,
                         Modifier.padding(top = if (controlsVisible) controlsHeight else 0.dp)
                             .semantics {
@@ -255,6 +282,11 @@ fun GhostStage(
                     }
                 }
                 if (showAbout) AboutDialog(versionName, notices) { showAbout = false }
+                if (debugBuild && showDebugTools) assistantLabels?.let { labels ->
+                    DebugToolsDialog(showTouchBounds, labels,
+                        onShowTouchBoundsChange = { showTouchBounds = it },
+                        onDismiss = { showDebugTools = false })
+                }
                 if ((showGhosts || importState is ImportState.Running ||
                     importState is ImportState.Completed || importInterrupted) && state.switchPrompt == null) {
                     AlertDialog(
