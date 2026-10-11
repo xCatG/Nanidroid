@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.runtime
 import com.cattailsw.nanidroid.data.BootStateStore
 import com.cattailsw.nanidroid.data.LastGhostStore
 import com.cattailsw.nanidroid.engine.EngineKind
+import com.cattailsw.nanidroid.engine.BuiltInAppAction
 import com.cattailsw.nanidroid.engine.EngineSelector
 import com.cattailsw.nanidroid.engine.NativeAvailability
 import com.cattailsw.nanidroid.engine.NativeKind
@@ -82,6 +83,7 @@ class GhostRuntime(
     private val nativeHost: NativePort = HostNativePort(NativeShioriHost.process),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val loadCatalog: suspend (File, Map<Int, File>, CoroutineDispatcher) -> ShellCatalog = ::loadShellCatalog,
+    private val bundledEngineFactory: ((BundledGhost) -> ShioriEngine)? = null,
     private val elapsedRealtime: () -> Long = { android.os.SystemClock.elapsedRealtime() },
 ) {
     private class Session(
@@ -89,10 +91,12 @@ class GhostRuntime(
         val ghost: BundledGhost,
         val engine: ShioriEngine,
         val lease: NativeLease? = null,
+        val bundledAssistant: Boolean = false,
     ) {
         val queue = ArrayDeque<QueuedDialogue>()
         var dialogueVersion = 0L
         var replacementGeneration = 0L
+        var appAction: PresentedAppAction? = null
         var player: ScriptPlayer? = null
         var playerStartedAt = 0L
         var frame: PlaybackFrame = EMPTY_FRAME
@@ -163,6 +167,8 @@ class GhostRuntime(
     val state: StateFlow<StageState> = mutableState
     private var sessionState: SessionState = SessionState.Idle
     private var nextId = 0L
+    private var nextActionId = 0L
+    private var actionDeliveryEpoch = 0L
     @Volatile private var resumed = false
     private var ticker: Job? = null
     private var bundled: BundledGhost? = null
@@ -262,7 +268,7 @@ class GhostRuntime(
                 val installed = installedGhosts?.list().orEmpty()
                 val selectedKinds = installed.associate { it.directoryId to EngineSelector.select(it) }
                 val saved = lastGhostStore?.read()
-                val restored = saved?.takeIf { it != base.directoryId }?.let {
+                val restored = saved?.let {
                     runCatching { installedGhosts?.validate(it) }.getOrNull()
                 }
                 Triple(installed, selectedKinds, restored)
@@ -291,6 +297,13 @@ class GhostRuntime(
             if (resumed == value) return@launch
             resumed = value
             if (value) ensureTicker() else {
+                actionDeliveryEpoch++
+                (sessionState as? SessionState.Active)?.session?.let { session ->
+                    if (session.appAction != null) {
+                        session.appAction = null
+                        publish(session)
+                    }
+                }
                 clearMoveSubmissions()
                 (sessionState as? SessionState.Active)?.session?.clearPendingMoves()
                 ticker?.cancel()
@@ -463,11 +476,12 @@ class GhostRuntime(
             val session = dialogueOwner(token.sessionId, token.dialogueId) ?: return@launch
             val choice = (session.frame.sakura.choices + session.frame.kero.choices)
                 .firstOrNull { it.key == token.itemKey } ?: return@launch
+            val deliveryEpoch = actionDeliveryEpoch.takeIf { resumed }
             clearDialogue(session)
             val generation = session.replacementGeneration
             if (inFarewellDialogue(session)) session.transitionRepliesPending++
             publish(session)
-            requestAction(session, generation, choice.event)
+            requestAction(session, generation, choice.event, deliveryEpoch)
         }
     }
 
@@ -522,7 +536,8 @@ class GhostRuntime(
     private fun acceptsReply(session: Session, generation: Long): Boolean =
         sameActive(session) && session.replacementGeneration == generation
 
-    private suspend fun requestAction(session: Session, generation: Long, event: ShioriEvent) {
+    private suspend fun requestAction(session: Session, generation: Long, event: ShioriEvent,
+        choiceDeliveryEpoch: Long? = null) {
         val reply = request(session, event, generation, "Interaction request failed") ?: run {
             if (inFarewellDialogue(session) && session.replacementGeneration == generation) {
                 session.transitionRepliesPending--
@@ -531,10 +546,31 @@ class GhostRuntime(
             return
         }
         if (interactionOwner() !== session || session.replacementGeneration != generation) return
+        val action = reply.appAction
+        if (action != null && reply.status == 200 && session.bundledAssistant &&
+            sameActive(session) && resumed && choiceDeliveryEpoch == actionDeliveryEpoch &&
+            event.references.isEmpty() && APP_ACTION_EVENTS[event.id] == action) {
+            session.appAction = PresentedAppAction(++nextActionId, session.id, generation,
+                actionDeliveryEpoch, action)
+        }
         enqueue(session, reply)
         if (inFarewellDialogue(session)) session.transitionRepliesPending--
         publish(session)
         maybeFinishTransition(session)
+    }
+
+    /** Called by the UI on the runtime's main-thread owner; validation and consumption are atomic. */
+    fun claimAppAction(requestId: Long): BuiltInAppAction? {
+        val session = (sessionState as? SessionState.Active)?.session ?: return null
+        val request = session.appAction ?: return null
+        if (request.requestId != requestId) return null
+        session.appAction = null
+        publish(session)
+        return request.action.takeIf {
+            resumed && session.bundledAssistant && request.sessionId == session.id &&
+                request.replacementGeneration == session.replacementGeneration &&
+                request.deliveryEpoch == actionDeliveryEpoch
+        }
     }
 
     private fun interactionOwner(): Session? = when (val current = sessionState) {
@@ -689,12 +725,15 @@ class GhostRuntime(
         language: String,
         previousName: String?,
     ) {
-        val selected = if (target == null) EngineKind.BUILTIN
-            else availableChoiceKinds[target.directoryId]
+        val bundledTarget = target == null || (target.directoryId == base.directoryId &&
+            base.shellDirectory != null && withContext(ioDispatcher) { isBundledDescriptor(target, base) })
+        val selected = if (bundledTarget) EngineKind.BUILTIN
+            else availableChoiceKinds[requireNotNull(target).directoryId]
                 ?: withContext(ioDispatcher) { EngineSelector.select(target) }
-        val result = if (target == null) {
+        val result = if (bundledTarget) {
             bundledSession(base)
         } else if (selected == EngineKind.BUILTIN) {
+            val target = requireNotNull(target)
             try {
                 val content = withContext(ioDispatcher) {
                     val locale = language.takeIf { it.matches(Regex("[A-Za-z]{2,8}")) } ?: "ja"
@@ -708,8 +747,9 @@ class GhostRuntime(
                 "Built-in ghost load failed: ${error.message}"
             }
         } else if (selected == EngineKind.UNSUPPORTED) {
-            Session(++nextId, descriptorGhost(target), UnsupportedShiori())
+            Session(++nextId, descriptorGhost(requireNotNull(target)), UnsupportedShiori())
         } else {
+            val target = requireNotNull(target)
             if (nativeUnavailable || nativeHost.availability.value != NativeAvailability.Available) {
                 NativeLoadResult.Unresolved("Native engine is unavailable")
             } else {
@@ -833,8 +873,8 @@ class GhostRuntime(
         try {
             val first = bootState.recordActivation(session.ghost.directoryId)
             if (!sameActive(session)) return
-            if (target == null && first && bootState.consumeOnboarding()) {
-                session.queue.addLast(QueuedDialogue(ONBOARDING))
+            if ((bundledTarget || session.bundledAssistant) && first && bootState.consumeOnboarding()) {
+                if (!session.bundledAssistant) session.queue.addLast(QueuedDialogue(ONBOARDING))
             }
             lastGhostStore?.write(session.ghost.directoryId)
             val id = when {
@@ -1053,6 +1093,7 @@ class GhostRuntime(
         session.clearPendingMoves()
         session.dialogueVersion++
         session.replacementGeneration++
+        session.appAction = null
         session.transitionRepliesPending = 0
         session.queue.clear()
         session.surfaceEdges.clear()
@@ -1184,6 +1225,7 @@ class GhostRuntime(
                 else emptyMap(),
             input = if (owns) session.frame.input?.let { PresentedInput(token(it.key), it.boxId) } else null,
             dialogueToken = DialogueToken(session.id, session.dialogueVersion),
+            appAction = session.appAction.takeIf { sameActive(session) },
         )
     }
 
@@ -1255,14 +1297,22 @@ class GhostRuntime(
         return loadGhost().also { bundled = it }
     }
 
-    private fun bundledSession(base: BundledGhost) = Session(++nextId, base, getBundledEngine(base))
+    private fun bundledSession(base: BundledGhost) = Session(++nextId, base, getBundledEngine(base),
+        bundledAssistant = bundledEngineFactory != null)
+
+    private fun isBundledDescriptor(descriptor: GhostDescriptor, base: BundledGhost): Boolean {
+        if (descriptor.directoryId != base.directoryId) return false
+        val shell = base.shellDirectory ?: return false
+        val root = shell.parentFile?.parentFile ?: return false
+        return descriptor.masterPath.canonicalFile == File(root, "ghost/master").canonicalFile
+    }
 
     private suspend fun loadShell(session: Session): ShellCatalog? =
         session.ghost.shellDirectory?.let { loadCatalog(it, session.ghost.surfaces, ioDispatcher) }
 
     private fun getBundledEngine(ghost: BundledGhost): ShioriEngine {
         bundledEngine?.let { return it }
-        return engineFactory(ghost).also { bundledEngine = it }
+        return (bundledEngineFactory ?: engineFactory)(ghost).also { bundledEngine = it }
     }
 
     private fun descriptorGhost(descriptor: GhostDescriptor) = BundledGhost(
@@ -1273,6 +1323,11 @@ class GhostRuntime(
     )
 
     private companion object {
+        val APP_ACTION_EVENTS = mapOf(
+            "OnNanidroidOpenGhosts" to BuiltInAppAction.Ghosts,
+            "OnNanidroidOpenAbout" to BuiltInAppAction.About,
+            "OnNanidroidOpenDebug" to BuiltInAppAction.DebugTools,
+        )
         val NATIVE_KINDS = setOf(EngineKind.SATORI, EngineKind.KAWARI, EngineKind.YAYA)
         const val ONBOARDING = "\\0\\s0Welcome to Nanidroid.\\nTap a character to talk. Tap empty stage for Ghosts and About.\\e"
         val EMPTY_FRAME = PlaybackFrame(

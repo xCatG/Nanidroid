@@ -1,12 +1,15 @@
 package com.cattailsw.nanidroid
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
 import android.util.Log
 import com.cattailsw.nanidroid.data.PreferencesBootStateStore
 import com.cattailsw.nanidroid.data.PreferencesLastGhostStore
 import com.cattailsw.nanidroid.engine.BuiltInShiori
+import com.cattailsw.nanidroid.engine.BundledAssistantShiori
 import com.cattailsw.nanidroid.engine.NativeShioriHost
 import com.cattailsw.nanidroid.ghost.BundledGhostRepository
+import com.cattailsw.nanidroid.ghost.BundledAssistantContent
 import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
 import com.cattailsw.nanidroid.install.GhostImporter
 import com.cattailsw.nanidroid.install.ImportCoordinator
@@ -24,6 +27,9 @@ import kotlinx.coroutines.withContext
 class NanidroidApplication : Application() {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val ghostImporter: GhostImporter by lazy { GhostImporter(filesDir) }
+    val assistantContent: BundledAssistantContent by lazy {
+        BundledAssistantContent.load({ assets.open(it) }, resources.configuration.locales[0].language)
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -57,6 +63,10 @@ class NanidroidApplication : Application() {
                 }
             },
             engineFactory = { BuiltInShiori(it.content) },
+            bundledEngineFactory = {
+                BundledAssistantShiori(BuiltInShiori(it.content), assistantContent,
+                    applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
+            },
             bootState = PreferencesBootStateStore(getSharedPreferences("boot_state", MODE_PRIVATE)),
             scope = applicationScope,
             installedGhosts = InstalledGhostRepository(File(filesDir, "ghost")),

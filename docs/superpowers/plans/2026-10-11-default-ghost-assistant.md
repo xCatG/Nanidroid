@@ -88,7 +88,7 @@ Tests:
 **Ownership:** Runtime session wiring, `PresentedAppAction`, `StageState`, application injection, ViewModel delegate, runtime/repository tests.
 
 **Interfaces:**
-- Add optional constructor parameter `bundledEngineFactory: (BundledGhost) -> ShioriEngine = engineFactory` to GhostRuntime. Ordinary imported built-in ghosts keep `engineFactory`; only `bundledSession(base)` uses the new factory.
+- Add optional constructor parameter `bundledEngineFactory: ((BundledGhost) -> ShioriEngine)? = null` to GhostRuntime, preserving existing trailing-lambda callers. A non-null supplied factory explicitly opts into the assistant capability when creating a verified bundled session. When null, use `engineFactory` and retain ordinary runtime onboarding. Ordinary imported built-in ghosts always keep `engineFactory`; only `bundledSession(base)` uses the optional factory. Do not infer opt-in from function-reference identity.
 - Route an explicitly selected default descriptor through `bundledSession(base)` only when both its directory ID and canonical master path match the app-owned bundled base. Use the base's verified shell location to derive its `ghost/master` path. A matching display name/declaration alone is insufficient. Tests cover startup from saved selection and switching back to default.
 - Mark the resulting Session with an explicit immutable bundled-assistant capability; default false. Do not infer capability from an engine name, response text, or incoming event.
 - `PresentedAppAction(requestId: Long, sessionId: Long, replacementGeneration: Long, deliveryEpoch: Long, action: BuiltInAppAction)`; monotonically unique IDs within the runtime. Append `appAction: PresentedAppAction? = null` to Ready.
