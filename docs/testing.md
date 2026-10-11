@@ -38,7 +38,7 @@ List-only works for all four suites, validates all source methods and inventory
 entries, and needs no device/build/SDK/private data. Unknown, duplicate, missing,
 stale or unsupported discovery syntax fails. The Java provider is infrastructure.
 
-The executable `self-contained` suite selects **117 of 163 methods**;
+The executable `self-contained` suite selects **126 of 172 methods**;
 `host-orchestrated` has 29, `corpus-fixture` 16 and `diagnostic-device` one.
 One raw `am instrument -w -r` invocation runs sorted exact selectors sequentially,
 with a 30-minute instrumentation deadline and bounded adb operations. It performs
@@ -94,7 +94,7 @@ required host acceleration, portrait 1080×2400/420 dpi and font scale 1.0.
 Boot, identity, actual settings and usable window viewport >=600 dp are checked
 before the portable runner's single `-SkipBuild` invocation. Linux list/self-check
 logs and the complete selection inventory are retained. The current selection
-is **117 of 163 inventoried methods**; CI derives and checks identities rather
+is **126 of 172 inventoried methods**; CI derives and checks identities rather
 than freezing that count. No private fixture, bare connected task, retry or
 skip-as-pass is used. A missing/duplicate method, assumption skip, failed test,
 invalid summary/provenance or failed cleanup fails the gate.

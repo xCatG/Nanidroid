@@ -6,6 +6,18 @@ includes the bundled Nanidroid ghost, document-picker NAR import, ghost selectio
 retained Satori/Kawari/YAYA engines, supported SakuraScript dialogue and
 interactions, surfaces/animations, and offline About/license notices.
 
+The bundled characters provide app assistance while retaining their original
+artwork and installed files. Tap 郭嘉榆 for an introduction and help with importing,
+switching, touch and dialogue controls. Tap ドロイド君 for Ghosts, About and licenses,
+and app tools. The first boot explains both roles; later boots give a short
+reminder. Assistance uses English for language `en`, with Japanese fallback for
+other languages. Imported ghosts keep their own interactions.
+
+Debug builds also offer a small Debug tools dialog with the existing Show touch
+bounds toggle and Close button. Both entry and execution require the installed
+application's debuggable flag. Event injection, arbitrary script execution,
+request logs and native diagnostics are outside this initial panel.
+
 The [approved baseline](docs/superpowers/specs/2026-09-22-nanidroid-baseline-spec.md)
 and [design](docs/superpowers/specs/2026-09-22-blind-recreation-design.md) define the
 supported subset. M5 was [accepted with exceptions](docs/testing/2026-10-01-m5-focused-acceptance-packet.md).
@@ -29,6 +41,9 @@ release-readiness claim. [Testing guidance](docs/testing.md) identifies fixture
 requirements and historical results. Use disposable emulators with explicit
 serials for focused flows; do not treat fixture skips as passes. Current candidate
 build/device verification belongs to the replacement plan's Task 4.
+The [default assistant acceptance record](docs/testing/2026-10-11-default-ghost-assistant.md)
+separates normal application launch/upgrade evidence, focused instrumentation,
+modeled non-debug policy checks and unsigned release assembly.
 
 ## Data and accepted design decisions
 
