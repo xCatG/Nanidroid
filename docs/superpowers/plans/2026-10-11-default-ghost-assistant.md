@@ -114,11 +114,11 @@ Tests:
 - Gate debug action execution in the UI as well as the handler using the actual debuggable flag; do not render the dialog or collision overlays in release. Existing top controls remain usable for imported ghosts.
 - Dialog Back/dismiss closes the dialog before triggering app shutdown. Ensure MainActivity's existing BackHandler does not consume a dialog dismissal incorrectly. Block character interaction behind modal tools/help-related dialogs consistently with existing modal behavior.
 
-- [ ] Add focused Compose tests named `sakuraTapShowsHelpAndTopicNavigation`, `droidChoicesOpenGhostsAndAbout`, `debugDialogSharesBoundsToggle`, `releasePolicyRejectsDebug`, `oneSelectionOpensOnceAcrossRecomposition`, `rotationDoesNotReplayConsumedAction`, `modalBackDismissesWithoutClosingStage`, `switchDismissesOldTools`. Use real runtime/assistant wiring for at least the tap-to-menu-to-dialog path; do not prove only a fake pre-populated action.
-- [ ] Register every added instrumentation method in the existing strict device-suite manifest with its actual self-contained or host-orchestrated prerequisites. Run `pwsh -NoProfile -File tools/test-device-suite.ps1 -ListOnly -Suite self-contained` and `pwsh -NoProfile -File tools/test-device-suite.ps1 -SelfCheck`; require successful inventory validation.
-- [ ] Build/run the focused tests on an explicitly named disposable emulator (discover serial and API level first); record initial failing evidence. If unavailable, report instrumentation unrun and continue with compilable tests.
-- [ ] Implement the UI interfaces and wiring. Add accessible descriptions/test tags for menus, help pages, and debug controls; keep font scaling and scrolling usable.
-- [ ] Rerun focused instrumentation when available, then commit as `feat: add default character help and tools UI`.
+- [x] Add focused Compose tests named `sakuraTapShowsHelpAndTopicNavigation`, `droidChoicesOpenGhostsAndAbout`, `debugDialogSharesBoundsToggle`, `releasePolicyRejectsDebug`, `oneSelectionOpensOnceAcrossRecomposition`, `rotationDoesNotReplayConsumedAction`, `modalBackDismissesWithoutClosingStage`, `switchDismissesOldTools`. Use real runtime/assistant wiring for at least the tap-to-menu-to-dialog path; do not prove only a fake pre-populated action.
+- [x] Register every added instrumentation method in the existing strict device-suite manifest with its actual self-contained or host-orchestrated prerequisites. Run `pwsh -NoProfile -File tools/test-device-suite.ps1 -ListOnly -Suite self-contained` and `pwsh -NoProfile -File tools/test-device-suite.ps1 -SelfCheck`; require successful inventory validation.
+- [x] Build/run the focused tests on an explicitly named disposable emulator (discover serial and API level first); record initial failing evidence. If unavailable, report instrumentation unrun and continue with compilable tests.
+- [x] Implement the UI interfaces and wiring. Add accessible descriptions/test tags for menus, help pages, and debug controls; keep font scaling and scrolling usable.
+- [x] Rerun focused instrumentation when available, then commit as `feat: add default character help and tools UI`.
 
 ## Task 4: Integration evidence and documentation
 
