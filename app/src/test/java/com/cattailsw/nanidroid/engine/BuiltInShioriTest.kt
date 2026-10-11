@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid.engine
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import kotlinx.coroutines.test.runTest
 
@@ -20,5 +21,12 @@ class BuiltInShioriTest {
 
     @Test fun missingCloseGetsDefaultResponse() = runTest {
         assertEquals(200, BuiltInShiori("").request(ShioriEvent("OnClose")).status)
+    }
+
+    @Test fun ordinaryTableCannotReturnAppActions() = runTest {
+        val engine = BuiltInShiori("OnNanidroidOpenGhosts,\\0A,B\\e\nOnNanidroidOpenDebug,\\1Debug\\e")
+        assertEquals(ShioriReply(200, "\\0A,B\\e"), engine.request(ShioriEvent("OnNanidroidOpenGhosts")))
+        assertNull(engine.request(ShioriEvent("OnNanidroidOpenDebug")).appAction)
+        assertNull(engine.request(ShioriEvent("OnClose")).appAction)
     }
 }

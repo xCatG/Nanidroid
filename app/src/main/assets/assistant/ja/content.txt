@@ -1,0 +1,13 @@
+; APK同梱のNanidroid案内。インストール済みゴーストのアーカイブとは独立しています。
+OnFirstBoot,\0Nanidroidへようこそ！私は%selfnameです。私をタップすると、アプリの紹介や使い方を案内します。\1僕は%keroname。僕をタップすると、ゴースト管理、アプリ情報とライセンス、アプリのツールを開けます。\0\n\q[アプリ紹介と使い方,OnNanidroidHelp]\n\q[アプリのツール,OnNanidroidTools]\n\q[閉じる,OnNanidroidDismiss]\e
+OnBoot,\0おかえりなさい！%selfnameをタップすると使い方、%keronameをタップするとアプリのツールを開けます。\e
+OnNanidroidHelp,\0Nanidroidの使い方\n\q[Nanidroidとは？,OnNanidroidIntro]\n\q[ゴーストのインポートと切り替え,OnNanidroidImportHelp]\n\q[タッチと会話の操作,OnNanidroidInteractionHelp]\n\q[閉じる,OnNanidroidDismiss]\e
+OnNanidroidIntro,\0Nanidroidは、デスクトップキャラクター「ゴースト」をAndroidで動かすアプリです。姿や会話は各ゴーストが用意します。私は%selfname、アプリの案内役です。%keronameはアプリのツールを開きます。\n\q[戻る,OnNanidroidHelp]\n\q[閉じる,OnNanidroidDismiss]\e
+OnNanidroidImportHelp,\0ステージの操作ボタン、または%keronameのツールからゴースト管理を開きます。「インポート」を選び、ファイル選択画面でNARアーカイブを指定してください。ゴースト管理でインストール済みのキャラクターを切り替えられます。インポートは新規インストールです。保存先が既に存在する場合は拒否され、旧データは移行されません。古い外部ファイルはそのまま残ります。\n\q[戻る,OnNanidroidHelp]\n\q[閉じる,OnNanidroidDismiss]\e
+OnNanidroidInteractionHelp,\0ステージの何もない場所をタップすると、操作ボタンの表示を切り替えられます。私をタップすると使い方、%keronameをタップするとツールが開きます。インポートしたゴーストのタップ反応、選択肢、入力欄は、そのゴーストによって異なります。選択肢のリンクで返答し、文字入力を求められたときは入力欄を使ってください。\n\q[戻る,OnNanidroidHelp]\n\q[閉じる,OnNanidroidDismiss]\e
+OnNanidroidTools,\1アプリのツール\n\q[ゴースト管理,OnNanidroidOpenGhosts]\n\q[アプリ情報とライセンス,OnNanidroidOpenAbout]\n\q[閉じる,OnNanidroidDismiss]\e
+OnNanidroidToolsDebug,\1アプリのツール\n\q[ゴースト管理,OnNanidroidOpenGhosts]\n\q[アプリ情報とライセンス,OnNanidroidOpenAbout]\n\q[デバッグツール,OnNanidroidOpenDebug]\n\q[閉じる,OnNanidroidDismiss]\e
+OnNanidroidDismiss,\0\c\1\c\e
+DebugToolsTitle,デバッグツール
+ShowTouchBounds,タッチ範囲を表示
+Close,閉じる
