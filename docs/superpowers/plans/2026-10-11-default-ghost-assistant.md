@@ -64,6 +64,7 @@ Modify:
 Tests:
 - New `engine/BundledAssistantShioriTest.kt`, `runtime/BundledAssistantActionTest.kt`, `ghost/BundledAssistantContentTest.kt` under `app/src/test/java/com/cattailsw/nanidroid/`.
 - New `ui/BundledAssistantUiTest.kt` under `app/src/androidTest/java/com/cattailsw/nanidroid/`.
+- Register its methods in `docs/testing/device-suites.json` so the existing strict device-suite inventory remains valid.
 - Extend existing `engine/BuiltInShioriTest.kt`, `ghost/BundledGhostRepositoryTest.kt`, runtime switch/interaction tests only where the new boundary requires it.
 
 ## Task 1: Default-only SHIORI assistance and localized content
@@ -77,10 +78,10 @@ Tests:
 - Menu/topic events: `OnNanidroidHelp`, `OnNanidroidIntro`, `OnNanidroidImportHelp`, `OnNanidroidInteractionHelp`, `OnNanidroidTools`, `OnNanidroidOpenGhosts`, `OnNanidroidOpenAbout`, `OnNanidroidOpenDebug`, `OnNanidroidDismiss`. Use the existing On-prefixed choice mechanism; no ScriptPlayer extension.
 - Tools replies return status 200 with null script and the enum action; debug-disabled requests return 204 and no action. Dismiss returns a valid empty terminating script. Invalid speaker or malformed references return 204; unrelated events delegate.
 
-- [ ] Write failing tests named `sakuraTapOpensHelp`, `droidTapOpensTools`, `invalidSpeakerHasNoAction`, `helpTopicsReturnBackChoices`, `toolsReturnTypedActions`, `releaseHidesAndRejectsDebug`, `firstBootExplainsBothRoles`, `unhandledEventsDelegate`, `localeFallbackAndRequiredKeys`, `oversizedContentRejected`. Assert speaker selection from Reference3, expected topic/action IDs, both locale choices, and unchanged ordinary table behavior.
-- [ ] Run `./gradlew.bat testDebugUnitTest --tests '*BundledAssistantShioriTest' --tests '*BundledAssistantContentTest' --tests '*BuiltInShioriTest'`; record expected initial failure.
-- [ ] Implement the interfaces, authored English/Japanese content, and test fixtures. No arbitrary command interpreting and no random conversation machinery.
-- [ ] Run the same tests; require zero failures, then commit the focused files as `feat: add bundled assistant dialogue and typed tools`.
+- [x] Write failing tests named `sakuraTapOpensHelp`, `droidTapOpensTools`, `invalidSpeakerHasNoAction`, `helpTopicsReturnBackChoices`, `toolsReturnTypedActions`, `releaseHidesAndRejectsDebug`, `firstBootExplainsBothRoles`, `unhandledEventsDelegate`, `localeFallbackAndRequiredKeys`, `oversizedContentRejected`. Assert speaker selection from Reference3, expected topic/action IDs, both locale choices, and unchanged ordinary table behavior.
+- [x] Run `./gradlew.bat testDebugUnitTest --tests '*BundledAssistantShioriTest' --tests '*BundledAssistantContentTest' --tests '*BuiltInShioriTest'`; record expected initial failure.
+- [x] Implement the interfaces, authored English/Japanese content, and test fixtures. No arbitrary command interpreting and no random conversation machinery.
+- [x] Run the same tests; require zero failures, then commit the focused files as `feat: add bundled assistant dialogue and typed tools`.
 
 ## Task 2: Trusted runtime bridge and existing-install delivery
 
@@ -104,7 +105,7 @@ Tests:
 
 ## Task 3: UI action handling and debug panel
 
-**Ownership:** `GhostStage`, `MainActivity`, `DebugToolsDialog`, focused UI tests. Reuse existing Ghosts, About, and import flows.
+**Ownership:** `GhostStage`, `MainActivity`, `DebugToolsDialog`, focused UI tests, and their entries in `docs/testing/device-suites.json`. Reuse existing Ghosts, About, and import flows.
 
 **Interfaces:**
 - Append `onClaimAppAction: (Long) -> BuiltInAppAction? = { null }` and localized assistant labels to GhostStage's optional parameters. MainActivity passes the ViewModel delegate and the same localized labels used by the assistant.
@@ -114,6 +115,7 @@ Tests:
 - Dialog Back/dismiss closes the dialog before triggering app shutdown. Ensure MainActivity's existing BackHandler does not consume a dialog dismissal incorrectly. Block character interaction behind modal tools/help-related dialogs consistently with existing modal behavior.
 
 - [ ] Add focused Compose tests named `sakuraTapShowsHelpAndTopicNavigation`, `droidChoicesOpenGhostsAndAbout`, `debugDialogSharesBoundsToggle`, `releasePolicyRejectsDebug`, `oneSelectionOpensOnceAcrossRecomposition`, `rotationDoesNotReplayConsumedAction`, `modalBackDismissesWithoutClosingStage`, `switchDismissesOldTools`. Use real runtime/assistant wiring for at least the tap-to-menu-to-dialog path; do not prove only a fake pre-populated action.
+- [ ] Register every added instrumentation method in the existing strict device-suite manifest with its actual self-contained or host-orchestrated prerequisites. Run `pwsh -NoProfile -File tools/test-device-suite.ps1 -ListOnly -Suite self-contained` and `pwsh -NoProfile -File tools/test-device-suite.ps1 -SelfCheck`; require successful inventory validation.
 - [ ] Build/run the focused tests on an explicitly named disposable emulator (discover serial and API level first); record initial failing evidence. If unavailable, report instrumentation unrun and continue with compilable tests.
 - [ ] Implement the UI interfaces and wiring. Add accessible descriptions/test tags for menus, help pages, and debug controls; keep font scaling and scrolling usable.
 - [ ] Rerun focused instrumentation when available, then commit as `feat: add default character help and tools UI`.
