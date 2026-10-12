@@ -3,6 +3,70 @@
   "methods": [
     {
       "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "ghostsThenAboutPresentsAfterDismissal",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "repeatedHostCommandPresentsTwice",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "hostRequestWaitsForExistingInputModal",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "ordinaryGhostOpensCommonDialogsAndRejectsDeveloper",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "englishStartupMenusAndDebugResources",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "japaneseStartupMenusAndDebugResources",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "traditionalChineseStartupMenusAndDebugResources",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "androidManagedFileAndParentSymlinksAreRejected",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
       "method": "inactiveStageDoesNotClaimUntilActive",
       "suite": "self-contained",
       "requiredArguments": [],

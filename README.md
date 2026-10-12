@@ -22,6 +22,9 @@ dictionaries, activation markers, saved state and unknown files are preserved.
 Customized old tables may lack newer interactions; the installed content remains
 authoritative. Ghosts and About SakuraScript commands are available to any active
 ghost; developer commands require the verified default ghost and debug policy.
+Host dialog requests are delivered once, in script order, when the stage is active
+and its current modal has closed. Replacing the dialogue or changing the ghost
+invalidates pending requests from the old dialogue.
 
 Debug builds also offer a small Debug tools dialog with the existing Show touch
 bounds toggle and Close button. Both entry and execution require the installed
@@ -58,6 +61,10 @@ run relevant validation and record current evidence separately from historical r
 The [default assistant acceptance record](docs/testing/2026-10-11-default-ghost-assistant.md)
 separates normal application launch/upgrade evidence, focused instrumentation,
 modeled non-debug policy checks and unsigned release assembly.
+The [built-in SHIORI cleanup acceptance record](docs/testing/2026-10-11-built-in-shiori-cleanup.md)
+records the current archive-owned dialogue, multilingual UI and dictionary
+preservation checks. Device language changes still require a process restart
+to reload built-in dialogue; this cleanup does not add live dialogue translation.
 
 ## Data and accepted design decisions
 
