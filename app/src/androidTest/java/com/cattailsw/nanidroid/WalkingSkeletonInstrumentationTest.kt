@@ -48,7 +48,7 @@ import org.junit.runner.RunWith
 class WalkingSkeletonInstrumentationTest {
     @get:Rule val compose = createEmptyComposeRule()
 
-    @Test fun bundledKeroTapDispatchesOnceWithSurfaceCoordinatesAndNoReply() = withStage { scenario ->
+    @Test fun bundledKeroTapDispatchesOnceWithSurfaceCoordinatesAndToolsReply() = withStage { scenario ->
         scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
         awaitOrientation(scenario, Configuration.ORIENTATION_PORTRAIT)
         scenario.onActivity { probe(it).releaseLoading() }
@@ -66,10 +66,17 @@ class WalkingSkeletonInstrumentationTest {
             val p = probe(it)
             assertEquals(1, p.eventCount("OnMouseClick"))
             assertEquals(listOf("117", "100", "0", "1", "", "0", "touch"), p.mouseClick().first.references)
-            assertEquals(204, p.mouseClick().second)
-            val frame = (p.runtime.state.value as StageState.Ready).frame
-            assertEquals("", frame.sakura.text + frame.kero.text)
-            assertTrue(!frame.sakura.balloonVisible && !frame.kero.balloonVisible)
+            assertEquals(200, p.mouseClick().second)
+        }
+        await(scenario) { state ->
+            state is StageState.Ready && state.choices.values.flatten().map { it.label }
+                .containsAll(listOf("Ghosts", "About and licenses", "Dismiss"))
+        }
+        scenario.onActivity {
+            val p = probe(it)
+            assertEquals(1, p.eventCount("OnMouseClick"))
+            val ready = p.runtime.state.value as StageState.Ready
+            assertTrue(ready.frame.sakura.balloonVisible || ready.frame.kero.balloonVisible)
         }
     }
 

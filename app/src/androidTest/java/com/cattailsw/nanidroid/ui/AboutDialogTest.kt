@@ -26,7 +26,7 @@ import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.unit.Density
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.espresso.Espresso
+import android.view.KeyEvent
 import com.cattailsw.nanidroid.ghost.SurfaceImageLoader
 import com.cattailsw.nanidroid.MainActivity
 import com.cattailsw.nanidroid.NanidroidApplication
@@ -134,7 +134,8 @@ class AboutDialogTest {
         compose.onNodeWithTag("ghosts-action").assertIsDisplayed()
         assertEquals(0, closes)
         compose.onNodeWithTag("about-action").performClick()
-        Espresso.pressBack()
+        compose.onNodeWithTag("about-dialog").assertIsDisplayed()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.waitForIdle()
         compose.onNodeWithTag("about-dialog").assertDoesNotExist()
         compose.onNodeWithTag("ghosts-action").assertIsDisplayed()

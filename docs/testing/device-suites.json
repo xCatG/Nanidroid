@@ -163,7 +163,7 @@
     },
     {
       "class": "com.cattailsw.nanidroid.WalkingSkeletonInstrumentationTest",
-      "method": "bundledKeroTapDispatchesOnceWithSurfaceCoordinatesAndNoReply",
+      "method": "bundledKeroTapDispatchesOnceWithSurfaceCoordinatesAndToolsReply",
       "suite": "self-contained",
       "requiredArguments": [],
       "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
