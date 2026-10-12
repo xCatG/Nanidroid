@@ -58,12 +58,7 @@ release-readiness claim. [Testing guidance](docs/testing.md) identifies fixture
 requirements and historical results. Use disposable emulators with explicit
 serials for focused flows; do not treat fixture skips as passes. For each change,
 run relevant validation and record current evidence separately from historical results.
-The [default assistant acceptance record](docs/testing/2026-10-11-default-ghost-assistant.md)
-separates normal application launch/upgrade evidence, focused instrumentation,
-modeled non-debug policy checks and unsigned release assembly.
-The [built-in SHIORI cleanup acceptance record](docs/testing/2026-10-11-built-in-shiori-cleanup.md)
-records the current archive-owned dialogue, multilingual UI and dictionary
-preservation checks. Device language changes still require a process restart
+The [default ghost design](docs/superpowers/specs/2026-10-11-built-in-shiori-cleanup-design.md) and [acceptance record](docs/testing/2026-10-11-built-in-shiori-cleanup.md) describe archive-owned dialogue, host commands, verification and device evidence. Device language changes still require a process restart
 to reload built-in dialogue; this cleanup does not add live dialogue translation.
 
 ## Data and accepted design decisions
