@@ -208,7 +208,7 @@ fun GhostStage(
     }
     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
         when (state) {
-            StageState.Loading -> StageMessage("Loading ghostâ€¦")
+            StageState.Loading -> StageMessage("Loading ghost…")
             is StageState.Error -> StageMessage(state.message)
             StageState.Finished -> Unit
             is StageState.Ready -> {
@@ -257,7 +257,7 @@ fun GhostStage(
                 Box(Modifier.fillMaxSize().testTag("stage-background")
                     .pointerInput(Unit) { detectTapGestures(onTap = { toggleControls() }) })
                 when (val images = loaded) {
-                    LoadedImages.Loading -> StageMessage("Loading ghostâ€¦")
+                    LoadedImages.Loading -> StageMessage("Loading ghost…")
                     is LoadedImages.Error -> StageMessage(images.message)
                     is LoadedImages.Ready -> ReadyStage(state, images.images, callbacks,
                         { if (stageInteractionActive) onChoose(it) },
@@ -320,7 +320,7 @@ fun GhostStage(
                         text = {
                             Column(Modifier.verticalScroll(rememberScrollState())) {
                                 when (importState) {
-                                    is ImportState.Running -> Text("Importing ghostâ€¦",
+                                    is ImportState.Running -> Text("Importing ghost…",
                                         Modifier.semantics { contentDescription = "Import in progress" })
                                     is ImportState.Completed -> Text(when (importState.outcome) {
                                         is ImportOutcome.Installed ->
