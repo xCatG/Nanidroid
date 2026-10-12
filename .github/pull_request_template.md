@@ -1,17 +1,19 @@
-## Engine, runtime and lifecycle
+## Change
 
-Describe ownership/event changes and focused evidence, or state unchanged.
+Describe the problem or requested feature, resulting behavior and scope.
 
-## Import, repositories and filesystem
+## Compatibility and data
 
-Describe installation/data preservation and failure behavior. State migration limits.
+Describe relevant compatibility, lifecycle, data preservation and migration impacts,
+or state that none apply. Note remaining risks or limitations.
 
-## Playback, rendering and interactions
+## Validation
 
-Describe supported behavior and accepted compatibility/UI risks.
+Record relevant checks actually run and their results. Distinguish current evidence
+from historical checks, skipped fixtures and untested behavior.
 
-## Build, assets, notices and reproducibility
+## Build, assets and notices
 
-Record source/candidate/base identities, rollback ref, bundle recovery, manifest
-and actual verification. Distinguish historical checks from current execution and
-integration readiness from release eligibility.
+Describe relevant build, native, asset or license-notice changes, or state unchanged.
+Include reproducibility or recovery details when the change requires them. Build
+success alone does not establish release eligibility.
