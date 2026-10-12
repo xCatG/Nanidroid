@@ -35,18 +35,19 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.lifecycle.lifecycleScope
 import com.cattailsw.nanidroid.MainActivity
 import com.cattailsw.nanidroid.NanidroidApplication
+import com.cattailsw.nanidroid.R
+import android.os.LocaleList
 import com.cattailsw.nanidroid.data.BootStateStore
 import com.cattailsw.nanidroid.engine.BuiltInShiori
-import com.cattailsw.nanidroid.engine.BundledAssistantShiori
-import com.cattailsw.nanidroid.engine.BuiltInAppAction
+import com.cattailsw.nanidroid.runtime.HostUiCommand
 import com.cattailsw.nanidroid.engine.ShioriEvent
-import com.cattailsw.nanidroid.ghost.BundledAssistantContent
 import com.cattailsw.nanidroid.ghost.BundledGhostRepository
 import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
 import com.cattailsw.nanidroid.ghost.CachedSurfaceImageLoader
 import com.cattailsw.nanidroid.runtime.GhostRuntime
 import com.cattailsw.nanidroid.runtime.StageState
-import com.cattailsw.nanidroid.runtime.PresentedAppAction
+import com.cattailsw.nanidroid.runtime.HostUiRequest
+import com.cattailsw.nanidroid.runtime.ScriptPlayer
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -86,7 +87,7 @@ class BundledAssistantUiTest {
     @Test fun droidChoicesOpenGhostsAndAbout() = withAssistant { _, runtime ->
         tools("Ghosts")
         compose.onNodeWithContentDescription("Close Ghosts").assertIsDisplayed().performClick()
-        assertNull(ready(runtime).appAction)
+        assertNull(ready(runtime).hostUiRequest)
         tools("About and licenses")
         compose.onNodeWithTag("about-dialog").assertIsDisplayed()
         compose.onNodeWithTag("about-close").performClick()
@@ -94,6 +95,16 @@ class BundledAssistantUiTest {
     }
 
     @Test fun debugDialogSharesBoundsToggle() = withAssistant { _, _ ->
+        val app = ApplicationProvider.getApplicationContext<NanidroidApplication>()
+        for (tag in listOf("zh-TW", "zh-Hant", "zh-HK", "zh-MO")) {
+            val configuration = Configuration(app.resources.configuration).apply {
+                setLocales(LocaleList.forLanguageTags(tag))
+            }
+            val resources = app.createConfigurationContext(configuration).resources
+            assertEquals("開發人員工具", resources.getString(R.string.debug_tools_title))
+            assertEquals("顯示觸控範圍", resources.getString(R.string.debug_show_touch_bounds))
+            assertEquals("關閉", resources.getString(R.string.action_close))
+        }
         tools("Debug tools")
         compose.onNodeWithTag("debug-tools-dialog").assertIsDisplayed()
         compose.onNodeWithText("Show touch bounds").assertIsDisplayed()
@@ -111,12 +122,11 @@ class BundledAssistantUiTest {
         choice("Dismiss")
         compose.onNode(assistantChoice("Debug tools")).assertDoesNotExist()
         val app = ApplicationProvider.getApplicationContext<NanidroidApplication>()
-        val content = BundledAssistantContent.load({ app.assets.open(it) }, "en")
         val reply = runBlocking {
-            BundledAssistantShiori(BuiltInShiori(""), content, false)
+            BuiltInShiori.bundled(repositoryContent(app), false)
                 .request(ShioriEvent("OnNanidroidOpenDebug"))
         }
-        assertNull("Handler accepted debug under non-debug policy", reply.appAction)
+        assertEquals(listOf(HostUiCommand.Developer), ScriptPlayer(reply.value!!).advanceBy(0).hostCommands)
         val snapshot = ready(runtime)
         val stage = mutableStateOf(snapshot)
         lateinit var releaseView: View
@@ -133,7 +143,7 @@ class BundledAssistantUiTest {
                 CompositionLocalProvider(LocalView provides (policyView.value ?: actualView)) {
                     NanidroidTheme {
                         GhostStage(stage.value, CachedSurfaceImageLoader(), {}, {}, {},
-                            assistantLabels = content, onClaimAppAction = { BuiltInAppAction.DebugTools })
+                            onClaimHostUiRequest = { HostUiCommand.Developer })
                     }
                 }
             }
@@ -143,8 +153,7 @@ class BundledAssistantUiTest {
         assertTrue("Debug fixture did not show the bounds border", magentaBorderPixels() > 0)
         compose.runOnIdle {
             policyView.value = releaseView
-            stage.value = snapshot.copy(appAction = PresentedAppAction(999,
-                snapshot.dialogueToken!!.sessionId, 1, 1, BuiltInAppAction.DebugTools))
+            stage.value = snapshot.copy(hostUiRequest = HostUiRequest(999, HostUiCommand.Developer))
         }
         compose.onNodeWithTag("debug-tools-dialog").assertDoesNotExist()
         compose.onNodeWithTag("touch-bounds-action").assertDoesNotExist()
@@ -158,7 +167,7 @@ class BundledAssistantUiTest {
         tools("About and licenses")
         compose.onNodeWithTag("about-dialog").assertIsDisplayed()
         val consumed = ready(runtime).dialogueToken
-        assertNull(ready(runtime).appAction)
+        assertNull(ready(runtime).hostUiRequest)
         // Character semantics must not dispatch behind the modal, even when activated directly.
         compose.onNodeWithTag("sakura").performClick()
         assertEquals(consumed, ready(runtime).dialogueToken)
@@ -169,12 +178,26 @@ class BundledAssistantUiTest {
         compose.onNodeWithTag("about-dialog").assertDoesNotExist()
         compose.onNodeWithTag("stage-controls-toggle").performClick()
         compose.onNodeWithTag("about-dialog").assertDoesNotExist()
+        // The runtime owns the only FIFO; closing one modal must expose its next head.
+        scenario.onActivity { runtime.beginImportEvents()!!.emit("OnUiBatch") }
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasTestTag("about-dialog")).fetchSemanticsNodes().isNotEmpty() ||
+                ready(runtime).hostUiRequest != null
+        }
+        compose.onNodeWithContentDescription("Close Ghosts").assertIsDisplayed()
+        compose.onNodeWithTag("about-dialog").assertDoesNotExist()
+        assertEquals(HostUiCommand.About, ready(runtime).hostUiRequest!!.command)
+        compose.onNodeWithContentDescription("Close Ghosts").performClick()
+        compose.onNodeWithTag("about-dialog").assertIsDisplayed()
+        assertNull(ready(runtime).hostUiRequest)
+        compose.onNodeWithTag("about-close").performClick()
+        compose.onNodeWithTag("about-dialog").assertDoesNotExist()
     }
 
     @Test fun rotationDoesNotReplayConsumedAction() = withAssistant { scenario, runtime ->
         tools("About and licenses")
         compose.onNodeWithTag("about-dialog").assertIsDisplayed()
-        assertNull(ready(runtime).appAction)
+        assertNull(ready(runtime).hostUiRequest)
         val session = ready(runtime).dialogueToken!!.sessionId
         lateinit var original: MainActivity
         scenario.onActivity {
@@ -202,22 +225,22 @@ class BundledAssistantUiTest {
             activity.setContent {
                 NanidroidTheme {
                     GhostStage(runtime.state.collectAsState().value, CachedSurfaceImageLoader(), {}, {}, {},
-                        interactionActive = active.value, assistantLabels = app.assistantContent,
-                        onClaimAppAction = runtime::claimAppAction)
+                        interactionActive = active.value,
+                        onClaimHostUiRequest = runtime::claimHostUiRequest)
                 }
             }
             runtime.click(1, 0, 0)
         }
         compose.waitUntil(10_000) { ready(runtime).choices[1].orEmpty().any { it.label == "About and licenses" } }
         scenario.onActivity { runtime.choose(ready(runtime).choices[1]!!.single { it.label == "About and licenses" }.token) }
-        compose.waitUntil(5_000) { ready(runtime).appAction != null ||
+        compose.waitUntil(5_000) { ready(runtime).hostUiRequest != null ||
             compose.onAllNodes(hasTestTag("about-dialog")).fetchSemanticsNodes().isNotEmpty() }
         compose.waitForIdle()
         compose.onNodeWithTag("about-dialog").assertDoesNotExist()
-        assertTrue("Inactive UI consumed the action", ready(runtime).appAction != null)
+        assertTrue("Inactive UI consumed the action", ready(runtime).hostUiRequest != null)
         compose.runOnIdle { active.value = true }
         compose.onNodeWithTag("about-dialog").assertIsDisplayed()
-        assertNull(ready(runtime).appAction)
+        assertNull(ready(runtime).hostUiRequest)
     }
 
     @Test fun modalBackDismissesWithoutClosingStage() = withAssistant { _, runtime ->
@@ -250,6 +273,14 @@ class BundledAssistantUiTest {
         assertEquals("Other", ready(runtime).ghostName)
         compose.onNodeWithTag("ghosts-action").performClick()
         compose.onNodeWithContentDescription("Close Ghosts").assertIsDisplayed()
+    }
+
+    private fun repositoryContent(app: NanidroidApplication): String {
+        val root = File(app.cacheDir, "release-dictionary-${System.nanoTime()}").apply { mkdirs() }
+        return try {
+            val repository = BundledGhostRepository({ app.assets.open("nanidroid.zip") }, root)
+            repository.load(repository.ensureInstalled(), "en").content
+        } finally { root.deleteRecursively() }
     }
 
     private fun ready(runtime: GhostRuntime) = runtime.state.value as StageState.Ready
@@ -294,8 +325,10 @@ class BundledAssistantUiTest {
         val app = ApplicationProvider.getApplicationContext<NanidroidApplication>()
         val root = File(app.cacheDir, "assistant-ui-${System.nanoTime()}").apply { mkdirs() }
         val repository = BundledGhostRepository({ app.assets.open("nanidroid.zip") }, root)
-        val base = repository.load(repository.ensureInstalled(), "en")
-        val content = BundledAssistantContent.load({ app.assets.open(it) }, "en")
+        val installed = repository.ensureInstalled()
+        File(installed, "ghost/master/en/content.txt").appendText(
+            "\nOnUiBatch,\\![open,ghostexplorer]\\![open,configurationdialog,about]\\e\n")
+        val base = repository.load(installed, "en")
         val master = File(root, "other/ghost/master").apply { mkdirs() }
         File(master, "descript.txt").writeText("name,Other\nsakura.name,Other guide\nkero.name,Other companion\nshiori,Nanidroid")
         File(master, "en").mkdirs()
@@ -307,15 +340,12 @@ class BundledAssistantUiTest {
             override suspend fun recordActivation(directoryId: String) = false
             override suspend fun consumeOnboarding() = false
         }, scope, installedGhosts = InstalledGhostRepository(root),
-            bundledEngineFactory = { BundledAssistantShiori(BuiltInShiori(it.content), content, debugEnabled) },
+            bundledEngineFactory = { BuiltInShiori.bundled(it.content, debugEnabled) },
             // Advance the real script player promptly; assets, routes and dialogue tokens remain real.
             elapsedRealtime = { android.os.SystemClock.elapsedRealtime() * 20 })
         val runtimeField = NanidroidApplication::class.java.getDeclaredField("runtime\$delegate").apply { isAccessible = true }
-        val labelsField = NanidroidApplication::class.java.getDeclaredField("assistantContent\$delegate").apply { isAccessible = true }
         val priorRuntime = runtimeField.get(app)
-        val priorLabels = labelsField.get(app)
         runtimeField.set(app, lazy { runtime })
-        labelsField.set(app, lazy { content })
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 waitForStage()
@@ -325,7 +355,6 @@ class BundledAssistantUiTest {
         } finally {
             scope.cancel()
             runtimeField.set(app, priorRuntime)
-            labelsField.set(app, priorLabels)
             root.deleteRecursively()
         }
     }

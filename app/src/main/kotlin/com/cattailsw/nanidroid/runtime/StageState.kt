@@ -19,7 +19,7 @@ sealed interface StageState {
         val choices: Map<Int, List<PresentedChoice>> = emptyMap(),
         val input: PresentedInput? = null,
         val dialogueToken: DialogueToken? = null,
-        val appAction: PresentedAppAction? = null,
+        val hostUiRequest: HostUiRequest? = null,
     ) : StageState
     data class Error(val message: String) : StageState
     data object Finished : StageState

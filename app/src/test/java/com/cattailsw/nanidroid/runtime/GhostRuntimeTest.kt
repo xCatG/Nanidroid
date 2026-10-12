@@ -30,7 +30,7 @@ class GhostRuntimeTest {
     @get:Rule val folder = TemporaryFolder()
     private val ghost = BundledGhost("nanidroid", "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura.png"), 10 to File("kero.png")), "")
 
-    @Test fun firstLaunchOnboardingExplainsStageControls() = runTest {
+    @Test fun firstLaunchHasNoRuntimeAuthoredWelcome() = runTest {
         var now = 0L
         val runtime = GhostRuntime(
             loadGhost = { ghost }, engineFactory = { ScriptEngine("") },
@@ -42,8 +42,7 @@ class GhostRuntimeTest {
         runCurrent()
         now = 5_000L
         advanceTimeBy(50); runCurrent()
-        assertTrue((runtime.state.value as StageState.Ready).frame.sakura.text
-            .contains("Tap empty stage for Ghosts and About"))
+        assertEquals("", (runtime.state.value as StageState.Ready).frame.sakura.text)
     }
 
     @Test fun enqueuedScriptSubstitutesNamesExactlyOnce() = runTest {

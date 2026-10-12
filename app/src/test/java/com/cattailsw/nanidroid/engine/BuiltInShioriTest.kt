@@ -23,10 +23,8 @@ class BuiltInShioriTest {
         assertEquals(200, BuiltInShiori("").request(ShioriEvent("OnClose")).status)
     }
 
-    @Test fun ordinaryTableCannotReturnAppActions() = runTest {
+    @Test fun ordinaryTableRetainsFirstCommaSyntax() = runTest {
         val engine = BuiltInShiori("OnNanidroidOpenGhosts,\\0A,B\\e\nOnNanidroidOpenDebug,\\1Debug\\e")
         assertEquals(ShioriReply(200, "\\0A,B\\e"), engine.request(ShioriEvent("OnNanidroidOpenGhosts")))
-        assertNull(engine.request(ShioriEvent("OnNanidroidOpenDebug")).appAction)
-        assertNull(engine.request(ShioriEvent("OnClose")).appAction)
     }
 }

@@ -174,7 +174,7 @@ class StageViewModel(
         runtime.move(speaker, x, y, collisionSurfaceId, source)
     fun cancelMove(speaker: Int) = runtime.cancelMove(speaker)
     fun choose(token: InteractionToken) = runtime.choose(token)
-    fun claimAppAction(requestId: Long) = runtime.claimAppAction(requestId)
+    fun claimHostUiRequest(requestId: Long) = runtime.claimHostUiRequest(requestId)
     fun submitInput(token: InteractionToken, text: String) = runtime.submitInput(token, text)
     fun cancelInput(token: InteractionToken) = runtime.cancelInput(token)
     fun isCurrentDialogue(token: DialogueToken) = runtime.isCurrentDialogue(token)

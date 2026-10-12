@@ -90,8 +90,7 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect((state as? StageState.Ready)?.dialogueToken) { linkError = null }
             NanidroidTheme {
                 GhostStage(state = state, imageLoader = imageLoader,
-                    onClaimAppAction = viewModel::claimAppAction,
-                    assistantLabels = (application as NanidroidApplication).assistantContent,
+                    onClaimHostUiRequest = viewModel::claimHostUiRequest,
                     versionName = installedVersionName,
                     notices = loadedNotices.value,
                     interactionActive = characterInteractionActive.value,

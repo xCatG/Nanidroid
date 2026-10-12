@@ -1,0 +1,9 @@
+﻿; event,string
+OnFirstBoot,\0\s0Hello World\e
+OnGhostChanging,\0\s0%1$sさんに替わります。\e
+OnGhostChanged,\0\s0%1$sさんから交換。\e
+OnClose,\0\s0Nanidroidのご利用、ありがとうございました！\e
+OnBoot,\0\s0Nanidroid起動！\e
+OnInstallFailure,\0\s0インストール失敗、すみません。次のアップデートで修正するかもしれませんので、ぜひアップデートしたあとまだチャレンジしてください。\e
+; strings
+homeurl,http://www.cattail-sw.com/nanidroid/

@@ -1,4 +1,7 @@
 <resources>
+    <string name="debug_tools_title">Debug tools</string>
+    <string name="debug_show_touch_bounds">Show touch bounds</string>
+    <string name="action_close">Close</string>
     <string name="app_name" translatable="false">Nanidroid</string>
     <string name="stage_ghosts">Ghosts</string>
     <string name="stage_about">About</string>

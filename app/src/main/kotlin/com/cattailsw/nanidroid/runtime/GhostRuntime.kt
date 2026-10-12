@@ -3,7 +3,7 @@ package com.cattailsw.nanidroid.runtime
 import com.cattailsw.nanidroid.data.BootStateStore
 import com.cattailsw.nanidroid.data.LastGhostStore
 import com.cattailsw.nanidroid.engine.EngineKind
-import com.cattailsw.nanidroid.engine.BuiltInAppAction
+import com.cattailsw.nanidroid.engine.BuiltInShiori
 import com.cattailsw.nanidroid.engine.EngineSelector
 import com.cattailsw.nanidroid.engine.NativeAvailability
 import com.cattailsw.nanidroid.engine.NativeKind
@@ -91,12 +91,13 @@ class GhostRuntime(
         val ghost: BundledGhost,
         val engine: ShioriEngine,
         val lease: NativeLease? = null,
-        val bundledAssistant: Boolean = false,
+        val isBundledDefault: Boolean = false,
     ) {
         val queue = ArrayDeque<QueuedDialogue>()
         var dialogueVersion = 0L
-        var replacementGeneration = 0L
-        var appAction: PresentedAppAction? = null
+        @Volatile var replacementGeneration = 0L
+        val hostRequests = ArrayDeque<PendingHostRequest>()
+        var playerDeliveryEpoch: Long? = null
         var player: ScriptPlayer? = null
         var playerStartedAt = 0L
         var frame: PlaybackFrame = EMPTY_FRAME
@@ -127,7 +128,11 @@ class GhostRuntime(
         }
     }
 
-    private data class QueuedDialogue(val script: String, val clockEventId: String? = null)
+    private data class QueuedDialogue(val script: String, val clockEventId: String? = null,
+        val deliveryEpoch: Long? = null)
+    private data class RequestedReply(val reply: ShioriReply, val deliveryEpoch: Long?)
+    private data class PendingHostRequest(val request: HostUiRequest, val generation: Long, val epoch: Long)
+    private fun deliveryEpoch(): Long? = actionDeliveryEpoch.takeIf { resumed }
     private data class MovePoint(
         val x: Int, val y: Int, val collisionSurfaceId: Int?, val source: RenderedMoveSource,
     )
@@ -168,7 +173,7 @@ class GhostRuntime(
     private var sessionState: SessionState = SessionState.Idle
     private var nextId = 0L
     private var nextActionId = 0L
-    private var actionDeliveryEpoch = 0L
+    @Volatile private var actionDeliveryEpoch = 0L
     @Volatile private var resumed = false
     private var ticker: Job? = null
     private var bundled: BundledGhost? = null
@@ -199,6 +204,8 @@ class GhostRuntime(
         return object : InstallEventSink {
             override fun emit(id: String, references: List<String>) {
                 val predecessor = previous
+                val epoch = deliveryEpoch()
+                val generation = owner.replacementGeneration
                 previous = scope.launch {
                     predecessor?.join()
                     if (!sameActive(owner)) return@launch
@@ -208,7 +215,8 @@ class GhostRuntime(
                             logger.warning("$id returned ${reply.status}")
                         }
                         if (sameActive(owner)) {
-                            enqueue(owner, reply)
+                            enqueue(owner, RequestedReply(reply,
+                                epoch.takeIf { owner.replacementGeneration == generation }))
                             publish(owner)
                         }
                     } catch (cancelled: CancellationException) {
@@ -299,8 +307,8 @@ class GhostRuntime(
             if (value) ensureTicker() else {
                 actionDeliveryEpoch++
                 (sessionState as? SessionState.Active)?.session?.let { session ->
-                    if (session.appAction != null) {
-                        session.appAction = null
+                    if (session.hostRequests.isNotEmpty()) {
+                        session.hostRequests.clear()
                         publish(session)
                     }
                 }
@@ -395,6 +403,7 @@ class GhostRuntime(
             ensureTicker()
             publish(from)
             from.transitionRepliesPending++
+            val epoch = deliveryEpoch()
             val reply = try {
                 from.engine.request(ShioriEvent("OnGhostChanging", listOf(
                     target.sakuraName, "manual", "", target.masterPath.parentFile?.parentFile?.absolutePath.orEmpty()
@@ -410,7 +419,7 @@ class GhostRuntime(
                 return@launch
             }
             if (sessionState !== switching) return@launch
-            enqueue(from, reply)
+            enqueue(from, RequestedReply(reply, epoch))
             from.transitionRepliesPending--
             publish(from)
             maybeFinishTransition(from)
@@ -522,8 +531,9 @@ class GhostRuntime(
      * current, unless [reportStale]; either way it returns null.
      */
     private suspend fun request(session: Session, event: ShioriEvent, generation: Long,
-        failure: String, reportStale: Boolean = false): ShioriReply? = try {
-        session.engine.request(event)
+        failure: String, reportStale: Boolean = false,
+        epoch: Long? = deliveryEpoch()): RequestedReply? = try {
+        RequestedReply(session.engine.request(event), epoch)
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: Exception) {
@@ -537,8 +547,9 @@ class GhostRuntime(
         sameActive(session) && session.replacementGeneration == generation
 
     private suspend fun requestAction(session: Session, generation: Long, event: ShioriEvent,
-        choiceDeliveryEpoch: Long? = null) {
-        val reply = request(session, event, generation, "Interaction request failed") ?: run {
+        requestDeliveryEpoch: Long? = deliveryEpoch()) {
+        val reply = request(session, event, generation, "Interaction request failed",
+            epoch = requestDeliveryEpoch) ?: run {
             if (inFarewellDialogue(session) && session.replacementGeneration == generation) {
                 session.transitionRepliesPending--
                 maybeFinishTransition(session)
@@ -546,13 +557,6 @@ class GhostRuntime(
             return
         }
         if (interactionOwner() !== session || session.replacementGeneration != generation) return
-        val action = reply.appAction
-        if (action != null && reply.status == 200 && session.bundledAssistant &&
-            sameActive(session) && resumed && choiceDeliveryEpoch == actionDeliveryEpoch &&
-            event.references.isEmpty() && APP_ACTION_EVENTS[event.id] == action) {
-            session.appAction = PresentedAppAction(++nextActionId, session.id, generation,
-                actionDeliveryEpoch, action)
-        }
         enqueue(session, reply)
         if (inFarewellDialogue(session)) session.transitionRepliesPending--
         publish(session)
@@ -560,17 +564,25 @@ class GhostRuntime(
     }
 
     /** Called by the UI on the runtime's main-thread owner; validation and consumption are atomic. */
-    fun claimAppAction(requestId: Long): BuiltInAppAction? {
+    fun claimHostUiRequest(requestId: Long): HostUiCommand? {
         val session = (sessionState as? SessionState.Active)?.session ?: return null
-        val request = session.appAction ?: return null
-        if (request.requestId != requestId) return null
-        session.appAction = null
+        discardInvalidRequests(session)
+        val head = session.hostRequests.firstOrNull() ?: run { publish(session); return null }
+        if (head.request.id != requestId) { publish(session); return null }
+        session.hostRequests.removeFirst()
         publish(session)
-        return request.action.takeIf {
-            resumed && session.bundledAssistant && request.sessionId == session.id &&
-                request.replacementGeneration == session.replacementGeneration &&
-                request.deliveryEpoch == actionDeliveryEpoch
-        }
+        return head.request.command
+    }
+
+    private fun commandAllowed(session: Session, command: HostUiCommand): Boolean =
+        sameActive(session) && resumed && (command != HostUiCommand.Developer ||
+            (session.isBundledDefault && (session.engine as? BuiltInShiori)?.developerCommandsEnabled == true))
+
+    private fun discardInvalidRequests(session: Session) {
+        while (session.hostRequests.firstOrNull()?.let {
+            it.generation != session.replacementGeneration || it.epoch != actionDeliveryEpoch ||
+                !commandAllowed(session, it.request.command)
+        } == true) session.hostRequests.removeFirst()
     }
 
     private fun interactionOwner(): Session? = when (val current = sessionState) {
@@ -703,6 +715,7 @@ class GhostRuntime(
         ensureTicker()
         publish(session)
         session.transitionRepliesPending++
+        val epoch = deliveryEpoch()
         val reply = try { session.engine.request(ShioriEvent("OnClose")) }
             catch (error: Exception) {
                 if (sessionState === closing) {
@@ -712,7 +725,7 @@ class GhostRuntime(
                 return
             }
         if (sessionState !== closing) return
-        enqueue(session, reply)
+        enqueue(session, RequestedReply(reply, epoch))
         session.transitionRepliesPending--
         publish(session)
         maybeFinishTransition(session)
@@ -873,9 +886,7 @@ class GhostRuntime(
         try {
             val first = bootState.recordActivation(session.ghost.directoryId)
             if (!sameActive(session)) return
-            if ((bundledTarget || session.bundledAssistant) && first && bootState.consumeOnboarding()) {
-                if (!session.bundledAssistant) session.queue.addLast(QueuedDialogue(ONBOARDING))
-            }
+            if ((bundledTarget || session.isBundledDefault) && first) bootState.consumeOnboarding()
             lastGhostStore?.write(session.ghost.directoryId)
             val id = when {
                 first -> "OnFirstBoot"
@@ -887,9 +898,10 @@ class GhostRuntime(
                 "OnGhostChanged" -> previousName.orEmpty()
                 else -> "master"
             }
+            val epoch = deliveryEpoch()
             val reply = session.engine.request(ShioriEvent(id, listOf(reference)))
             if (!sameActive(session)) return
-            enqueue(session, reply)
+            enqueue(session, RequestedReply(reply, epoch))
             publish(session)
             ensureTicker()
         } catch (cancelled: CancellationException) {
@@ -1093,17 +1105,19 @@ class GhostRuntime(
         session.clearPendingMoves()
         session.dialogueVersion++
         session.replacementGeneration++
-        session.appAction = null
+        session.hostRequests.clear()
         session.transitionRepliesPending = 0
         session.queue.clear()
         session.surfaceEdges.clear()
         session.player = null
+        session.playerDeliveryEpoch = null
         session.frame = EMPTY_FRAME
         session.animator?.follow(EMPTY_FRAME)
         settleVisuals(session)
     }
 
-    private fun enqueue(session: Session, reply: ShioriReply, clockEventId: String? = null) {
+    private fun enqueue(session: Session, response: RequestedReply, clockEventId: String? = null) {
+        val reply = response.reply
         if (reply.status == 200 && !reply.value.isNullOrEmpty()) {
             val script = ScriptPlayer.substituteNames(reply.value, mapOf(
                 "username" to "User",
@@ -1111,7 +1125,7 @@ class GhostRuntime(
                 "selfname2" to session.ghost.sakuraName2,
                 "keroname" to session.ghost.keroName,
             ))
-            session.queue.addLast(QueuedDialogue(script, clockEventId))
+            session.queue.addLast(QueuedDialogue(script, clockEventId, response.deliveryEpoch))
             if (clockEventId != null && session.pendingInteraction()) session.coalesceClockReplies()
         }
         if (session.player == null) playNext(session)
@@ -1121,6 +1135,7 @@ class GhostRuntime(
         if (session.pendingInteraction()) return
         session.player = session.queue.removeFirstOrNull()?.let { queued ->
             session.dialogueVersion++
+            session.playerDeliveryEpoch = queued.deliveryEpoch
             ScriptPlayer(queued.script)
         }
         if (session.player != null) session.playerStartedAt = elapsedRealtime()
@@ -1130,11 +1145,18 @@ class GhostRuntime(
 
     private fun acceptPlayback(session: Session, playback: PlaybackFrame) {
         val prior = session.frame
+        val headBefore = session.hostRequests.firstOrNull()?.request
+        if (session.playerDeliveryEpoch == actionDeliveryEpoch) {
+            playback.hostCommands.filter { commandAllowed(session, it) }.forEach { command ->
+                session.hostRequests.addLast(PendingHostRequest(HostUiRequest(++nextActionId, command),
+                    session.replacementGeneration, actionDeliveryEpoch))
+            }
+        }
         session.frame = playback.copy(
             sakura = playback.sakura.copy(visual = prior.sakura.visual),
             kero = playback.kero.copy(visual = prior.kero.visual),
             textAdvanceSpeakers = emptySet(), animationRequests = emptyList(),
-            surfaceChanges = emptyList(),
+            surfaceChanges = emptyList(), hostCommands = emptyList(),
         )
         if (!prior.hasInteraction() && session.pendingInteraction()) session.coalesceClockReplies()
         session.animator?.let { animator ->
@@ -1142,6 +1164,7 @@ class GhostRuntime(
             playback.animationRequests.forEach { animator.startExplicit(it.speaker, it.animationId) }
         }
         if (playback.surfaceChanges.isNotEmpty()) dispatchSurfaceChanges(session, playback.surfaceChanges)
+        if (headBefore != session.hostRequests.firstOrNull()?.request) publish(session)
     }
 
     private fun dispatchSurfaceChanges(session: Session, changes: List<SurfaceChange>) {
@@ -1160,9 +1183,10 @@ class GhostRuntime(
                         break
                     }
                     if (session.replacementGeneration != edge.replacementGeneration) continue
+                    val epoch = deliveryEpoch()
                     val reply = try {
-                        session.engine.request(ShioriEvent("OnSurfaceChange", listOf(
-                            edge.change.sakuraId.toString(), edge.change.keroId.toString())))
+                        RequestedReply(session.engine.request(ShioriEvent("OnSurfaceChange", listOf(
+                            edge.change.sakuraId.toString(), edge.change.keroId.toString()))), epoch)
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (error: Exception) {
                         if (session.replacementGeneration == edge.replacementGeneration)
@@ -1202,6 +1226,7 @@ class GhostRuntime(
     }
 
     private fun publish(session: Session) {
+        discardInvalidRequests(session)
         val active = sessionState as? SessionState.Active
         val prompt = active?.prompt?.view
         val key = Triple(session.id, choicesVersion,
@@ -1225,7 +1250,7 @@ class GhostRuntime(
                 else emptyMap(),
             input = if (owns) session.frame.input?.let { PresentedInput(token(it.key), it.boxId) } else null,
             dialogueToken = DialogueToken(session.id, session.dialogueVersion),
-            appAction = session.appAction.takeIf { sameActive(session) },
+            hostUiRequest = session.hostRequests.firstOrNull()?.request.takeIf { sameActive(session) },
         )
     }
 
@@ -1298,7 +1323,7 @@ class GhostRuntime(
     }
 
     private fun bundledSession(base: BundledGhost) = Session(++nextId, base, getBundledEngine(base),
-        bundledAssistant = bundledEngineFactory != null)
+        isBundledDefault = true)
 
     private fun isBundledDescriptor(descriptor: GhostDescriptor, base: BundledGhost): Boolean {
         if (descriptor.directoryId != base.directoryId) return false
@@ -1323,13 +1348,7 @@ class GhostRuntime(
     )
 
     private companion object {
-        val APP_ACTION_EVENTS = mapOf(
-            "OnNanidroidOpenGhosts" to BuiltInAppAction.Ghosts,
-            "OnNanidroidOpenAbout" to BuiltInAppAction.About,
-            "OnNanidroidOpenDebug" to BuiltInAppAction.DebugTools,
-        )
         val NATIVE_KINDS = setOf(EngineKind.SATORI, EngineKind.KAWARI, EngineKind.YAYA)
-        const val ONBOARDING = "\\0\\s0Welcome to Nanidroid.\\nTap a character to talk. Tap empty stage for Ghosts and About.\\e"
         val EMPTY_FRAME = PlaybackFrame(
             SpeakerFrame(0, true, "", false), SpeakerFrame(10, true, "", false), true
         )

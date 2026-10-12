@@ -1,2 +1,4 @@
 # Native transfer must retain the exact bytes approved by its SHA-256 manifest.
 app/src/main/jni/** -text
+# Installer recognition fixtures retain the original archived bytes on every host.
+app/src/test/resources/previous-bundled-*-content.txt -text -diff

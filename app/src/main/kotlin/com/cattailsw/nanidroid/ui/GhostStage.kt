@@ -79,8 +79,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.ghost.SurfaceImageLoader
-import com.cattailsw.nanidroid.ghost.BundledAssistantContent
-import com.cattailsw.nanidroid.engine.BuiltInAppAction
+import com.cattailsw.nanidroid.runtime.HostUiCommand
 import com.cattailsw.nanidroid.ghost.ShellFiles
 import com.cattailsw.nanidroid.ghost.ShellCatalog
 import com.cattailsw.nanidroid.ghost.SurfaceComposer
@@ -191,8 +190,7 @@ fun GhostStage(
     interactionActive: Boolean = true,
     versionName: String = "Unknown",
     notices: List<Notice> = emptyList(),
-    onClaimAppAction: (Long) -> BuiltInAppAction? = { null },
-    assistantLabels: BundledAssistantContent? = null,
+    onClaimHostUiRequest: (Long) -> HostUiCommand? = { null },
 ) {
     val view = LocalView.current
     val debugBuild = view.context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
@@ -210,7 +208,7 @@ fun GhostStage(
     }
     Box(Modifier.fillMaxSize().safeDrawingPadding()) {
         when (state) {
-            StageState.Loading -> StageMessage("Loading ghost…")
+            StageState.Loading -> StageMessage("Loading ghostâ€¦")
             is StageState.Error -> StageMessage(state.message)
             StageState.Finished -> Unit
             is StageState.Ready -> {
@@ -219,23 +217,20 @@ fun GhostStage(
                 var showGhosts by remember(sessionId) { mutableStateOf(false) }
                 var showAbout by remember(sessionId) { mutableStateOf(false) }
                 var showDebugTools by remember(sessionId) { mutableStateOf(false) }
-                val claimAppAction by rememberUpdatedState(onClaimAppAction)
-                LaunchedEffect(state.appAction?.requestId, interactionActive) {
-                    val request = state.appAction ?: return@LaunchedEffect
-                    if (!interactionActive) return@LaunchedEffect
-                    // Claim first, then deliver exactly once within the current session.
-                    when (claimAppAction(request.requestId)) {
-                        BuiltInAppAction.Ghosts -> { showGhosts = true; showAbout = false; showDebugTools = false }
-                        BuiltInAppAction.About -> { showGhosts = false; showAbout = true; showDebugTools = false }
-                        BuiltInAppAction.DebugTools -> if (debugBuild) {
-                            showGhosts = false; showAbout = false; showDebugTools = true
-                        }
-                        null -> Unit
-                    }
-                }
+                val claimHostUiRequest by rememberUpdatedState(onClaimHostUiRequest)
                 val modalVisible = showGhosts || showAbout || showDebugTools || state.switchPrompt != null ||
                     state.input != null || importState is ImportState.Running ||
                     importState is ImportState.Completed || importInterrupted
+                LaunchedEffect(state.hostUiRequest?.id, interactionActive, modalVisible) {
+                    val request = state.hostUiRequest ?: return@LaunchedEffect
+                    if (!interactionActive || modalVisible) return@LaunchedEffect
+                    when (claimHostUiRequest(request.id)) {
+                        HostUiCommand.GhostExplorer -> showGhosts = true
+                        HostUiCommand.About -> showAbout = true
+                        HostUiCommand.Developer -> if (debugBuild) showDebugTools = true
+                        null -> Unit
+                    }
+                }
                 val stageInteractionActive = interactionActive && !modalVisible
                 var controlsVisible by rememberSaveable { mutableStateOf(true) }
                 var controlsHeightPx by remember { mutableStateOf(0) }
@@ -262,7 +257,7 @@ fun GhostStage(
                 Box(Modifier.fillMaxSize().testTag("stage-background")
                     .pointerInput(Unit) { detectTapGestures(onTap = { toggleControls() }) })
                 when (val images = loaded) {
-                    LoadedImages.Loading -> StageMessage("Loading ghost…")
+                    LoadedImages.Loading -> StageMessage("Loading ghostâ€¦")
                     is LoadedImages.Error -> StageMessage(images.message)
                     is LoadedImages.Ready -> ReadyStage(state, images.images, callbacks,
                         { if (stageInteractionActive) onChoose(it) },
@@ -305,8 +300,8 @@ fun GhostStage(
                     }
                 }
                 if (showAbout) AboutDialog(versionName, notices) { showAbout = false }
-                if (debugBuild && showDebugTools) assistantLabels?.let { labels ->
-                    DebugToolsDialog(showTouchBounds, labels,
+                if (debugBuild && showDebugTools) {
+                    DebugToolsDialog(showTouchBounds,
                         onShowTouchBoundsChange = { showTouchBounds = it },
                         onDismiss = { showDebugTools = false })
                 }
@@ -325,7 +320,7 @@ fun GhostStage(
                         text = {
                             Column(Modifier.verticalScroll(rememberScrollState())) {
                                 when (importState) {
-                                    is ImportState.Running -> Text("Importing ghost…",
+                                    is ImportState.Running -> Text("Importing ghostâ€¦",
                                         Modifier.semantics { contentDescription = "Import in progress" })
                                     is ImportState.Completed -> Text(when (importState.outcome) {
                                         is ImportOutcome.Installed ->

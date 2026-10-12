@@ -4,5 +4,4 @@ data class ShioriReply(
     val status: Int,
     val value: String? = null,
     val charset: String = "UTF-8",
-    val appAction: BuiltInAppAction? = null,
 )

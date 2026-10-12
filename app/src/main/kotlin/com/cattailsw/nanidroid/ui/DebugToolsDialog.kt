@@ -17,18 +17,18 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.cattailsw.nanidroid.ghost.BundledAssistantContent
+import com.cattailsw.nanidroid.R
+import androidx.compose.ui.res.stringResource
 
 @Composable
 fun DebugToolsDialog(
     showTouchBounds: Boolean,
-    labels: BundledAssistantContent,
     onShowTouchBoundsChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val title = labels.label("DebugToolsTitle")
-    val bounds = labels.label("ShowTouchBounds")
-    val close = labels.label("Close")
+    val title = stringResource(R.string.debug_tools_title)
+    val bounds = stringResource(R.string.debug_show_touch_bounds)
+    val close = stringResource(R.string.action_close)
     AlertDialog(
         modifier = Modifier.testTag("debug-tools-dialog"),
         onDismissRequest = onDismiss,
