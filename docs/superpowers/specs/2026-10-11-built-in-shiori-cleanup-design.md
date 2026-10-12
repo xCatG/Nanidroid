@@ -25,9 +25,10 @@ on a particular ghost implementation.
 ## Intended structure
 
 1. Taps and choices continue producing normal SHIORI events.
-2. BuiltInShiori handles default-ghost tap routing and returns dialogue/scripts.
-   Ordinary table ghosts retain their authored event behavior. Default behavior
-   is enabled explicitly for the verified bundled session, not by a display name.
+2. The ghost archive owns dialogue, tap rules and menu choices. BuiltInShiori
+   performs generic table lookup and returns scripts; it contains no assistant
+   event IDs, speaker roles, help topics or menu copy. Only developer-command
+   permission is enabled for the verified bundled session.
 3. ScriptPlayer interprets supported host commands during normal playback, as it
    already does for input boxes. SHIORI never holds a Compose callback or opens a
    dialog directly.
@@ -68,17 +69,63 @@ assistant-only restriction on those two harmless host dialogs.
 
 ## Dialogue, localization and installed data
 
-- Keep help, introductions and menu copy in locale-specific dialogue assets owned
-  by the app and loaded behind BuiltInShiori. APK-owned dialogue must still apply
-  to existing installations without rewriting their extracted ghost files.
-- Reuse one parser for built-in table data. Preserve the first-comma syntax,
-  literal switch-name substitution, bounded reads and useful validation.
+- The author's preference is explicit: ghost behavior belongs in ghost ZIP/NAR
+  files, including the bundled ghost. Remove separate APK-owned assistant tables;
+  do not replace them with another content service or runtime overlay.
+- Put complete en/ja/zh-TW dictionaries in `nanidroid.zip` under
+  `ghost/master/{en,ja,zh-TW}/content.txt`. Load the installed selected dictionary
+  as authoritative. Preserve lifecycle entries and literal switch substitution;
+  translate lifecycle replies as well as help and menus for Traditional Chinese.
+- Reuse the first-comma table parser. A small generic selector convention supplies
+  reference-aware lookup: `Event@r3=0` and `Event@r3=1` select Reference3 exactly;
+  `Event@debug` and `Event@r3=1@debug` provide debug-enabled variants. Lookup
+  priority is matching reference+debug, matching reference, event+debug, event.
+  Support only Reference3 selectors in this change, with canonical nonnegative
+  Int decimal values. Absent/malformed Reference3 skips reference variants. For
+  OnMouseClick/OnMouseDoubleClick/OnMouseMove variants also require numeric Int
+  References0–2, matching the standard mouse payload. This validation affects
+  selector eligibility only; existing plain-event tables retain their lookup.
+  The shipped dictionary has no plain OnMouseClick fallback, so malformed mouse
+  requests return204. Debug variants require the named trusted built-in debug
+  configuration. Recognized selector syntax is reserved: parse those rows
+  separately and never
+  expose them through a direct event-ID lookup (including in release). Keys
+  outside this grammar remain literal keys; no expressions, interpolation,
+  aliases or routing DSL.
+  Existing event-only tables keep their behavior. The archive maps speaker0 to
+  help and speaker1 to tools; Kotlin does not know those roles. Choice event IDs
+  are ordinary authored keys. Runtime separately denies unauthorized developer
+  commands, even when a release dictionary directly contains one.
+- `BundledGhostRepository.load(root, locale: Locale)` chooses and bounds the
+  installed dictionary read to64KiB plus one sentinel byte. Preserve the existing
+  language-string overload for callers that need it. BuiltInShiori receives the
+  loaded content, never an asset reader or Locale. Validate shipped required keys
+  in archive validation/tests, not at engine construction, so custom tables work.
+- Existing-install upgrade is limited to the bundled dictionaries. Before any
+  refresh, validate install type/directory and descriptor id/shiori (`nanidroid` /
+  `Nanidroid`) against the shipped built-in identity, using existing engine
+  classification. A same-named native/replaced target is not refreshed. Verify the new
+  ZIP hash before refresh. Replace en/ja only when bytes match the recorded
+  previous shipped dictionary hashes; add zh-TW only when absent. Current shipped
+  hashes are no-ops; any other existing bytes are customized and preserved.
+  Missing dictionaries may be restored. Preserve PNGs, descriptors, shell files,
+  native saves, activation markers, unknown files and imported ghosts.
+- Exclusively create a unique temporary file beside each changed dictionary,
+  then atomically replace
+  the file under the existing installation lock; recheck ownership before replace.
+  Hash recognition makes refresh idempotent after interruption, without a version
+  marker, whole-directory swap, migration framework or UI update workflow. Reject
+  symlink/escaped managed paths and clean up only the exact temporary file created by this invocation. Never
+  sweep prefix-matching files; interrupted leftover temporaries are ignored. A failed
+  refresh leaves individually valid old/new dictionaries; retry on next startup.
+  Customized old dictionaries intentionally retain their authored behavior and
+  may lack the new assistant interactions; do not silently overlay those entries.
 - Remove DebugToolsTitle, ShowTouchBounds and Close entries from dialogue files.
   Put debug dialog title, toggle label, Close and accessibility text into Android
   resources in English, Japanese and Traditional Chinese.
 - Add the missing Traditional Chinese dialogue file and select it using the full
   locale: `zh-TW`, `zh-Hant`, and Traditional Chinese locales `zh-HK`/`zh-MO` use
-  the Traditional Chinese asset; English uses English; Japanese and other
+  the installed Traditional Chinese dictionary; English uses English; Japanese and other
   unsupported locales retain the existing Japanese fallback. Explicit `zh-Hans`
   remains unsupported and falls back rather than displaying the wrong script.
 - Keep assistant selection and debug UI resources consistent at startup for the
@@ -110,6 +157,10 @@ assistant-only restriction on those two harmless host dialogs.
 - Dialog state remains session-scoped and unsaved; recreation dismisses a consumed
   dialog without replay. Preserve modal interaction blocking and Back dismissal.
 - Preserve the single localized first-boot welcome and existing activation markers.
+  Remove the runtime ONBOARDING script/queue path; archive OnFirstBoot owns the
+  welcome. Named bundled engine mode has no synthetic OnClose script: missing
+  authored OnClose returns204. Ordinary table construction retains its existing
+  close fallback for compatibility outside this default-ghost cleanup.
 
 ## Verification
 
@@ -125,7 +176,7 @@ Use focused JUnit 4/coroutines-test and Compose tests to prove:
 - Command-only publication after a wait, a command reached in an ending frame
   before natural queue advancement, and two/repeated dialogs presented after dismissal.
 - Exactly-once claiming, stale/replaced/paused/switched/closed requests, valid text
-  surviving a denied command, first-boot marker preservation and installed-file hashes.
+  surviving a denied command, first-boot marker preservation, managed dictionary refresh and customized-file preservation.
 - Real rendered tap → choice → SHIORI script → parser → runtime → dialog flow;
   debug dialog resource localization, Back, rotation, switch and release-policy denial.
 - Update the strict device-test inventory when method identities change.
@@ -150,10 +201,10 @@ recommended the narrow request/transient-enum design, named default construction
 one instrumentation migration and the explicit publication/modal/advancement rules
 above. These clarifications preserve the intended independently executed commands.
 
-An additional ownership simplification remains proposed, not approved: use complete
-APK-owned default locale tables and remove the original-content overlay. It would
-preserve shipped lifecycle scripts and installed bytes, translate all default
-lifecycle replies into Traditional Chinese, and keep imported custom tables intact.
-It would stop honoring manually edited/added entries in the installed default
-table. Until the author accepts that tradeoff, the implementation plan retains
-the original-content overlay.
+The author rejected the optional APK-owned default-table proposal on 2026-10-12.
+The archive-owned design above supersedes it. The
+[second Astra review](../../review/2026-10-12-built-in-shiori-archive-review.md)
+accepts that ownership preference and tightens selector visibility, install
+identity, authored welcome/close behavior, temporary-file ownership and test
+archive consistency. Those findings are incorporated in this spec and plan.
+Product implementation has not started; this is a revision of the planning documents.
