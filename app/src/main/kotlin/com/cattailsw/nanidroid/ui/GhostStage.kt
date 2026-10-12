@@ -10,6 +10,10 @@ import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +26,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
@@ -59,6 +66,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import com.cattailsw.nanidroid.R
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.stateDescription
@@ -146,6 +156,7 @@ fun GhostStage(state: StageState, imageLoader: SurfaceImageLoader,
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun GhostStage(
     state: StageState,
     imageLoader: SurfaceImageLoader,
@@ -205,6 +216,15 @@ fun GhostStage(
                 var controlsHeightPx by remember { mutableStateOf(0) }
                 val controlsHeight = with(LocalDensity.current) { controlsHeightPx.toDp() }
                 val toggleControls = { controlsVisible = !controlsVisible }
+                val controlsToggleLabel = stringResource(if (controlsVisible)
+                    R.string.stage_hide_controls else R.string.stage_show_controls)
+                val boundsLabel = stringResource(R.string.stage_bounds)
+                val boundsToggleLabel = stringResource(if (showTouchBounds)
+                    R.string.stage_hide_bounds else R.string.stage_show_bounds)
+                val boundsStateLabel = stringResource(if (showTouchBounds)
+                    R.string.stage_bounds_on else R.string.stage_bounds_off)
+                val ghostsLabel = stringResource(R.string.stage_ghosts)
+                val aboutLabel = stringResource(R.string.stage_about)
                 val loaded by produceState<LoadedImages>(LoadedImages.Loading, state.surfaces, state.shell, imageLoader) {
                     value = try {
                         LoadedImages.Ready(loadSurfaces(state.surfaces, state.shell, imageLoader))
@@ -224,23 +244,26 @@ fun GhostStage(
                         debugBuild && showTouchBounds,
                         Modifier.padding(top = if (controlsVisible) controlsHeight else 0.dp)
                             .semantics {
-                                contentDescription = if (controlsVisible) "Hide stage controls" else "Show stage controls"
+                                contentDescription = controlsToggleLabel
                                 onClick { toggleControls(); true }
                             }.testTag("stage-controls-toggle"))
                 }
-                if (controlsVisible) Row(Modifier.align(Alignment.TopEnd)
-                    .onSizeChanged { controlsHeightPx = it.height }) {
-                    if (debugBuild) TextButton(onClick = { showTouchBounds = !showTouchBounds },
+                if (controlsVisible) FlowRow(Modifier.align(Alignment.TopEnd).fillMaxWidth()
+                    .onSizeChanged { controlsHeightPx = it.height }.padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (debugBuild) StageControlButton(boundsLabel,
+                        onClick = { showTouchBounds = !showTouchBounds },
                         modifier = Modifier.semantics {
-                            contentDescription = if (showTouchBounds) "Hide touch bounds" else "Show touch bounds"
-                            stateDescription = if (showTouchBounds) "Touch bounds on" else "Touch bounds off"
-                        }.testTag("touch-bounds-action")) { Text("Bounds") }
-                    TextButton(onClick = { showGhosts = true }, modifier = Modifier.semantics {
-                        contentDescription = "Ghosts"
-                    }.testTag("ghosts-action")) { Text("Ghosts") }
-                    TextButton(onClick = { showAbout = true }, modifier = Modifier.semantics {
-                        contentDescription = "About"
-                    }.testTag("about-action")) { Text("About") }
+                            contentDescription = boundsToggleLabel
+                            stateDescription = boundsStateLabel
+                        }.testTag("touch-bounds-action"))
+                    StageControlButton(ghostsLabel, onClick = { showGhosts = true },
+                        modifier = Modifier.semantics { contentDescription = ghostsLabel }
+                            .testTag("ghosts-action"))
+                    StageControlButton(aboutLabel, onClick = { showAbout = true },
+                        modifier = Modifier.semantics { contentDescription = aboutLabel }
+                            .testTag("about-action"))
                 }
                 Column(Modifier.align(Alignment.TopEnd).padding(top = if (controlsVisible) controlsHeight else 0.dp),
                     horizontalAlignment = Alignment.End) {
@@ -266,7 +289,7 @@ fun GhostStage(
                             }
                         },
                         properties = DialogProperties(dismissOnClickOutside = importState !is ImportState.Running),
-                        title = { Text("Ghosts") },
+                        title = { Text(ghostsLabel) },
                         text = {
                             Column(Modifier.verticalScroll(rememberScrollState())) {
                                 when (importState) {
@@ -691,6 +714,21 @@ private fun CharacterSurface(
                     style = Stroke(width = 2.dp.toPx()))
             }
         }
+    }
+}
+
+@Composable
+private fun StageControlButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 48.dp),
+        shape = RoundedCornerShape(4.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+    ) {
+        Text(label, textAlign = TextAlign.Center)
     }
 }
 

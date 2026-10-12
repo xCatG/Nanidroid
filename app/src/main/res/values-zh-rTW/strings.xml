@@ -1,0 +1,11 @@
+<resources>
+    <string name="stage_ghosts">切換角色</string>
+    <string name="stage_about">關於</string>
+    <string name="stage_bounds">觸控範圍</string>
+    <string name="stage_hide_controls">隱藏舞台控制按鈕</string>
+    <string name="stage_show_controls">顯示舞台控制按鈕</string>
+    <string name="stage_hide_bounds">隱藏觸控範圍</string>
+    <string name="stage_show_bounds">顯示觸控範圍</string>
+    <string name="stage_bounds_on">觸控範圍顯示已開啟</string>
+    <string name="stage_bounds_off">觸控範圍顯示已關閉</string>
+</resources>
