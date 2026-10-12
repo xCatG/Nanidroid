@@ -1,42 +1,41 @@
-# Nanidroid recreation integration
+# Nanidroid development
 
-The accepted implementation is the standalone Kotlin/Compose recreation described
-by README.md, the approved baseline/design, M5 acceptance with exceptions and
-docs/superpowers/plans/2026-10-02-replacement-integration.md. User instructions govern.
+The replacement phase is complete. The current checkout is the authoritative
+implementation for ongoing development. README.md describes current behavior;
+the approved baseline/design, M5 acceptance, replacement plan and integration
+manifests record historical decisions and evidence, not permanent scope or
+authorization gates. User instructions govern.
 
-## Workspace and separation
+## Workspace and collaboration
 
-- Approved isolated-workspace exception: integration and verification may operate
-  in `C:/work/src/nanidroid-recreation/.integration-artifacts/replacement-2026-10-03/candidate`.
-  The standalone source workspace remains `C:/work/src/nanidroid-recreation`.
-  Workers report their workspace and loaded AGENTS.md paths first.
-- Do not read, copy or use superseded application source, tests, build scripts,
-  architecture documents or implementation history. Target Git parent/history is
-  retained for rollback, not as implementation input. Integration inventory uses
-  path/object metadata; only the approved pinned native tree and license notice
-  are permitted retained contents. Do not search adjacent repositories.
-- Shared memory is background and must not expand scope or supply legacy code.
-- Lead coordinates/reviews; tasks execute sequentially. Fresh author-approved
-  GPT-6.1-Sol implementers and independent GPT-6-Sol reviewers use `fork_turns: none`.
-  Reuse responsible workers for fixes; preserve others' edits and assigned ownership.
+- Work in the current checkout or an appropriate isolated worktree. Workers report
+  their workspace and loaded AGENTS.md paths first.
+- Use current source and contracts as implementation input. Do not copy superseded
+  application code or search adjacent repositories without user authorization.
+- Shared memory is background and must not expand the requested scope.
+- Preserve others' edits, untracked files and assigned ownership when collaborating.
 
-## Implementation and gates
+## Implementation and verification
 
 - One app module, Kotlin, Compose, ViewModel, lifecycle-aware StateFlow and manual
   constructor injection. Production Kotlin lives under
   `app/src/main/kotlin/com/cattailsw/nanidroid`; tests under `app/src/test/java`
-  and `app/src/androidTest/java`.
+  and `app/src/androidTest/java`. These are current conventions; deliberate changes
+  may be made when the requested work calls for them.
 - Namespace/application ID `com.cattailsw.nanidroid`; minSdk 31; compile/target 37;
-  arm64-v8a and x86_64. Use the pinned wrapper/catalog/NDK/CMake configuration.
-- Native contents under `app/src/main/jni` remain pinned by inputs.json and the
-  297-file native manifest. No additional native or product changes are authorized
-  by the replacement integration plan.
+  arm64-v8a and x86_64 are current defaults. Use the committed wrapper/catalog/NDK/
+  CMake configuration unless deliberately changing it as part of the requested work.
+- User-requested features, native changes and build changes are permitted. Historical
+  exclusions and frozen native manifests do not prohibit ongoing development.
+- Review the actual requested change against current contracts and relevant risks;
+  do not impose the replacement phase's exclusions or acceptance gates on every change.
 - Test observable behavior with JUnit 4, coroutines-test and focused Compose
-  instrumentation. Follow plan gates and report actual evidence; accepted risks
-  and historical fixture gaps do not become passing results.
-- Preserve fresh-install/no-migration policy and old external files. No external
-  balloons, Markdown, broad parity matrix, DI/navigation rewrite or extra features.
+  instrumentation. Run checks appropriate to the change and report actual evidence;
+  accepted risks and historical fixture gaps do not become passing results.
+- Preserve existing data and old external files. Keep the current fresh-install/
+  no-automatic-legacy-migration behavior unless a migration is specifically requested.
 - Keep secrets, local.properties, private NARs, build outputs/APKs and recovery
   bundles out of Git. Commit concise focused changes on `codex/` branches.
-- No push, public PR, merge, publication, signing-key handling or user-device
-  installation is authorized by the local replacement plan.
+- Follow user authorization for Git and external actions; push and PR creation are
+  permitted when requested. Publication, releases, signing-key handling and
+  user-device installation require explicit authorization.
