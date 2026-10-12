@@ -191,8 +191,7 @@ review, update PR #442 and request another Codex review under the existing PR wo
 
 Written and self-reviewed for intent, scope, interfaces, locale selection and
 preservation guarantees. Author approved this written spec on 2026-10-11 with
-“approve, please proceed”. The next stage is implementation-plan review;
-product implementation has not started.
+“approve, please proceed”. The archive-owned revision was approved on 2026-10-12 with “ok approve”; implementation and verification are recorded in the cleanup acceptance and final review.
 
 ## Astra simplification review
 
@@ -207,4 +206,8 @@ The archive-owned design above supersedes it. The
 accepts that ownership preference and tightens selector visibility, install
 identity, authored welcome/close behavior, temporary-file ownership and test
 archive consistency. Those findings are incorporated in this spec and plan.
-Product implementation has not started; this is a revision of the planning documents.
+The approved archive-owned revision is implemented. Final scoped review and
+handoff status are recorded in the plan and independent final review.
+
+Final implementation review at `230902e2` resolved both literal-substitution
+findings. No further actionable findings remain in the independent final review.
