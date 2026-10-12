@@ -80,8 +80,10 @@ assistant-only restriction on those two harmless host dialogs.
   the Traditional Chinese asset; English uses English; Japanese and other
   unsupported locales retain the existing Japanese fallback. Explicit `zh-Hans`
   remains unsupported and falls back rather than displaying the wrong script.
-- Keep assistant selection and UI resources consistent at startup. Changing locale
-  within an already running session is outside this cleanup; restart applies it.
+- Keep assistant selection and debug UI resources consistent at startup for the
+  three supported languages. Unsupported dialogue locales keep Japanese fallback;
+  other host UI retains Android's normal resource fallback. Changing locale within
+  an already running session is outside this cleanup; restart applies it.
 - Full translation of pre-existing import/input/About chrome is separate work;
   this cleanup covers the default dialogue and debug dialog affected by the coupling.
 
@@ -127,5 +129,6 @@ review, update PR #442 and request another Codex review under the existing PR wo
 ## Review status
 
 Written and self-reviewed for intent, scope, interfaces, locale selection and
-preservation guarantees. Awaiting author review before an implementation plan is
-written; product implementation has not started.
+preservation guarantees. Author approved this written spec on 2026-10-11 with
+“approve, please proceed”. The next stage is implementation-plan review;
+product implementation has not started.
