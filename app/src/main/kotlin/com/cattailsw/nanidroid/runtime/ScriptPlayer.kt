@@ -32,6 +32,7 @@ class ScriptPlayer(private val script: String) {
         val advanced = mutableSetOf<Int>()
         val animations = mutableListOf<AnimationRequest>()
         val surfaces = mutableListOf<SurfaceChange>()
+        val hostCommands = mutableListOf<HostUiCommand>()
         var budget = MAX_SOURCE_CHARS_PER_CALL
         while (!ended && input == null && budget > 0) {
             if (skippingTagName) {
@@ -61,7 +62,7 @@ class ScriptPlayer(private val script: String) {
                     skippingArgument = false
                     val tag = deferredTag
                     if (argument != null && tag != null)
-                        applyTag(tag, deferredSubtag, argument, animations, surfaces)
+                        applyTag(tag, deferredSubtag, argument, animations, surfaces, hostCommands)
                     deferredTag = null
                 } else if (cursor >= script.length) {
                     skippingArgument = false
@@ -114,17 +115,17 @@ class ScriptPlayer(private val script: String) {
             else when (tag) {
                 '0', 'h' -> selectSpeaker(0)
                 '1', 'u' -> selectSpeaker(1)
-                in DIGIT_ARGUMENT_TAGS -> applyTag(tag, null, argumentOrDigit(), animations, surfaces)
-                'n', 'q', '!' -> applyTag(tag, null, bracketArgument(), animations, surfaces)
+                in DIGIT_ARGUMENT_TAGS -> applyTag(tag, null, argumentOrDigit(), animations, surfaces, hostCommands)
+                'n', 'q', '!' -> applyTag(tag, null, bracketArgument(), animations, surfaces, hostCommands)
                 'c' -> clearCurrent()
                 'e' -> endPause = 1_000
-                '_' -> parseUnderscore(animations, surfaces)
+                '_' -> parseUnderscore(animations, surfaces, hostCommands)
                 '-', '4', '5', '6', 'v' -> Unit
                 else -> consumeUnknownTail()
             }
             budget -= cursor - start
         }
-        return PlaybackFrame(sakura, kero, ended, advanced, input, animations, surfaces)
+        return PlaybackFrame(sakura, kero, ended, advanced, input, animations, surfaces, hostCommands)
     }
 
     private inline fun update(target: Int = speaker, change: (SpeakerFrame) -> SpeakerFrame) {
@@ -190,12 +191,16 @@ class ScriptPlayer(private val script: String) {
         elapsed = 0
     }
 
-    private fun parseUnderscore(animations: MutableList<AnimationRequest>, surfaces: MutableList<SurfaceChange>) {
+    private fun parseUnderscore(
+        animations: MutableList<AnimationRequest>,
+        surfaces: MutableList<SurfaceChange>,
+        hostCommands: MutableList<HostUiCommand>,
+    ) {
         if (cursor >= script.length) return
         when (val subtag = script[cursor++]) {
             'q' -> quick = !quick
             's' -> sync = !sync
-            'w', 'b' -> applyTag('_', subtag, bracketArgument(), animations, surfaces)
+            'w', 'b' -> applyTag('_', subtag, bracketArgument(), animations, surfaces, hostCommands)
             'n', 'V' -> Unit
             else -> consumeUnknownTail()
         }
@@ -239,6 +244,7 @@ class ScriptPlayer(private val script: String) {
         argument: String,
         animations: MutableList<AnimationRequest>,
         surfaces: MutableList<SurfaceChange>,
+        hostCommands: MutableList<HostUiCommand>,
     ) {
         when (tag) {
             's' -> parseSurface(argument, surfaces)
@@ -247,7 +253,15 @@ class ScriptPlayer(private val script: String) {
             'n' -> pendingNewline = true
             'w' -> waitRemaining = saturatingMultiply(argument.toLongOrNull()?.coerceAtLeast(0) ?: 0, 50)
             'q' -> parseChoice(argument)
-            '!' -> parseInput(argument)
+            '!' -> {
+                parseInput(argument)
+                // Host requests require a complete bracket argument, including its closing delimiter.
+                if (script.getOrNull(cursor - 1) == ']') when (argument) {
+                    "open,ghostexplorer" -> hostCommands += HostUiCommand.GhostExplorer
+                    "open,configurationdialog,about" -> hostCommands += HostUiCommand.About
+                    "open,developer" -> hostCommands += HostUiCommand.Developer
+                }
+            }
             '_' -> when (subtag) {
                 'w' -> waitRemaining = argument.toLongOrNull()?.coerceAtLeast(0) ?: 0
                 'b' -> parseBalloon(argument)

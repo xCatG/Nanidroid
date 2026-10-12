@@ -8,4 +8,5 @@ data class PlaybackFrame(
     val input: InputRequest? = null,
     val animationRequests: List<AnimationRequest> = emptyList(),
     val surfaceChanges: List<SurfaceChange> = emptyList(),
+    val hostCommands: List<HostUiCommand> = emptyList(),
 )

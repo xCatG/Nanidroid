@@ -4,6 +4,110 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ScriptPlayerTest {
+    @Test fun hostTargetsParseExactly() {
+        val targets = listOf(
+            "open,ghostexplorer" to HostUiCommand.GhostExplorer,
+            "open,configurationdialog,about" to HostUiCommand.About,
+            "open,developer" to HostUiCommand.Developer,
+        )
+        for ((target, command) in targets) {
+            val player = ScriptPlayer("\\_qBefore\\![$target]After\\e")
+            val frame = player.advanceBy(0)
+            assertEquals(listOf(command), frame.hostCommands)
+            assertEquals("BeforeAfter", frame.sakura.text)
+            assertNull(frame.input)
+            assertTrue(player.advanceBy(0).hostCommands.isEmpty())
+        }
+    }
+
+    @Test fun unknownHostTargetsAreIgnored() {
+        val targets = listOf(
+            "open", "open,unknown", "open,configurationdialog", "open,configurationdialog,other",
+            "Open,ghostexplorer", "open,GhostExplorer", "open, ghostexplorer", "open,developer ",
+            "open,ghostexplorer,extra", "open,configurationdialog,about,extra", "open,developer,",
+            "open,developer," + "x".repeat(9_000),
+        )
+        for (target in targets) {
+            val player = ScriptPlayer("\\_qBefore\\![$target]After\\e")
+            repeat(3) { assertTrue(player.advanceBy(0).hostCommands.isEmpty()) }
+            assertEquals("BeforeAfter", player.advanceBy(0).sakura.text)
+        }
+        for (target in listOf("open,ghostexplorer", "open,configurationdialog,about", "open,developer",
+            "open,developer," + "x".repeat(9_000))) {
+            val player = ScriptPlayer("\\_qBefore\\![$target")
+            repeat(3) { assertTrue(player.advanceBy(0).hostCommands.isEmpty()) }
+            assertEquals("Before", player.advanceBy(0).sakura.text)
+        }
+    }
+
+    @Test fun hostCommandsRespectWaitsAndInput() {
+        val player = ScriptPlayer("\\_qA\\_w[100]\\![open,ghostexplorer]" +
+            "B\\w2\\![open,inputbox,box]\\![open,configurationdialog,about]C\\e")
+        val start = player.advanceBy(0)
+        assertEquals("A", start.sakura.text)
+        assertTrue(start.hostCommands.isEmpty())
+        assertTrue(player.advanceBy(99).hostCommands.isEmpty())
+        val afterWait = player.advanceBy(1)
+        assertEquals(listOf(HostUiCommand.GhostExplorer), afterWait.hostCommands)
+        assertEquals("AB", afterWait.sakura.text)
+        assertNull(afterWait.input)
+        assertTrue(player.advanceBy(99).hostCommands.isEmpty())
+        val pending = player.advanceBy(1)
+        assertEquals("box", pending.input?.boxId)
+        assertTrue(pending.hostCommands.isEmpty())
+        val blocked = player.advanceBy(10_000)
+        assertTrue(blocked.hostCommands.isEmpty())
+        assertEquals("AB", blocked.sakura.text)
+        assertTrue(player.resolveInput(pending.input!!.key))
+        val resumed = player.advanceBy(0)
+        assertEquals(listOf(HostUiCommand.About), resumed.hostCommands)
+        assertEquals("ABC", resumed.sakura.text)
+        assertTrue(player.advanceBy(0).hostCommands.isEmpty())
+    }
+
+    @Test fun hostCommandAcrossBudgetEmitsOnce() {
+        val player = ScriptPlayer("\\_q" + "A".repeat(4_081) + "\\![open,developer]Z\\e")
+        val first = player.advanceBy(0)
+        assertEquals("A".repeat(4_081), first.sakura.text)
+        assertTrue(first.hostCommands.isEmpty())
+        val second = player.advanceBy(0)
+        assertEquals(listOf(HostUiCommand.Developer), second.hostCommands)
+        assertEquals("A".repeat(4_081) + "Z", second.sakura.text)
+        assertTrue(player.advanceBy(0).hostCommands.isEmpty())
+    }
+
+    @Test fun hostCommandsPreserveDuplicatesAndOrder() {
+        val player = ScriptPlayer("\\![open,ghostexplorer]\\![open,developer]" +
+            "\\![open,ghostexplorer]\\![open,configurationdialog,about]\\e")
+        assertEquals(listOf(HostUiCommand.GhostExplorer, HostUiCommand.Developer,
+            HostUiCommand.GhostExplorer, HostUiCommand.About), player.advanceBy(0).hostCommands)
+        assertTrue(player.advanceBy(0).hostCommands.isEmpty())
+    }
+
+    @Test fun hostCommandsDoNotChangeInputBehavior() {
+        val player = ScriptPlayer("\\_qA\\q[First,first]\\![open,developer]" +
+            "\\![open,inputbox, name ,ignored,extra]B\\![open,ghostexplorer]\\q[Last,last]\\e")
+        val pending = player.advanceBy(0)
+        assertEquals(listOf(HostUiCommand.Developer), pending.hostCommands)
+        assertEquals("A", pending.sakura.text)
+        assertEquals(1L, pending.sakura.choices.single().key)
+        assertEquals(InputRequest(2L, " name "), pending.input)
+        assertFalse(player.resolveInput(3L))
+        val blocked = player.advanceBy(10_000)
+        assertEquals(pending.input, blocked.input)
+        assertTrue(blocked.hostCommands.isEmpty())
+        assertTrue(player.resolveInput(2L))
+        assertFalse(player.resolveInput(2L))
+        val resumed = player.advanceBy(0)
+        assertEquals("AB", resumed.sakura.text)
+        assertEquals(listOf(HostUiCommand.GhostExplorer), resumed.hostCommands)
+        assertEquals(listOf(1L, 3L), resumed.sakura.choices.map { it.key })
+        assertFalse(player.advanceBy(999).ended)
+        val ended = player.advanceBy(1)
+        assertTrue(ended.ended)
+        assertTrue(ended.hostCommands.isEmpty())
+    }
+
     @Test fun textAdvanceEdgeSurvivesClearAndDoesNotReplay() {
         val player = ScriptPlayer("\\0A\\c\\e")
         val initial = player.advanceBy(0)
