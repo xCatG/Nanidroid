@@ -302,6 +302,72 @@ class ScriptPlayerTest {
         assertEquals("\\", player.advanceBy(50).sakura.text)
         assertEquals("\\%", player.advanceBy(50).sakura.text)
     }
+    @Test fun substitutedChoiceAndInputMetadataRetainOriginalData() {
+        for (name in listOf("100%", "Path\\Name", "Data],Comma\\![open,developer]%selfname")) {
+            val script = ScriptPlayer.substituteNames(
+                "\\q[Talk to %selfname,OnTalk,%selfname]\\![open,inputbox,%selfname]\\e",
+                mapOf("selfname" to name))
+            val frame = ScriptPlayer(script).advanceBy(0)
+            val choice = frame.sakura.choices.single()
+            assertEquals("Talk to $name", choice.label)
+            assertEquals(listOf(name), choice.event.references)
+            assertEquals(name, frame.input!!.boxId)
+            assertEquals(emptyList<HostUiCommand>(), frame.hostCommands)
+        }
+    }
+    @Test fun substitutedChoiceIdsAndSatoriPayloadRetainNativeMetadata() {
+        for (id in listOf("talk100%\\path", "OnTalk100%\\path", "話題\u0001ID100%\\path\u000112")) {
+            val frame = ScriptPlayer(ScriptPlayer.substituteNames(
+                "\\q[%selfname,%selfname]", mapOf("selfname" to id))).advanceBy(0)
+            val choice = frame.sakura.choices.single()
+            assertEquals(id, choice.label)
+            assertEquals(id, choice.choiceId)
+            if (id.startsWith("On")) assertEquals(id, choice.event.id)
+            else {
+                assertEquals("OnChoiceSelect", choice.event.id)
+                assertEquals(listOf(id), choice.event.references)
+            }
+        }
+    }
+    @Test fun escapedArgumentDelimitersRemainDataAcrossSourceBudgetBoundaries() {
+        for (padding in listOf(4_087, 4_088, 4_089, 4_090, 8_183)) {
+            val name = "x".repeat(padding) + "],\\![open,developer]\\%selfname"
+            val script = ScriptPlayer.substituteNames(
+                "\\q[%selfname,OnTalk,%selfname]\\![open,inputbox,%selfname]",
+                mapOf("selfname" to name))
+            val player = ScriptPlayer(script)
+            val commands = mutableListOf<HostUiCommand>()
+            var frame = player.advanceBy(0).also { commands += it.hostCommands }
+            repeat(10) { frame = player.advanceBy(0).also { commands += it.hostCommands } }
+            assertEquals(name, frame.sakura.choices.single().label)
+            assertEquals(listOf(name), frame.sakura.choices.single().event.references)
+            assertEquals(name, frame.input!!.boxId)
+            assertEquals(emptyList<HostUiCommand>(), commands)
+        }
+    }
+    @Test fun substitutedArgumentStructureCannotCreateHostCommandsOrAdditionalInputFields() {
+        for (name in listOf("open,developer", "open,inputbox,created", "]\\![open,developer]", "\\%")) {
+            val script = ScriptPlayer.substituteNames("\\![%selfname]\\e", mapOf("selfname" to name))
+            val frame = ScriptPlayer(script).advanceBy(0)
+            assertNull(frame.input)
+            assertEquals(emptyList<HostUiCommand>(), frame.hostCommands)
+        }
+    }
+    @Test fun supportedNumericAndNewlineArgumentsKeepSubstitutedValues() {
+        val player = ScriptPlayer(ScriptPlayer.substituteNames(
+            "\\_q\\s[%selfname]\\i[%selfname]A\\n[%keroname]B\\_w[%selfname]C\\w[%selfname]D\\_b[-1]",
+            mapOf("selfname" to "2", "keroname" to "%,]\\![open,developer]")))
+        val first = player.advanceBy(0)
+        assertEquals(2, first.sakura.surfaceId)
+        assertEquals(listOf(AnimationRequest(0, 2)), first.animationRequests)
+        assertEquals("A\nB", first.sakura.text)
+        assertEquals(emptyList<HostUiCommand>(), first.hostCommands)
+        assertEquals("A\nBC", player.advanceBy(2).sakura.text)
+        val final = player.advanceBy(100)
+        assertEquals("A\nBCD", final.sakura.text)
+        assertFalse(final.sakura.balloonVisible)
+        assertEquals(emptyList<HostUiCommand>(), final.hostCommands)
+    }
     @Test fun escapedNameTagsRemainLiteralAcrossSourceBudgetBoundaries() {
         for (padding in listOf(4_091, 4_092, 4_093, 4_094, 8_188)) {
             val name = "x".repeat(padding) + "\\![open,developer]%selfname\\e"

@@ -369,3 +369,92 @@ not newly repeated journeys against this changed production APK. All earlier
 failures and rejected images remain preserved. Pixel 7 is untouched; no unsigned
 release was installed, signing keys handled, release/publishing action or external
 GitHub action performed. The root-owned emulator remains running for the controller.
+
+
+## Scoped review correction 2 — literal bracket metadata
+
+The scoped review of `8f0e779d` confirmed the original provenance bypass was fixed,
+but found that escaped macro replacements inside choice/input arguments were
+stored without decoding. `\q[Talk to %selfname,OnTalk,%selfname]` with `100%` thus
+produced an extra backslash in the visible label and SHIORI Reference0; input IDs
+and names containing backslashes had the same regression. The new focused
+`substitutedChoiceAndInputMetadataRetainOriginalData` test failed before the
+correction (`final-fix-round2/red.log`), then passed afterward (`green.log`). An
+intermediate expanded-test compile error used `choice.id` instead of the existing
+`choice.choiceId`; it is preserved in `expanded-green.log` and corrected in the
+successful `expanded-green2.log`.
+
+The correction identifies data boundaries before decoding. Serialized substitutions
+also quote comma and bracket delimiters. Bracket scans preserve escaped closing
+brackets, including an escape split across the bounded source-processing calls.
+Choice/input consumers split only unescaped field separators and then decode each
+field once. Numeric surface/animation/balloon/wait consumers decode their data
+before the existing numeric validation; newline behavior is preserved. Host command
+recognition keeps the encoded argument and exact allowlist, so decoded metadata
+cannot create executable command structure. Ordinary text still decodes escapes
+without rescanning the emitted characters. No permission/session change, content
+overlay, event dispatcher or archive change was added.
+
+Focused tests assert original labels, event references and input IDs for percent,
+backslash and hostile bracket/comma names; legacy/event/Satori choice IDs; numeric,
+newline and wait forms; and escaped argument/source-budget boundaries. A substituted
+whole `open,developer` or `open,inputbox,created` field cannot manufacture structural
+fields or a host command. Existing unknown/native-script and original cross-session
+provenance regressions remain green. UI source and the exact 18-case inventory are
+unchanged.
+
+The required full command actually executed its unit task and succeeded in **22
+seconds**, **136 tasks: 28 executed, 108 up-to-date** (`final-fix-round2/gate.log`):
+
+```
+./gradlew.bat testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease --offline --console=plain
+```
+
+Result: **28 suites, 451 cases, 446 passes, zero failures/errors, five existing
+Windows symlink privilege skips**. Exact skip names/reasons and copied final XMLs
+are in `final-fix-round2/unit-summary.json` and `unit-xml/`. Lint remains **zero
+errors, 26 warnings, one hint**; all three APK assemblies succeeded. The prior
+inventory/ListOnly/SelfCheck remains applicable to unchanged UI identities and
+inventory: **135 self-contained / 181 total**.
+
+Executable source is `8f0e779df2e353ad2e4d1b6acb8eaf0c078a3d6c` plus the narrow
+parser/helper/test correction committed with this section; exact compiled bytes
+are in `final-fix-round2/artifact-hashes.json`:
+
+| Revised executable input/artifact | SHA-256 |
+| --- | --- |
+| SakuraScriptText.kt | `e1dee956ef37f06c127c13f8ddf94e62f2e5df13b7c333a938366622e7b1c053` |
+| ScriptPlayer.kt | `c97fead25264bede9327d43182dcfcdfa8247d611a1ee937f42ee795bbade780` |
+| ScriptPlayerTest.kt | `b1682f5ca814b7df6f4d4479fc15b774c8026bfbad0cb6aad3b6e4da6e11ac81` |
+| BundledAssistantUiTest.kt | `00cf3235bfa4c12b2b1871160d7989ed07e165496c3f656df523f8bc3e353090` |
+| app-debug.apk | `629396d7411c9ee48547b400f0a809806fbe972c20a9ad47d00d55d8b8f3677e` |
+| app-debug-androidTest.apk | `6fd019943cce2acc8db13ae6cb6e9c0f00825c80fae1a35597420d9d18a1e5fd` |
+| app-release-unsigned.apk | `a6e2f39165dd38b9cfd0977d7a1cc81af7cc240e8f8ca8669e33572064291875` |
+
+The root restarted the existing owned emulator. Before installation this worker
+verified **emulator-5580 / CodexShioriCleanup / boot_completed=1 / API31 / x86_64**
+and confirmed the Android CLI layout process was absent. Only these debug/test
+APKs were installed `-r`, retaining app data. The unchanged exact 18 selectors ran
+on this new debug app: **18 unique observed, 18 passes, zero failures/skips/
+incomplete**, **46.871 seconds**, `OK (18 tests)`, one successful terminal -1.
+Raw `ui.log`, `ui.stderr.log`, `install.log`, selection `selectors.txt`, command
+`ui-execution.json` and strictly parsed `ui-summary.json` are retained under
+`app/build/built-in-shiori-cleanup/final-fix-round2/`. No layout server was started.
+The emulator remains running for the controller; Pixel 7 was untouched.
+
+No new host-side image set was accepted or visually inspected for this round.
+The nine previously inspected images at `final-fix/screenshots/` and their hashes
+retain their **8f0e779d debug APK `4c0ea3e2392ad7fe8b12c9ea46be8ace4984c6282d0652360f80ce6e59421c26`**
+provenance, rather than being attributed to the new debug APK. The existing locale
+cases still generate routine device-side captures, but those captures were not
+pulled or accepted as new image evidence. The parser correction changes metadata
+escaping/decoding for special data characters, with no UI source, archived menu,
+normal locale text or normal frame change; the fresh device assertions raised no
+visual concern requiring a new image inspection round.
+
+All prior failures, captures and evidence remain preserved. Both ZIPs, PNGs,
+notices and dictionaries remain unchanged. Normal-factory history retains its
+older APK provenance. No release installation/signing, full device suite/private
+native fixtures, live-locale change, Pixel work, or external GitHub action is
+claimed. The five Windows skips remain skips; the existing Android managed-link
+case passed again in the exact 18-case run.
