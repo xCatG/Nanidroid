@@ -31,9 +31,10 @@ on a particular ghost implementation.
 3. ScriptPlayer interprets supported host commands during normal playback, as it
    already does for input boxes. SHIORI never holds a Compose callback or opens a
    dialog directly.
-4. GhostRuntime publishes generic, session-owned host UI requests. The UI claims a
-   request once and opens the corresponding host dialog. Requests contain a closed
-   command type and identity, never a content object or engine-specific event ID.
+4. ScriptPlayer emits an ordered, transient list of command enums. GhostRuntime
+   assigns one identity per admitted occurrence and publishes a generic head
+   request containing only that ID and command. Ownership metadata stays private
+   to its session-owned queue, never in a content object or engine-specific event ID.
 5. GhostStage and DebugToolsDialog use Android string resources. They have no
    dependency on BundledAssistantContent, dialogue tables or built-in SHIORI classes.
 
@@ -91,11 +92,18 @@ assistant-only restriction on those two harmless host dialogs.
 
 - A host command executes when playback reaches it, respecting preceding text,
   waits and input-box pauses. A command is not inferred from a choice ID.
-- Each parsed occurrence has a unique request identity; recompose/tick/claim cannot
+- Each admitted occurrence has a unique request identity; recompose/tick/claim cannot
   execute it twice. Repeating an explicitly authored command is a new occurrence.
-- Requests retain session/dialogue/generation ownership. Replaced dialogue, ghost
-  switch, close and pause invalidate pending delivery. Delayed SHIORI replies from
-  before pause/resume cannot revive a host UI request.
+- Assign that identity only at runtime admission; the parser needs no item key.
+- Explicit dialogue replacement, ghost switch, close and pause invalidate pending
+  delivery. Natural advancement to the next queued script preserves commands
+  already reached in the current replacement generation. Delayed SHIORI replies
+  from before pause/resume cannot revive a host UI request.
+- Publish admitted requests even when command-only playback changes no retained
+  text/visual frame. Denied commands produce no request.
+- Present queued host dialogs in order. Defer claiming the next request while any
+  host/input/import/switch modal is visible, then claim when it closes. Repeated
+  equal commands each get a presentation; add no second UI queue or modal scheduler.
 - Suppressed requests must not cancel otherwise valid dialogue. Debug denial must
   not suppress ordinary text in the same reply. Parsing produces requests; UI
   execution remains outside the parser/SHIORI.
@@ -114,6 +122,8 @@ Use focused JUnit 4/coroutines-test and Compose tests to prove:
   parsing across incremental playback calls.
 - Common host commands from ordinary ghosts; debug allowed only from the actual
   built-in default and only in debug policy. Reject forged/imported debug scripts.
+- Command-only publication after a wait, a command reached in an ending frame
+  before natural queue advancement, and two/repeated dialogs presented after dismissal.
 - Exactly-once claiming, stale/replaced/paused/switched/closed requests, valid text
   surviving a denied command, first-boot marker preservation and installed-file hashes.
 - Real rendered tap → choice → SHIORI script → parser → runtime → dialog flow;
@@ -132,3 +142,18 @@ Written and self-reviewed for intent, scope, interfaces, locale selection and
 preservation guarantees. Author approved this written spec on 2026-10-11 with
 “approve, please proceed”. The next stage is implementation-plan review;
 product implementation has not started.
+
+## Astra simplification review
+
+The [independent review](../../review/2026-10-11-built-in-shiori-cleanup-astra-review.md)
+recommended the narrow request/transient-enum design, named default construction,
+one instrumentation migration and the explicit publication/modal/advancement rules
+above. These clarifications preserve the intended independently executed commands.
+
+An additional ownership simplification remains proposed, not approved: use complete
+APK-owned default locale tables and remove the original-content overlay. It would
+preserve shipped lifecycle scripts and installed bytes, translate all default
+lifecycle replies into Traditional Chinese, and keep imported custom tables intact.
+It would stop honoring manually edited/added entries in the installed default
+table. Until the author accepts that tradeoff, the implementation plan retains
+the original-content overlay.
