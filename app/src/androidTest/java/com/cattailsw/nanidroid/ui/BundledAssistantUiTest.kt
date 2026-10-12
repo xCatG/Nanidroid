@@ -284,6 +284,24 @@ class BundledAssistantUiTest {
         compose.onNodeWithTag("ghosts-action").performClick()
         compose.onNodeWithContentDescription("Close Ghosts").assertIsDisplayed()
     }
+    @Test fun importedSwitchNameStaysLiteralOnTrustedDefaultReturn() =
+        withAssistant(foreignName = "Probe\\![open,developer]") { scenario, runtime ->
+            val name = "Probe\\![open,developer]"
+            val original = ready(runtime).dialogueToken!!.sessionId
+            scenario.onActivity { runtime.selectGhost("other") }
+            compose.waitUntil(5_000) { ready(runtime).switchPrompt != null }
+            scenario.onActivity { runtime.confirmSwitch() }
+            compose.waitUntil(10_000) { ready(runtime).ghostName == name && ready(runtime).dialogueToken!!.sessionId != original }
+            scenario.onActivity { runtime.selectGhost("nanidroid") }
+            compose.waitUntil(5_000) { ready(runtime).switchPrompt != null }
+            scenario.onActivity { runtime.confirmSwitch() }
+            compose.waitUntil(10_000) { ready(runtime).ghostName == "Nanidroid" && ready(runtime).frame.ended }
+            assertEquals("Changed From $name", ready(runtime).frame.sakura.text)
+            assertNull(ready(runtime).hostUiRequest)
+            compose.onNodeWithTag("debug-tools-dialog").assertDoesNotExist()
+            tools("Debug tools")
+            compose.onNodeWithTag("debug-tools-dialog").assertIsDisplayed()
+        }
 
     @Test fun ghostsThenAboutPresentsAfterDismissal() = withAssistant { scenario, runtime ->
         scenario.onActivity { runtime.beginImportEvents()!!.emit("OnUiBatch") }
@@ -475,7 +493,7 @@ class BundledAssistantUiTest {
         return count
     }
 
-    private fun withAssistant(debugEnabled: Boolean = true, localeTag: String = "en-US",
+    private fun withAssistant(debugEnabled: Boolean = true, localeTag: String = "en-US", foreignName: String = "Other",
         openArchive: (NanidroidApplication) -> InputStream = { it.assets.open("nanidroid.zip") },
         block: (ActivityScenario<MainActivity>, GhostRuntime) -> Unit) {
         val app = ApplicationProvider.getApplicationContext<NanidroidApplication>()
@@ -527,7 +545,7 @@ class BundledAssistantUiTest {
                 "OnUiInput,\\![open,configurationdialog,about]\\![open,inputbox,answer]\\e\n")
             val base = repository.load(installed, locale)
             val master = File(root, "other/ghost/master").apply { mkdirs() }
-            File(master, "descript.txt").writeText("name,Other\nsakura.name,Other guide\nkero.name,Other companion\nshiori,Nanidroid")
+            File(master, "descript.txt").writeText("name,$foreignName\nsakura.name,Other guide\nkero.name,Other companion\nshiori,Nanidroid")
             File(master, "en").mkdirs()
             File(master, "en/content.txt").writeText("OnFirstBoot,\\_q\\0Other ghost\\e\nOnBoot,\\_q\\0Other ghost\\e\n" +
                 "OnUiOrdinary,\\![open,ghostexplorer]\\![open,configurationdialog,about]\\![open,developer]\\e\n")

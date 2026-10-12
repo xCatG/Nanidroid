@@ -292,9 +292,26 @@ class ScriptPlayerTest {
     }
 
     @Test fun literalNameSubstitutionUsesLongestMacroWithoutRescan() {
-        assertEquals("$\\%keroname|Second|First|Kero|%other",
+        assertEquals("$\\\\\\%keroname|Second|First|Kero|%other",
             ScriptPlayer.substituteNames("%username|%selfname2|%selfname|%keroname|%other",
                 mapOf("username" to "$\\%keroname", "selfname" to "First", "selfname2" to "Second", "keroname" to "Kero")))
+    }
+    @Test fun escapedLiteralCharactersKeepNormalTextTiming() {
+        val player = ScriptPlayer("\\\\\\%")
+        assertEquals("", player.advanceBy(0).sakura.text)
+        assertEquals("\\", player.advanceBy(50).sakura.text)
+        assertEquals("\\%", player.advanceBy(50).sakura.text)
+    }
+    @Test fun escapedNameTagsRemainLiteralAcrossSourceBudgetBoundaries() {
+        for (padding in listOf(4_091, 4_092, 4_093, 4_094, 8_188)) {
+            val name = "x".repeat(padding) + "\\![open,developer]%selfname\\e"
+            val player = ScriptPlayer(ScriptPlayer.substituteNames("\\_q%selfname\\e", mapOf("selfname" to name)))
+            val commands = mutableListOf<HostUiCommand>()
+            var frame = player.advanceBy(0).also { commands += it.hostCommands }
+            repeat(5) { frame = player.advanceBy(0).also { commands += it.hostCommands } }
+            assertEquals(name, frame.sakura.text)
+            assertEquals(emptyList<HostUiCommand>(), commands)
+        }
     }
 
     @Test fun aliasesNewlineFormsAndBalloonHideKeepTheirDeclaredEffects() {

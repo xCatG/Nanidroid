@@ -3,6 +3,14 @@
   "methods": [
     {
       "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "importedSwitchNameStaysLiteralOnTrustedDefaultReturn",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Debug APK; invocation-owned installed foreign descriptor carrying a developer tag; real bundled engine/runtime/MainActivity return to already activated default",
+      "reason": "Foreign switch name stays literal and cannot open Developer under receiving default privilege; authored developer choice still works"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
       "method": "ghostsThenAboutPresentsAfterDismissal",
       "suite": "self-contained",
       "requiredArguments": [],

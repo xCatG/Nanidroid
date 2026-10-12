@@ -270,3 +270,102 @@ executable. The normal-factory preservation evidence above therefore still appli
 to the identical production APK. Emulator-5580 remains running for the controller;
 Pixel 7 remains untouched. Independent re-review/whole-branch review and external
 PR actions remain the controller's work.
+
+
+## Final branch review correction — imported switch-name provenance
+
+The final independent review found one P2: an installed descriptor name containing
+`Probe\![open,developer]` became code when the trusted bundled default substituted
+that name into its archived `OnGhostChanged` greeting. The receiving session then
+admitted Developer. A new real-runtime regression reproduced that exact path before
+the fix: `final-fix/red.log` failed because the expected null request was instead
+`HostUiRequest(id=1, command=Developer)`. This is preserved red evidence.
+
+The correction keeps reference/name substitutions as literal text through both
+SakuraScript parsing and the later name-macro pass. A small generic text serializer
+escapes backslashes and percent signs. Playback emits escaped pairs as ordinary
+text with normal text timing, without rescanning the emitted characters as tags.
+The name-macro pass preserves those pairs and serializes replacement data through
+the same boundary. No ghost-specific dispatcher, reply action metadata, permission
+change, or APK dialogue overlay was added. The archive still authors greetings,
+menus and legitimate developer commands. Ordinary Unicode and dollar names retain
+the same reply bytes; only names containing backslash/percent need escaped wire
+bytes to preserve their displayed literal value and prevent tags/macro expansion.
+
+The real runtime test switches from the already activated actual bundled engine
+through installed foreign descriptors and back. It covers the exact developer tag,
+doubled/trailing backslashes, control tags, Unicode/dollar and macro-looking names;
+requires the literal full greeting with no host request, then claims the legitimate
+archived developer choice. Engine tests also cover both lifecycle substitutions,
+input/choice/surface/close tags and literal control characters. Parser tests cover
+normal timing and source-budget boundaries. `green.log` and `expanded-green.log`
+pass those focused regressions. The one new inventoried API31 UI identity,
+`importedSwitchNameStaysLiteralOnTrustedDefaultReturn`, verifies literal greeting
+playback, absence of the developer dialog after return, and the real authored
+developer tools choice still opening its dialog.
+
+The final source is base `cb6c51c598231101f059e6ef22a17f89d7c5d891` plus the
+literal-text correction and focused tests committed with this section. Exact
+compiled inputs and all artifact bytes are pinned by
+`app/build/built-in-shiori-cleanup/final-fix/artifact-hashes.json`:
+
+| Revised executable input/artifact | SHA-256 |
+| --- | --- |
+| BuiltInShiori.kt | `167d3dac37aa7c817993301cccdc2118a6d7f9e00034b22792615eaad5629f6a` |
+| ScriptPlayer.kt | `eb2e18925bfb3868095b759d82935cc869225f36836a2d596928c52d7946f3d7` |
+| SakuraScriptText.kt | `244eeacb1138213e56fd9d5550c530451ed99b3dc08b37da725cb2f1a5e47b7a` |
+| BundledAssistantUiTest.kt | `00cf3235bfa4c12b2b1871160d7989ed07e165496c3f656df523f8bc3e353090` |
+| app-debug.apk | `4c0ea3e2392ad7fe8b12c9ea46be8ace4984c6282d0652360f80ce6e59421c26` |
+| app-debug-androidTest.apk | `6fd019943cce2acc8db13ae6cb6e9c0f00825c80fae1a35597420d9d18a1e5fd` |
+| app-release-unsigned.apk | `76c5d44888e63b6847fb87f5885990fea9faa66851373ffbb19e340b5a99ac97` |
+
+Required full command executed successfully in **23 seconds**, **136 tasks: 32
+executed, 104 up-to-date** (`final-fix/gate.log`):
+
+```
+./gradlew.bat testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease --offline --console=plain
+```
+
+The unit task actually executed: **28 suites, 446 cases, 441 passes, zero failures
+or errors, five Windows symlink privilege skips**. The five skips retain their
+existing limited scope and are not passes; precise names/reasons are in
+`final-fix/unit-summary.json` and preserved `unit-xml/`. Lint is **zero errors,
+26 warnings, one hint** (`lint-summary.json` and preserved lint XML). Debug/test
+and unsigned release assemblies succeeded. Strict inventory ListOnly/SelfCheck
+passes at **135 self-contained / 181 total** identities (`inventory.log`,
+`selfcheck.log`). No other device suites or private native fixtures were run.
+
+Both final debug/test APKs were installed with `-r`, preserving application data,
+only on explicitly identified **emulator-5580 / CodexShioriCleanup / API31 / x86_64**.
+The original 17 exact cleanup identities plus the new provenance identity ran
+together: **18 selected, 18 unique observed, 18 passes, zero failures/skips/
+incomplete**, **45.949 seconds**, `OK (18 tests)`, one terminal code -1.
+`final-fix/selectors.txt`, `ui.log`, `ui.stderr.log`, `ui-execution.json` and the
+strictly parsed `ui-summary.json` retain selection/command/results. The Android
+CLI layout process was absent before execution, and no layout server was started
+during these UiAutomation captures.
+
+All nine corresponding fresh images were regenerated and visually inspected
+individually under `app/build/built-in-shiori-cleanup/final-fix/screenshots/`:
+
+| Startup locale | Help | Tools | Debug |
+| --- | --- | --- | --- |
+| en-US | en-US-help.png | en-US-tools.png | en-US-debug.png |
+| ja-JP | ja-JP-help.png | ja-JP-tools.png | ja-JP-debug.png |
+| zh-TW | zh-TW-help.png | zh-TW-tools.png | zh-TW-debug.png |
+
+All show complete readable help/tools menus and debug controls, retained artwork,
+and no blank captures. Japanese stage controls wrap to two rows; the long Japanese
+license choice wraps within the balloon. `final-fix/screenshot-hashes.json` pins
+these final PNG bytes. The locale fixture/setup-cleanup/20× playback and startup
+locale boundaries remain exactly as documented above. This is not a live system
+locale-change journey or release-device execution claim.
+
+Production and test-resource ZIPs remain identical at
+`7ad4109c5362d3f068b1acf1ab642541b9dd8d2c5d9d95e5e7f2c9bf4eb9f46c`; dictionaries,
+PNG bytes and notices were not changed by this correction. The earlier normal
+factory/upgrade captures and their APK provenance remain historical evidence,
+not newly repeated journeys against this changed production APK. All earlier
+failures and rejected images remain preserved. Pixel 7 is untouched; no unsigned
+release was installed, signing keys handled, release/publishing action or external
+GitHub action performed. The root-owned emulator remains running for the controller.

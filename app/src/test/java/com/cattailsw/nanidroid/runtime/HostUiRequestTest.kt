@@ -83,6 +83,27 @@ class HostUiRequestTest {
         assertNotNull(runtime.action())
         assertEquals(HostUiCommand.GhostExplorer, runtime.claim(runtime.action()!!.requestId()))
     }
+    @Test fun importedSwitchNameCannotInjectTrustedDeveloperCommand() = runTest {
+        for (name in listOf("Probe\\![open,developer]", "\\\\![open,developer]",
+            "\\0\\c\\s[-1]\\q[Injected,OnOther]\\![open,inputbox,x]\\e",
+            "正常な名前\$値", "%selfname\\![open,developer]", "Trailing\\")) {
+            val fixture = fixture().apply { imported() }
+            File(fixture.root, "lookalike/ghost/master/descript.txt").writeText(
+                "charset,UTF-8\nname,$name\nsakura.name,Foreign\nkero.name,Companion\nshiori,Nanidroid")
+            val runtime = started(fixture, boot = Boot(true))
+            runtime.selectGhost("lookalike"); runCurrent(); runtime.confirmSwitch(); runCurrent()
+            advanceTimeBy(10_000); runCurrent()
+            assertEquals(name, runtime.ready.ghostName)
+            runtime.selectGhost("nanidroid"); runCurrent(); runtime.confirmSwitch(); runCurrent()
+            advanceTimeBy(10_000); runCurrent()
+            assertEquals("Nanidroid", runtime.ready.ghostName)
+            assertNull("Foreign name became a trusted command", runtime.action())
+            assertEquals("Changed From $name", runtime.ready.frame.sakura.text)
+            selectTool(runtime, "Debug tools")
+            assertEquals(HostUiCommand.Developer, runtime.claim(runtime.action()!!.id))
+        }
+    }
+
     @Test fun switchBackToDefaultGetsAssistance() = runTest {
         val fixture = fixture().apply { imported() }
         val runtime = started(fixture, saved = "lookalike")

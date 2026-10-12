@@ -1,5 +1,7 @@
 package com.cattailsw.nanidroid.engine
 
+import com.cattailsw.nanidroid.runtime.SakuraScriptText
+
 class BuiltInShiori private constructor(
     content: String,
     private val bundledMode: Boolean,
@@ -36,7 +38,7 @@ class BuiltInShiori private constructor(
             return ShioriReply(204)
         }
         val value = if (event.id == "OnGhostChanging" || event.id == "OnGhostChanged") {
-            script.replace("%1\$s", event.references.firstOrNull().orEmpty())
+            script.replace("%1\$s", SakuraScriptText.escape(event.references.firstOrNull().orEmpty()))
         } else script
         return ShioriReply(200, value)
     }

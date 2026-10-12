@@ -101,6 +101,14 @@ class ScriptPlayer(private val script: String) {
             }
             val start = cursor
             if (budget < 2) break
+            if (SakuraScriptText.isEscape(script, cursor)) {
+                if (!quick && elapsed < 50) break
+                if (!quick) elapsed -= 50
+                append(script[cursor + 1], advanced)
+                cursor += 2
+                budget -= 2
+                continue
+            }
             if (skipOversizedCommand(budget)) {
                 budget = 0
                 break
@@ -308,9 +316,14 @@ class ScriptPlayer(private val script: String) {
         fun substituteNames(script: String, names: Map<String, String>): String = buildString {
             var index = 0
             while (index < script.length) {
+                if (SakuraScriptText.isEscape(script, index)) {
+                    append(script, index, index + 2)
+                    index += 2
+                    continue
+                }
                 val macro = MACROS.firstOrNull { script.startsWith(it, index) }
                 if (macro != null) {
-                    append(names[macro.substring(1)] ?: macro)
+                    append(names[macro.substring(1)]?.let(SakuraScriptText::escape) ?: macro)
                     index += macro.length
                 } else append(script[index++])
             }
