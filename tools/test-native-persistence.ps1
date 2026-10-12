@@ -1,26 +1,70 @@
+[CmdletBinding(DefaultParameterSetName='Run')]
 param(
-    [string]$Adb = 'C:/Users/yenchi/AppData/Local/Android/Sdk/platform-tools/adb.exe',
-    [ValidateSet('emulator-5554')][string]$Serial = 'emulator-5554',
-    [string]$OutputDirectory = (Join-Path $env:TEMP ('nanidroid-persistence-' + [guid]::NewGuid().ToString('N'))),
-    [switch]$SkipBuild,
-    [string[]]$Only
+    [Parameter(ParameterSetName='SelfCheck', Mandatory)][switch]$SelfCheck,
+    [Parameter(ParameterSetName='Run')][string]$Adb,
+    [Parameter(ParameterSetName='Run', Mandatory)][string]$Serial,
+    [Parameter(ParameterSetName='Run')][string]$CorpusRoot,
+    [Parameter(ParameterSetName='Run')][string]$OutputDirectory = (Join-Path ([IO.Path]::GetTempPath()) ('nanidroid-persistence-' + [guid]::NewGuid().ToString('N'))),
+    [Parameter(ParameterSetName='Run')][switch]$SkipBuild,
+    [Parameter(ParameterSetName='Run')][string[]]$Only
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'test-outcome-policy.ps1')
+if ($SelfCheck) { & (Join-Path $PSScriptRoot 'tests/test-runner-outcomes.ps1') -PolicyOnly; return }
 $package = 'com.cattailsw.nanidroid'
 $runner = "$package.test/androidx.test.runner.AndroidJUnitRunner"
 $testClass = "$package.engine.NativePersistenceTest"
 $sources = @(
-    @{ name='satori'; archive='C:/tmp/Nanidroid-corpus-recovery/2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='satoriOrderlyUnloadRestoresChangedFlag' },
-    @{ name='satori-rotation'; archive='C:/tmp/Nanidroid-corpus-recovery/2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='twoelfKeepsFlagAndLeaseAcrossRecreationAndDisplayRotation' },
-    @{ name='satori-runtime'; archive='C:/tmp/Nanidroid-corpus-recovery/2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='twoelfRuntimeSwitchBackAndCloseWritesFlag' },
-    @{ name='lobo-minute'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboMinuteSaveRestoresTalkInterval' },
-    @{ name='lobo-destroy'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboDestroyWritesNestedProfile' },
-    @{ name='lobo-runtime'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboRuntimeSwitchBackAndCloseWritesInterval' },
-    @{ name='yaya'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/Earthquake Rescue Duo/Earthquake_duo_1.0.1.nar'; hash='06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; method='yayaOrderlyUnloadRestoresChangedName' },
-    @{ name='yaya-runtime'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/Earthquake Rescue Duo/Earthquake_duo_1.0.1.nar'; hash='06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; method='yayaRuntimeSwitchBackAndCloseWritesName' },
-    @{ name='lobo-kill'; archive='C:/tmp/Nanidroid-corpus-recovery/pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method=$null }
+    @{ name='satori'; archive='2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='satoriOrderlyUnloadRestoresChangedFlag' },
+    @{ name='satori-rotation'; archive='2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='twoelfKeepsFlagAndLeaseAcrossRecreationAndDisplayRotation' },
+    @{ name='satori-runtime'; archive='2elf/2elf-2.46.nar'; hash='a50830e18def75be051a3638c7375c7e2d96cb18f7b3f26d0037d84a0fc20be0'; method='twoelfRuntimeSwitchBackAndCloseWritesFlag' },
+    @{ name='lobo-minute'; archive='pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboMinuteSaveRestoresTalkInterval' },
+    @{ name='lobo-destroy'; archive='pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboDestroyWritesNestedProfile' },
+    @{ name='lobo-runtime'; archive='pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method='loboRuntimeSwitchBackAndCloseWritesInterval' },
+    @{ name='yaya'; archive='pcPets/Ukagakas/Earthquake Rescue Duo/Earthquake_duo_1.0.1.nar'; hash='06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; method='yayaOrderlyUnloadRestoresChangedName' },
+    @{ name='yaya-runtime'; archive='pcPets/Ukagakas/Earthquake Rescue Duo/Earthquake_duo_1.0.1.nar'; hash='06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538'; method='yayaRuntimeSwitchBackAndCloseWritesName' },
+    @{ name='lobo-kill'; archive='pcPets/Ukagakas/LOBO/LOBO_1.0.0.nar'; hash='f4e90615cf40801d4a7a7170762b6c0d6dddf18324f9ba146f4a700cbe2bebf7'; method=$null }
 )
-if ($Only) { $sources = @($sources | Where-Object { $_.name -in $Only }) }
+$requested = if ($PSBoundParameters.ContainsKey('Only')) { @($Only) } else { @() }
+$resolved = @(Resolve-OutcomeSelection @($sources | ForEach-Object name) $requested $PSBoundParameters.ContainsKey('Only'))
+$sources = @($sources | Where-Object { $_.name -cin $resolved })
+if ($Serial -notmatch '^emulator-[0-9]+$') { throw 'Require explicit disposable emulator Serial' }
+if ([string]::IsNullOrWhiteSpace($CorpusRoot) -or !(Test-Path -LiteralPath $CorpusRoot -PathType Container)) { throw 'Real fixture execution requires explicit existing -CorpusRoot' }
+$CorpusRoot = (Resolve-Path -LiteralPath $CorpusRoot).Path
+foreach ($source in $sources) { $source.archive = Join-Path $CorpusRoot $source.archive }
+$adbName = if ($IsWindows) { 'adb.exe' } else { 'adb' }
+if (!$Adb) {
+    foreach ($sdkRoot in @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME)) {
+        if ($sdkRoot -and (Test-Path -LiteralPath (Join-Path $sdkRoot "platform-tools/$adbName"))) {
+            $Adb = Join-Path $sdkRoot "platform-tools/$adbName"; break
+        }
+    }
+    if (!$Adb) { $command = Get-Command $adbName -ErrorAction SilentlyContinue; if ($command) { $Adb=$command.Source } }
+}
+if (!$Adb -or !(Test-Path -LiteralPath $Adb -PathType Leaf)) { throw 'Cannot resolve adb: supply -Adb or Android SDK environment/PATH' }
+$Adb = (Resolve-Path -LiteralPath $Adb).Path
+$platformTools = Split-Path -Parent $Adb
+if ((Split-Path -Leaf $platformTools) -eq 'platform-tools') {
+    $sdk = Split-Path -Parent $platformTools
+    $env:ANDROID_HOME=$sdk; $env:ANDROID_SDK_ROOT=$sdk
+}
+Write-Host "Requested: $(if ($requested.Count) { $requested -join ',' } else { '<all>' }); resolved: $($resolved -join ',')"
+$scenarioRecords = @($sources | ForEach-Object { [ordered]@{name=$_.name;status='incomplete';cleanupStatus='not-run'} })
+$instrumentRecords = @()
+$runReasons = @()
+$sourceCommit = (& git -C (Join-Path $PSScriptRoot '..') rev-parse HEAD | Out-String).Trim()
+function Write-NativeSummary {
+    $counts = [ordered]@{passed=0;skipped=0;failed=0;incomplete=0}
+    foreach ($record in $scenarioRecords) { $counts[$record.status]++ }
+    $instrumentCounts=[ordered]@{passed=0;skipped=0;failed=0;incomplete=0}
+    foreach ($record in $instrumentRecords) { $instrumentCounts[$record.status]++ }
+    $completed = @($scenarioRecords | Where-Object { $_.status -eq 'passed' }).Count
+    $summary = [ordered]@{schemaVersion=1;runner='native-persistence';mode='Acceptance';sourceCommit=$sourceCommit;
+        requestedSelection=@($requested);resolvedSelection=@($resolved);selectedCount=$sources.Count;completedCount=$completed;
+        counts=$counts;instrumentationCounts=$instrumentCounts;scenarios=@($scenarioRecords);instrumentation=@($instrumentRecords);
+        outcome=$(if (!$runReasons.Count -and $completed -eq $sources.Count -and $completed -gt 0) {'passed'} else {'failed'});reasons=@($runReasons)}
+    $summary | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'summary.json') -Encoding utf8
+}
 
 function Invoke-BoundedAdb([string[]]$Arguments, [int]$TimeoutSeconds) {
     $quoted = @('-s', $Serial) + @($Arguments | ForEach-Object {
@@ -62,6 +106,11 @@ function Assert-DeviceHealth([string]$LogName) {
     $state = (Invoke-Adb -Arguments @('get-state') -TimeoutSeconds 15 | Out-String).Trim()
     $state | Out-File (Join-Path $OutputDirectory $LogName)
     if ($state -ne 'device') { throw "Unexpected $Serial state: '$state'" }
+    $qemu=(Invoke-Adb @('shell','getprop','ro.kernel.qemu') | Out-String).Trim()
+    $boot=(Invoke-Adb @('shell','getprop','sys.boot_completed') | Out-String).Trim()
+    $api=(Invoke-Adb @('shell','getprop','ro.build.version.sdk') | Out-String).Trim()
+    $abi=(Invoke-Adb @('shell','getprop','ro.product.cpu.abi') | Out-String).Trim()
+    if ($qemu -ne '1' -or $boot -ne '1' -or $api -notmatch '^\d+$' -or [int]$api -lt 31 -or $abi -ne 'x86_64') { throw 'Require booted API>=31 x86_64 emulator' }
 }
 
 function Stage-Fixture($source, [string]$runId) {
@@ -96,13 +145,19 @@ function Stage-Fixture($source, [string]$runId) {
 
 function Run-Instrumentation([string]$fixtureId, [string]$method, [string]$runId, [string]$logName, [string]$className = $testClass) {
     $stdout = Join-Path $OutputDirectory $logName
-    $arguments = @('shell','am','instrument','-w','-e','fixtureId',$fixtureId,'-e','runId',$runId,'-e','class',"$className#$method",$runner)
-    $result = Invoke-BoundedAdb -Arguments $arguments -TimeoutSeconds 180
+    $arguments = @('shell','am','instrument','-w','-r','-e','fixtureId',$fixtureId,'-e','runId',$runId,'-e','class',"$className#$method",$runner)
+    try { $result = Invoke-BoundedAdb -Arguments $arguments -TimeoutSeconds 180 }
+    catch {
+        $_.Exception.Message | Set-Content -LiteralPath $stdout
+        $script:instrumentRecords += [ordered]@{methodId="$className#$method";status='incomplete';runId=$runId;stdoutPath=$stdout;reason=$_.Exception.Message}
+        throw
+    }
     $result.Stdout | Set-Content -LiteralPath $stdout -Encoding utf8
     $result.Stderr | Set-Content -LiteralPath "$stdout.stderr" -Encoding utf8
-    if ($result.ExitCode -ne 0 -or !($result.Stdout -match 'OK \(1 test\)')) {
-        throw "Instrumentation $method failed; inspect $logName (exit $($result.ExitCode)): $($result.Stdout) $($result.Stderr)"
-    }
+    $status = Get-InstrumentationOutcome ($result.Stdout + $result.Stderr) $result.ExitCode $className $method
+    $script:instrumentRecords += [ordered]@{methodId="$className#$method";status=$status;runId=$runId;stdoutPath=$stdout}
+    if ($status -ne 'passed') { throw "Instrumentation $method $status; inspect $logName" }
+
 }
 
 function Run-KillScenario([string]$fixtureId, [string]$runId) {
@@ -114,8 +169,9 @@ function Run-KillScenario([string]$fixtureId, [string]$runId) {
         Add-Content -LiteralPath $scenarioLog -Value $entry
         Write-Host $entry
     }
-    $args = @('-s',$Serial,'shell','am','instrument','-w','-e','fixtureId',$fixtureId,'-e','runId',$runId,'-e','class',"$testClass#abruptWriteWaitsForHostKill",$runner)
-    $process = Start-Process -FilePath $Adb -ArgumentList $args -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    $args = @('-s',$Serial,'shell','am','instrument','-w','-r','-e','fixtureId',$fixtureId,'-e','runId',$runId,'-e','class',"$testClass#abruptWriteWaitsForHostKill",$runner)
+    $windowOptions = if ($IsWindows) { @{WindowStyle='Hidden'} } else { @{} }
+    $process = Start-Process -FilePath $Adb -ArgumentList $args -PassThru @windowOptions -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     Write-KillTrace "write-start runId=$runId fixtureId=$fixtureId adbPid=$($process.Id) readinessDeadlineSeconds=45 exitDeadlineSeconds=15"
     try {
     $markerPath = "files/native-persistence-$runId.ready"
@@ -180,13 +236,19 @@ function Capture-SaveMarker([string]$runId, [string]$kind) {
     }
 }
 
+if (Test-Path -LiteralPath $OutputDirectory) { throw "Output directory already exists: $OutputDirectory" }
+try {
 [System.IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 "Started $(Get-Date -Format o); output=$OutputDirectory" | Out-File (Join-Path $OutputDirectory 'run.log')
 "serial=$Serial commit=$(git rev-parse HEAD)" | Add-Content (Join-Path $OutputDirectory 'run.log')
 Assert-DeviceHealth 'device-state.log'
 if (!$SkipBuild) {
-    & "$PSScriptRoot/../gradlew.bat" :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain *> (Join-Path $OutputDirectory 'build.log')
+    Push-Location (Join-Path $PSScriptRoot '..')
+    try {
+        if ($IsWindows) { & "$PSScriptRoot/../gradlew.bat" :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain *> (Join-Path $OutputDirectory 'build.log') }
+        else { & bash "$PSScriptRoot/../gradlew" :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain *> (Join-Path $OutputDirectory 'build.log') }
+    } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw 'APK build failed; inspect build.log' }
 }
 Invoke-Adb -Arguments @('install','-r',"$PSScriptRoot/../app/build/outputs/apk/debug/app-debug.apk") -TimeoutSeconds 180 | Out-Null
@@ -198,6 +260,15 @@ Get-FileHash "$PSScriptRoot/../app/build/outputs/apk/debug/app-debug.apk","$PSSc
 foreach ($source in $sources) {
     $runId = [guid]::NewGuid().ToString('N')
     $fixtureId = $null
+    $scenario = $scenarioRecords | Where-Object { $_.name -ceq $source.name }
+    $scenario.runId=$runId
+    $scenario.expectedMethods = if ($source.name -eq 'lobo-kill') {
+        @("$testClass#abruptReadUsesFreshProcessAndSavedBytes")
+    } elseif ($source.name -in @('satori-rotation','satori-runtime','lobo-runtime','yaya-runtime')) {
+        @("$package.ui.NativeRotationTest#$($source.method)")
+    } else { @("$testClass#$($source.method)") }
+    $readerMethods=@{'satori-runtime'='twoelfReadsAfterRuntimeBackInFreshProcess';'lobo-runtime'='loboReadsAfterRuntimeBackInFreshProcess';'yaya-runtime'='yayaReadsAfterRuntimeBackInFreshProcess'}
+    if ($readerMethods.ContainsKey($source.name)) { $scenario.expectedMethods += "$package.ui.NativeRotationTest#$($readerMethods[$source.name])" }
     try {
     $fixtureId = Stage-Fixture $source $runId
     if ($source.name -eq 'lobo-kill') { Run-KillScenario $fixtureId $runId }
@@ -215,7 +286,11 @@ foreach ($source in $sources) {
         $reader = if ($source.name -eq 'lobo-runtime') { 'loboReadsAfterRuntimeBackInFreshProcess' } else { 'yayaReadsAfterRuntimeBackInFreshProcess' }
         Run-Instrumentation $fixtureId $reader $runId "$runId-runtime-read.log" "$package.ui.NativeRotationTest"
     } else { Run-Instrumentation $fixtureId $source.method $runId "$runId-$($source.name).log" }
+    Assert-NativeMethodCompleteness $scenario.expectedMethods @($instrumentRecords | Where-Object { $_.runId -eq $runId })
+    } catch {
+        $scenario.status='failed'; $scenario.reason=$_.Exception.Message; throw
     } finally {
+        try {
         Invoke-Adb -Arguments @('shell','am','force-stop',$package) -TimeoutSeconds 15 | Out-Null
         $cleanupId = "persist-$runId"
         Invoke-Adb -Arguments @('shell','run-as',$package,'rm','-rf',"files/ghost/$cleanupId") -TimeoutSeconds 15 | Out-Null
@@ -223,9 +298,31 @@ foreach ($source in $sources) {
         Invoke-Adb -Arguments @('shell','rm','-f',"/data/local/tmp/$cleanupId.nar") -TimeoutSeconds 15 | Out-Null
         Assert-DeviceHealth "$runId-health.log"
         "$(Get-Date -Format o) CLEANUP $($source.name) runId=$runId" | Add-Content (Join-Path $OutputDirectory 'run.log')
+        $scenario.cleanupStatus='passed'
+        } catch {
+            $scenario.status='failed'; $scenario.cleanupStatus='failed'
+            $scenario.cleanupReason=$_.Exception.Message
+            if (!$scenario.reason) { $scenario.reason=$scenario.cleanupReason; throw }
+            # The operation catch is already rethrowing its primary ErrorRecord.
+            # Completing this finally preserves that throw; cleanup stays failed.
+        }
+        finally { $scenario | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDirectory "$runId-scenario.json") }
     }
+    $scenario.status='passed'
+    $scenario | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDirectory "$runId-scenario.json")
     "$(Get-Date -Format o) PASS $($source.name) runId=$runId fixtureId=$fixtureId source=$($source.archive) sha256=$($source.hash)" | Add-Content (Join-Path $OutputDirectory 'run.log')
 }
 Invoke-Adb -Arguments @('logcat','-d','-s','System.out:I') -TimeoutSeconds 30 | Select-String 'PERSIST ' |
     ForEach-Object { $_.Line } | Set-Content -Encoding utf8 (Join-Path $OutputDirectory 'fixture-logcat.log')
+} catch {
+    $runReasons += $_.Exception.Message
+    foreach ($scenario in $scenarioRecords) {
+        if ($scenario.cleanupReason -and $scenario.cleanupReason -cne $scenario.reason) {
+            $runReasons += $scenario.cleanupReason
+        }
+    }
+    throw
+} finally {
+    if (Test-Path -LiteralPath $OutputDirectory) { Write-NativeSummary }
+}
 Write-Host "Native persistence host tests passed; raw logs: $OutputDirectory"

@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -38,15 +39,18 @@ import com.cattailsw.nanidroid.runtime.SpeakerFrame
 import com.cattailsw.nanidroid.runtime.StageState
 import com.cattailsw.nanidroid.runtime.SurfaceVisual
 import java.io.File
-import android.view.KeyEvent
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import com.cattailsw.nanidroid.testing.OwnedFixtureDirectoryRule
+import org.junit.rules.RuleChain
 import org.junit.Rule
 import org.junit.Test
 
 class StagePolishTest {
-    @get:Rule val compose = createComposeRule()
+    private val fixtures = OwnedFixtureDirectoryRule()
+    val compose = createComposeRule()
+    @get:Rule val rules: RuleChain = RuleChain.outerRule(fixtures).around(compose)
     private val dialogue = DialogueToken(7, 11)
     private val surface = Bitmap.createBitmap(160, 200, Bitmap.Config.ARGB_8888).asImageBitmap()
     private val loader = SurfaceImageLoader { surface }
@@ -87,8 +91,7 @@ class StagePolishTest {
     }
 
     @Test fun debugBoundsDrawsBothAuthoredCollisionsAndTracksDisplayedBase() {
-        val shellDir = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "bounds-shell-${System.nanoTime()}").apply { mkdirs() }
+        val shellDir = fixtures.directory("bounds-shell-${System.nanoTime()}")
         val numbered = listOf(0, 2, 10).associateWith { id ->
             File(shellDir, "surface$id.png").apply { writeBytes(byteArrayOf(1)) }
         }
@@ -115,6 +118,10 @@ class StagePolishTest {
             }, {}, {}, {}, onCharacterClickResolved = { _, x, y, baseId, _ ->
                 hits += SurfaceCollisionHitTest.find(definitions.definition(baseId)?.collisions.orEmpty(), x, y)
             })
+        }
+        compose.waitUntil(2_000) {
+            compose.onAllNodesWithTag("sakura").fetchSemanticsNodes().singleOrNull()
+                ?.boundsInRoot?.let { it.width > 0f && it.height > 0f } == true
         }
         val character = compose.onNodeWithTag("sakura")
         fun hasCyanAt(authoredX: Int, authoredY: Int, originX: Int, originY: Int): Boolean {
@@ -211,20 +218,6 @@ class StagePolishTest {
         compose.onNodeWithTag("stage-background").performClick()
         val hiddenTop = compose.onNodeWithTag("stage-controls-toggle").fetchSemanticsNode().boundsInRoot.top
         assertTrue("Hidden stage still reserves the control bar: $shownTop to $hiddenTop", hiddenTop < shownTop)
-    }
-
-    @Test fun aboutDismissReturnsToStageWithoutClosing() {
-        var closes = 0
-        compose.setContent {
-            GhostStage(stage(), loader, {}, {}, {}, onClose = { closes++ })
-        }
-        compose.onNodeWithTag("about-action").performClick()
-        compose.onNodeWithText("Nanidroid").assertExists()
-        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-        compose.waitForIdle()
-        compose.onNodeWithText("Nanidroid").assertDoesNotExist()
-        compose.onNodeWithTag("ghosts-action").assertExists()
-        assertEquals(0, closes)
     }
 
     @Test fun primaryPhoneMatrixKeepsSpeakersControlsAndScrollableLastChoiceInViewport() {

@@ -34,8 +34,14 @@ class NativeShioriRealTest {
     @Test fun aya5InstalledCorpusDiagnostic() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        val id = requireNotNull(InstrumentationRegistry.getArguments().getString("fixtureId"))
-        require(id.matches(Regex("[A-Za-z0-9_-]{1,100}")))
+        val args = InstrumentationRegistry.getArguments()
+        org.junit.Assume.assumeTrue("Run host-staged AYA5 corpus diagnostic; required arguments: fixtureId",
+            listOf("fixtureId").any { args.containsKey(it) })
+        require(listOf("fixtureId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId"
+        }
+        val id = requireNotNull(args.getString("fixtureId"))
+        require(id.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid fixtureId" }
         val repository = InstalledGhostRepository(File(context.filesDir, "ghost"))
         val descriptor = repository.validate(id)
         val master = descriptor.masterPath

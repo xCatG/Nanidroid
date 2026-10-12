@@ -8,6 +8,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.cattailsw.nanidroid.MainActivity
 import com.cattailsw.nanidroid.NanidroidApplication
 import com.cattailsw.nanidroid.data.PreferencesLastGhostStore
+import com.cattailsw.nanidroid.engine.EngineSelector
 import com.cattailsw.nanidroid.engine.NativeShioriHost
 import com.cattailsw.nanidroid.engine.ShioriEvent
 import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
@@ -25,27 +26,35 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Rule
+import com.cattailsw.nanidroid.testing.OwnedFixtureDirectoryRule
 import org.junit.runner.RunWith
 
 /** One process and one app-data reset per host row; results precede assertions. */
 @RunWith(AndroidJUnit4::class)
 class Milestone5CorpusTest {
-    /** Red until Task 2 permits only the harmless root directory record. */
+    @get:Rule val fixtures = OwnedFixtureDirectoryRule()
+    /** The harmless separator installs only in invocation-owned storage. */
     @Test fun rootOnlyDirectoryRegression() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val root = File(context.cacheDir, "corpus-root-positive-${System.nanoTime()}").apply { mkdirs() }
+        val root = fixtures.directory("positive")
         try {
             val source = File(root, "input.nar")
             rootFixture(source, "\\", UnixStat.DIR_FLAG, byteArrayOf())
-            val result = (context.applicationContext as NanidroidApplication).ghostImporter
+            val filesRoot = fixtures.directory("importer-files")
+            val result = com.cattailsw.nanidroid.install.GhostImporter(filesRoot)
                 .importArchive({ source.inputStream() }) {}
             assertTrue("Empty root-directory record must be ignored: $result", result is ImportOutcome.Installed)
+            val installed = File(filesRoot, "ghost/" + (result as ImportOutcome.Installed).directoryId)
+            assertTrue("Installed payload missing from owned root: $installed", installed.isDirectory)
+            assertTrue("Installed payload escaped owned root: $installed",
+                installed.canonicalPath.startsWith(filesRoot.canonicalPath + File.separator))
         } finally { root.deleteRecursively() }
     }
 
     @Test fun unsafeRootEntryVariantsStayRejected() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val root = File(context.cacheDir, "corpus-root-negative-${System.nanoTime()}").apply { mkdirs() }
+        val root = fixtures.directory("negative")
         try {
             val cases = listOf(
                 Triple("root-file", "\\", UnixStat.FILE_FLAG to byteArrayOf(1)),
@@ -73,12 +82,18 @@ class Milestone5CorpusTest {
         val args = InstrumentationRegistry.getArguments()
         val context = instrumentation.targetContext
         val app = context.applicationContext as NanidroidApplication
+        org.junit.Assume.assumeTrue("Run tools/test-milestone5-corpus.ps1; required arguments: corpusLabel, corpusSha256, corpusPath",
+            listOf("corpusLabel", "corpusSha256", "corpusPath", "corpusKind").any { args.containsKey(it) })
+        require(listOf("corpusLabel", "corpusSha256", "corpusPath").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: corpusLabel, corpusSha256, corpusPath"
+        }
+        require(!args.containsKey("corpusKind") || args.getString("corpusKind")?.matches(Regex("[A-Za-z0-9_-]{1,100}")) == true) { "Invalid corpusKind" }
         val label = requireNotNull(args.getString("corpusLabel"))
-        require(label.matches(Regex("[a-zA-Z0-9_-]{1,100}")))
+        require(label.matches(Regex("[a-zA-Z0-9_-]{1,100}"))) { "Invalid corpusLabel" }
         val expectedHash = requireNotNull(args.getString("corpusSha256"))
-        require(expectedHash.matches(Regex("[0-9a-fA-F]{64}")))
+        require(expectedHash.matches(Regex("[0-9a-fA-F]{64}"))) { "corpusSha256 must be 64 hex characters" }
         val inputName = requireNotNull(args.getString("corpusPath"))
-        require(inputName.matches(Regex("[a-zA-Z0-9_.-]{1,100}")))
+        require(inputName.matches(Regex("[a-zA-Z0-9_.-]{1,100}"))) { "Invalid corpusPath" }
         val input = File(context.filesDir, inputName)
         val output = requireNotNull(context.getExternalFilesDir(null))
         val phaseFile = File(output, "corpus-phase.txt")
@@ -129,6 +144,7 @@ class Milestone5CorpusTest {
                 result.put("directoryId", descriptor.directoryId)
                     .put("displayName", descriptor.displayName)
                     .put("engineDeclaration", descriptor.engineDeclaration)
+                    .put("detectedEngineKind", EngineSelector.select(descriptor).name)
                 PreferencesLastGhostStore(context.getSharedPreferences("last_ghost", 0))
                     .write(imported.directoryId)
                 phaseFile.appendText("phase=activating id=${imported.directoryId} name=${descriptor.displayName}\n")

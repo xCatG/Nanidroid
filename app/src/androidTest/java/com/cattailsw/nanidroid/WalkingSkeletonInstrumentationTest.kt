@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid
 import android.app.Activity
 import android.app.Application
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
@@ -48,6 +49,8 @@ class WalkingSkeletonInstrumentationTest {
     @get:Rule val compose = createEmptyComposeRule()
 
     @Test fun bundledKeroTapDispatchesOnceWithSurfaceCoordinatesAndNoReply() = withStage { scenario ->
+        scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+        awaitOrientation(scenario, Configuration.ORIENTATION_PORTRAIT)
         scenario.onActivity { probe(it).releaseLoading() }
         await(scenario) { it is StageState.Ready }
         compose.waitUntil(10_000) {
@@ -105,25 +108,58 @@ class WalkingSkeletonInstrumentationTest {
     }
 
     @Test fun rotationMidDialogueKeepsPlaybackAndDoesNotBootAgain() = withStage { scenario ->
-        scenario.onActivity {
-            it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            probe(it).releaseLoading()
+        scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+        awaitOrientation(scenario, Configuration.ORIENTATION_PORTRAIT)
+        scenario.onActivity { probe(it).releaseLoading() }
+        try {
+            await(scenario) { state ->
+                state is StageState.Ready && (state.frame.sakura.text + state.frame.kero.text).length >= 4
+            }
+            var before = ""
+            scenario.onActivity {
+                before = probe(it).text()
+                it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
+            awaitOrientation(scenario, Configuration.ORIENTATION_LANDSCAPE)
+            await(scenario) { state ->
+                state is StageState.Ready && (state.frame.sakura.text + state.frame.kero.text).length > before.length
+            }
+            scenario.onActivity {
+                val p = probe(it)
+                assertTrue("Dialogue restarted after rotation", p.text().startsWith(before))
+                assertEquals(1, p.eventCount("OnFirstBoot"))
+            }
+        } finally {
+            // A requested rotation can recreate an Activity after the state assertion.
+            // Finish this test's configuration transaction before the next tap fixture.
+            scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+            awaitOrientation(scenario, Configuration.ORIENTATION_PORTRAIT)
         }
-        await(scenario) { state ->
-            state is StageState.Ready && (state.frame.sakura.text + state.frame.kero.text).length >= 4
+    }
+
+    private fun awaitOrientation(scenario: ActivityScenario<ComponentActivity>, orientation: Int) {
+        compose.waitUntil(10_000) {
+            var settled = false
+            scenario.onActivity { activity ->
+                val decor = activity.window.decorView
+                val dimensionsMatch = decor.width > 0 && decor.height > 0 &&
+                    if (orientation == Configuration.ORIENTATION_PORTRAIT) decor.height > decor.width
+                    else decor.width > decor.height
+                settled = activity.resources.configuration.orientation == orientation &&
+                    activity.lifecycle.currentState == Lifecycle.State.RESUMED &&
+                    activity.hasWindowFocus() && dimensionsMatch
+            }
+            settled
         }
-        var before = ""
-        scenario.onActivity {
-            before = probe(it).text()
-            it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        }
-        await(scenario) { state ->
-            state is StageState.Ready && (state.frame.sakura.text + state.frame.kero.text).length > before.length
-        }
-        scenario.onActivity {
-            val p = probe(it)
-            assertTrue("Dialogue restarted after rotation", p.text().startsWith(before))
-            assertEquals(1, p.eventCount("OnFirstBoot"))
+        compose.waitForIdle()
+        scenario.onActivity { activity ->
+            assertEquals("Activity orientation changed after settling", orientation,
+                activity.resources.configuration.orientation)
+            assertEquals(Lifecycle.State.RESUMED, activity.lifecycle.currentState)
+            assertTrue("Settled Activity lost input focus", activity.hasWindowFocus())
+            println("WALKING_STAGE_ORIENTATION elapsedRealtime=${SystemClock.elapsedRealtime()} " +
+                "orientation=$orientation lifecycle=${activity.lifecycle.currentState} " +
+                "window=${activity.window.decorView.width}x${activity.window.decorView.height}")
         }
     }
 

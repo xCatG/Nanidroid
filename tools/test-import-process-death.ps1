@@ -1,10 +1,28 @@
 param(
-    [string] $Serial = 'emulator-5554',
-    [string] $Adb = 'C:\tools\android.sdk\platform-tools\adb.exe',
+    [Parameter(Mandatory)][string] $Serial,
+    [string] $Adb,
     [ValidateSet('copy', 'extract', 'pre', 'post')][string[]] $Phases = @('copy', 'extract', 'pre', 'post')
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Serial -notmatch '^emulator-[0-9]+$') { throw 'Require explicit disposable emulator Serial' }
+$adbName = if ($IsWindows) { 'adb.exe' } else { 'adb' }
+if (!$Adb) {
+    foreach ($sdkRoot in @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME)) {
+        if ($sdkRoot -and (Test-Path -LiteralPath (Join-Path $sdkRoot "platform-tools/$adbName"))) {
+            $Adb = Join-Path $sdkRoot "platform-tools/$adbName"; break
+        }
+    }
+    if (!$Adb) { $command = Get-Command $adbName -ErrorAction SilentlyContinue; if ($command) { $Adb=$command.Source } }
+}
+if (!$Adb -or !(Test-Path -LiteralPath $Adb -PathType Leaf)) { throw 'Cannot resolve adb: supply -Adb or Android SDK environment/PATH' }
+$Adb = (Resolve-Path -LiteralPath $Adb).Path
+$platformTools = Split-Path -Parent $Adb
+if ((Split-Path -Leaf $platformTools) -eq 'platform-tools') {
+    $sdk = Split-Path -Parent $platformTools
+    $env:ANDROID_HOME=$sdk; $env:ANDROID_SDK_ROOT=$sdk
+}
+
 $package = 'com.cattailsw.nanidroid'
 $runner = "$package.test/androidx.test.runner.AndroidJUnitRunner"
 $class = 'com.cattailsw.nanidroid.install.GhostImportInstrumentationTest'
@@ -71,8 +89,8 @@ function Save-Snapshot([string] $phase, [string] $runId, [string] $point, [strin
 if (!(Test-Path -LiteralPath $Adb)) { throw "adb missing: $Adb" }
 $device = (Invoke-Adb @('shell', 'getprop', 'ro.build.version.sdk') -join '').Trim()
 $abi = (Invoke-Adb @('shell', 'getprop', 'ro.product.cpu.abi') -join '').Trim()
-if ($Serial -notlike 'emulator-*' -or $device -ne '37' -or $abi -ne 'x86_64') {
-    throw "Require disposable API37 x86_64 emulator; got $Serial API$device $abi"
+if ($Serial -notmatch '^emulator-[0-9]+$' -or $device -notmatch '^\d+$' -or [int]$device -lt 31 -or $abi -ne 'x86_64' -or (Invoke-Adb @('shell','getprop','ro.kernel.qemu') -join '').Trim() -ne '1') {
+    throw "Require booted disposable API>=31 x86_64 emulator; got $Serial API$device $abi"
 }
 Assert-Healthy
 $apk = Join-Path $root 'app/build/outputs/apk/debug/app-debug.apk'

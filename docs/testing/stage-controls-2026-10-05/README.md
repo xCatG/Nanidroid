@@ -48,3 +48,11 @@ The Taiwan Chinese resource directory was subsequently renamed to
 `values-zh-rTW` with identical string contents. Resource compilation, debug APK
 assembly and lint passed (zero errors, 35 warnings, one hint); `aapt2` confirmed
 all nine stage strings are packaged under `zh-rTW` with their original values.
+
+Updated from default branch `master` at `0c8db283` on 2026-10-11. Its current
+development guidance supersedes the historical replacement restrictions. The
+import-test merge conflict retains master's stronger worker-registration gate
+and thread-safe event log; cancellation, no-install-event and no-publication
+assertions remain. The normal JVM/lint/debug/instrumentation-APK/release builds
+passed after the merge: 380 JVM cases, four skipped, zero failures/errors; lint
+zero errors, 35 warnings and one hint. Screenshots retain their original source.

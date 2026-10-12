@@ -199,8 +199,11 @@ class RealGhostInteractionTest {
 
     @Test fun authoredEightFamilyJourney() {
         val args = InstrumentationRegistry.getArguments()
-        assumeTrue("Host fixture arguments absent", listOf("fixtureId", "fixtureSha256", "landscapeChoice")
-            .any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue("Run host verified eight-family journey; required arguments: fixtureId, fixtureSha256",
+            listOf("fixtureId", "fixtureSha256", "landscapeChoice").any { args.containsKey(it) })
+        require(listOf("fixtureId", "fixtureSha256").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId, fixtureSha256"
+        }
         val id = requireNotNull(args.getString("fixtureId")) { "Exact fixtureId required" }
         val journey = JOURNEYS.single { it.id == id }
         require(!args.containsKey("landscapeChoice") ||
@@ -662,8 +665,11 @@ class RealGhostInteractionTest {
 
     @Test fun satoriAuthoredInputWithImeAndRotation() {
         val args = InstrumentationRegistry.getArguments()
-        assumeTrue("Host fixture arguments absent", listOf("fixtureId", "fixtureSha256", "submitMode", "inputName", "landscapeSubmit")
-            .any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue("Run host verified Satori input probe; required arguments: fixtureId, fixtureSha256, submitMode, inputName",
+            listOf("fixtureId", "fixtureSha256", "submitMode", "inputName", "landscapeSubmit").any { args.containsKey(it) })
+        require(listOf("fixtureId", "fixtureSha256", "submitMode", "inputName").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId, fixtureSha256, submitMode, inputName"
+        }
         val id = requireNotNull(args.getString("fixtureId")) { "Exact fixtureId required" }
         require(id == "satori") { "Expected staged 2elf fixture: $id" }
         val archiveHash = requireNotNull(args.getString("fixtureSha256")) { "Original archive SHA-256 required" }

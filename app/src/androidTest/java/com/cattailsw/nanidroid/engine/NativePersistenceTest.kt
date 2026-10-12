@@ -23,8 +23,14 @@ class NativePersistenceTest {
     private val host get() = NativeShioriHost.process
 
     @Before fun requireHostStaging() {
-        assumeTrue("Run tools/test-native-persistence.ps1 with a staged fixtureId",
-            !arguments.getString("fixtureId").isNullOrBlank())
+        val args = arguments
+        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
+            "Provide all nonblank host arguments: fixtureId, runId"
+        }
+        require(args.getString("fixtureId")!!.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid fixtureId" }
+        require(args.getString("runId")!!.matches(Regex("[0-9a-f]{32}"))) { "runId must be 32 lowercase hex characters" }
     }
 
     @Test fun satoriOrderlyUnloadRestoresChangedFlag() = runBlocking {

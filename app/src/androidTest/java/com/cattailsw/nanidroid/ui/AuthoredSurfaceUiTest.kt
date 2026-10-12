@@ -6,9 +6,9 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import com.cattailsw.nanidroid.ghost.ShellCatalog
 import com.cattailsw.nanidroid.ghost.SurfaceDefinitions
 import com.cattailsw.nanidroid.ghost.SurfaceImageLoader
@@ -19,18 +19,23 @@ import com.cattailsw.nanidroid.runtime.StageState
 import com.cattailsw.nanidroid.runtime.SurfaceVisual
 import java.io.File
 import java.util.Collections
+import kotlinx.coroutines.CompletableDeferred
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
+import com.cattailsw.nanidroid.testing.OwnedFixtureDirectoryRule
+import org.junit.rules.RuleChain
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AuthoredSurfaceUiTest {
-    @get:Rule val compose = createComposeRule()
+    private val fixtures = OwnedFixtureDirectoryRule()
+    val compose = createComposeRule()
+    @get:Rule val rules: RuleChain = RuleChain.outerRule(fixtures).around(compose)
 
     @Test fun missingNumberedStaticAssetDoesNotSuppressValidLaterElement() {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "missing-static-elements-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("missing-static-elements-${System.nanoTime()}")
         val numbered = listOf(0, 10).associateWith { id ->
             File(shell, "surface$id.png").apply { writeBytes(byteArrayOf(1)) }
         }
@@ -70,8 +75,7 @@ class AuthoredSurfaceUiTest {
         assertInvalidIndexedStatic("offscreen", 1)
 
     private fun assertInvalidIndexedStatic(kind: String, elementId: Int) {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "invalid-static-$kind-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("invalid-static-$kind-${System.nanoTime()}")
         val base = File(shell, "surface0.png").apply { writeBytes(byteArrayOf(1)) }
         val kero = File(shell, "surface10.png").apply { writeBytes(byteArrayOf(1)) }
         val static = File(if (kind == "unsafe") shell.parentFile else shell,
@@ -117,8 +121,7 @@ class AuthoredSurfaceUiTest {
         assertValidStaticWins(0)
 
     private fun assertValidStaticWins(elementId: Int) {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "numbered-static-elements-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("numbered-static-elements-${System.nanoTime()}")
         val numbered = listOf(0, 10, 1001).associateWith { id ->
             File(shell, "surface$id.png").apply { writeBytes(byteArrayOf(1)) }
         }
@@ -135,8 +138,14 @@ class AuthoredSurfaceUiTest {
         val state = StageState.Ready(
             PlaybackFrame(SpeakerFrame(0, true, "", false, due), SpeakerFrame(10, true, "", false), false),
             "Ghost", "Sakura", "Kero", numbered, shell = catalog)
+        val loadEntered = CompletableDeferred<Unit>()
+        val releaseLoad = CompletableDeferred<Unit>()
         compose.setContent {
             GhostStage(state, SurfaceImageLoader { file ->
+                if (elementId == 0) {
+                    loadEntered.complete(Unit)
+                    releaseLoad.await()
+                }
                 val color = when (file.name) {
                     "surface1001.png" -> Color.BLUE
                     "badge.png" -> Color.GREEN
@@ -146,6 +155,20 @@ class AuthoredSurfaceUiTest {
                     Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
                     .asImageBitmap()
             }) { _, _, _ -> }
+        }
+        if (elementId == 0) {
+            compose.waitUntil(2_000) { loadEntered.isCompleted }
+            val premature = runCatching { compose.onNodeWithTag("sakura").assertExists() }.exceptionOrNull()
+            assertTrue("The suspended loader must prevent the original immediate assertion", premature is AssertionError)
+        }
+        compose.waitUntil(2_000) {
+            val nodes = compose.onAllNodesWithTag("sakura").fetchSemanticsNodes()
+            if (elementId == 0 && !releaseLoad.isCompleted) {
+                assertTrue("The readiness predicate must observe loading before release", nodes.isEmpty())
+                println("SURFACE_PUBLICATION_CONTROL pending loader, merged sakura absent; releasing")
+                releaseLoad.complete(Unit)
+            }
+            nodes.singleOrNull()?.boundsInRoot?.let { it.width > 0f && it.height > 0f } == true
         }
         compose.onNodeWithTag("sakura").assertExists()
         val displayed = compose.onNodeWithTag("sakura").captureToImage().asAndroidBitmap()
@@ -160,8 +183,7 @@ class AuthoredSurfaceUiTest {
         assertNumberedAuthoredWithoutStatic(0)
 
     private fun assertNumberedAuthoredWithoutStatic(elementId: Int) {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "numbered-elements-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("numbered-elements-${System.nanoTime()}")
         val base = File(shell, "surface0.png").apply { writeBytes(byteArrayOf(1)) }
         val kero = File(shell, "surface10.png").apply { writeBytes(byteArrayOf(1)) }
         File(shell, "badge.png").writeBytes(byteArrayOf(1))
@@ -192,8 +214,7 @@ class AuthoredSurfaceUiTest {
     }
 
     @Test fun elementOnlySakuraAndKeroAreRenderedWithoutNumberedFallback() {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "authored-ui-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("authored-ui-${System.nanoTime()}")
         File(shell, "body.png").writeBytes(byteArrayOf(1))
         File(shell, "menu.png").writeBytes(byteArrayOf(1))
         val other = File(shell, "surface100.png").apply { writeBytes(byteArrayOf(1)) }

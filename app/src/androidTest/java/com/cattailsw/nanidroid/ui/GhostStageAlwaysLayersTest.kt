@@ -6,7 +6,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import com.cattailsw.nanidroid.ghost.SurfaceImageLoader
 import com.cattailsw.nanidroid.ghost.SurfaceLayer
 import com.cattailsw.nanidroid.runtime.PlaybackFrame
@@ -17,18 +16,21 @@ import java.io.File
 import java.util.Collections
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeFalse
+import com.cattailsw.nanidroid.testing.OwnedFixtureDirectoryRule
+import org.junit.rules.RuleChain
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class GhostStageAlwaysLayersTest {
-    @get:Rule val compose = createComposeRule()
+    private val fixtures = OwnedFixtureDirectoryRule()
+    val compose = createComposeRule()
+    @get:Rule val rules: RuleChain = RuleChain.outerRule(fixtures).around(compose)
     private val dueKero = SurfaceVisual(10, listOf(SurfaceLayer(1001, "overlay", 0, 0)), 0, 0)
 
     @Test fun stageLoadsAlwaysLayerOnceWhileDialogueChanges() {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "stage-layers-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("stage-layers-${System.nanoTime()}")
         File(shell, "surfaces.txt").writeText("""
             surface10
             {
@@ -59,8 +61,7 @@ class GhostStageAlwaysLayersTest {
     }
 
     @Test fun stageIgnoresLayerFileOutsideSurfaceIndex() {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "stage-index-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("stage-index-${System.nanoTime()}")
         File(shell, "surfaces.txt").writeText("""
             surface0
             {
@@ -85,8 +86,7 @@ class GhostStageAlwaysLayersTest {
     }
 
     @Test fun stageReadsDefinitionsWhateverTheirNameCase() {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "stage-case-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("stage-case-${System.nanoTime()}")
         File(shell, "Surfaces.txt").writeText("surface0\n{\n0interval,always\n0pattern0,1001,0,overlay,0,0\n}")
         val files = listOf(0, 10, 1001).associateWith { id ->
             File(shell, "surface$id.png").apply { writeBytes(byteArrayOf(1)) }
@@ -103,8 +103,7 @@ class GhostStageAlwaysLayersTest {
     }
 
     @Test fun unreadableDefinitionsStillShowBaseImages() {
-        val shell = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-            "stage-unreadable-${System.nanoTime()}").apply { mkdirs() }
+        val shell = fixtures.directory("stage-unreadable-${System.nanoTime()}")
         val definitions = File(shell, "surfaces.txt").apply {
             writeText("surface0\n{\n0interval,always\n0pattern0,1001,0,overlay,0,0\n}")
             setReadable(false, false)

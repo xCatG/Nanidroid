@@ -1,16 +1,20 @@
 # Nanidroid
 
 An Android recreation of Nanidroid for Android 12 and newer, using Kotlin and
-Compose. The application ID remains `com.cattailsw.nanidroid`. The accepted subset
+Compose. The application ID remains `com.cattailsw.nanidroid`. Current functionality
 includes the bundled Nanidroid ghost, document-picker NAR import, ghost selection,
 retained Satori/Kawari/YAYA engines, supported SakuraScript dialogue and
 interactions, surfaces/animations, and offline About/license notices.
 
 The [approved baseline](docs/superpowers/specs/2026-09-22-nanidroid-baseline-spec.md)
-and [design](docs/superpowers/specs/2026-09-22-blind-recreation-design.md) define the
-supported subset. M5 was [accepted with exceptions](docs/testing/2026-10-01-m5-focused-acceptance-packet.md).
+and [design](docs/superpowers/specs/2026-09-22-blind-recreation-design.md) record the
+replacement's supported subset. The replacement phase is complete; this checkout
+is the authoritative implementation for ongoing development, including requested
+new features, native changes and build changes. Historical plans, exclusions and
+manifests are context rather than permanent development gates.
+M5 was [accepted with exceptions](docs/testing/2026-10-01-m5-focused-acceptance-packet.md).
 External balloon skins, Markdown, network updates and broad native compatibility
-are outside this candidate. LOBO Pixel setting-cycle coverage and intermittent
+were outside that acceptance scope. LOBO Pixel setting-cycle coverage and intermittent
 Compose wrong-thread/keyboard failures remain accepted unresolved risks.
 
 ## Build and test
@@ -27,8 +31,8 @@ On Windows use `./gradlew.bat`. APKs are under `app/build/outputs/apk/`;
 reports are under `app/build/reports/`. Release output is unsigned and is not a
 release-readiness claim. [Testing guidance](docs/testing.md) identifies fixture
 requirements and historical results. Use disposable emulators with explicit
-serials for focused flows; do not treat fixture skips as passes. Current candidate
-build/device verification belongs to the replacement plan's Task 4.
+serials for focused flows; do not treat fixture skips as passes. For each change,
+run relevant validation and record current evidence separately from historical results.
 
 ## Data and accepted design decisions
 
@@ -50,7 +54,7 @@ height. The baseline records this exception to the historical no-upscale rule.
 These decisions are restated here so untracked exploratory designs, previews and
 measurement artifacts are not active prerequisites.
 
-## Integration and distribution
+## Development history and distribution
 
 The [integration manifest](docs/review/2026-10-02-integration-manifest.md) records
 the frozen recreation history, target base, explicit path dispositions and checks.
@@ -69,7 +73,7 @@ upload-key and release CI setup are the author's separate release work.
 
 Nanidroid and its bundled ghost are attributed to CatTail Software LLC; the
 original project is [xCatG/Nanidroid](https://github.com/xCatG/Nanidroid).
-The integration retains the target `LICENSE.txt` verbatim, all 297 pinned native
-files and their embedded notices, the unchanged bundled archive, and 19 offline
-notice assets. [Notice inventory](docs/testing/notice-inventory.md) records their
+The replacement integration retained the target `LICENSE.txt` verbatim, all 297
+pinned native files and their embedded notices, the unchanged bundled archive,
+and 19 offline notice assets. [Notice inventory](docs/testing/notice-inventory.md) records their
 provenance. This inventory is not a legal-compliance determination.

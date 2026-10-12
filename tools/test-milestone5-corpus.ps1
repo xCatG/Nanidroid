@@ -1,14 +1,20 @@
+[CmdletBinding(DefaultParameterSetName='Run')]
 param(
-    [Parameter(Mandatory)][string]$DeviceSerial,
-    [string]$CorpusRoot = 'C:/tmp/Nanidroid-corpus-recovery',
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot ('../.superpowers/sdd/2026-09-27-milestone-5-corpus-polish/task-1-run-' + [guid]::NewGuid().ToString('N'))),
-    [switch]$SkipBuild,
-    [string]$Label
+    [Parameter(ParameterSetName='SelfCheck', Mandatory)][switch]$SelfCheck,
+    [Parameter(ParameterSetName='Run', Mandatory)][string]$DeviceSerial,
+    [Parameter(ParameterSetName='Run')][string]$CorpusRoot,
+    [Parameter(ParameterSetName='Run')][string]$Adb,
+    [Parameter(ParameterSetName='Run')][string]$OutputDirectory = (Join-Path $PSScriptRoot ('../.superpowers/sdd/2026-09-27-milestone-5-corpus-polish/task-1-run-' + [guid]::NewGuid().ToString('N'))),
+    [Parameter(ParameterSetName='Run')][switch]$SkipBuild,
+    [Parameter(ParameterSetName='Run')][string]$Label,
+    [Parameter(ParameterSetName='Run')][ValidateSet('Diagnostic','Acceptance')][string]$Mode = 'Diagnostic',
+    [Parameter(ParameterSetName='Run')][string]$ExpectationsPath
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'test-outcome-policy.ps1')
+if ($SelfCheck) { & (Join-Path $PSScriptRoot 'tests/test-runner-outcomes.ps1') -PolicyOnly; return }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$adb = 'C:/tools/android.sdk/platform-tools/adb.exe'
 $package = 'com.cattailsw.nanidroid'
 $runner = "$package.test/androidx.test.runner.AndroidJUnitRunner"
 $class = "$package.corpus.Milestone5CorpusTest#smokeArchive"
@@ -17,8 +23,46 @@ $manifestPath = Join-Path $repo 'docs/testing/milestone-5-corpus.json'
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $appApk = Join-Path $repo 'app/build/outputs/apk/debug/app-debug.apk'
 $testApk = Join-Path $repo 'app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'
-if (Test-Path -LiteralPath $OutputDirectory) { throw "Output directory already exists: $OutputDirectory" }
-[IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
+$requested = if ($PSBoundParameters.ContainsKey('Label')) { @($Label) } else { @() }
+$resolved = @(Resolve-OutcomeSelection @($manifest.rows | ForEach-Object label) $requested $PSBoundParameters.ContainsKey('Label'))
+$selected = @($manifest.rows | Where-Object { $_.label -cin $resolved })
+$expectations = $null
+$expectationIdentity = $null
+if ($Mode -eq 'Acceptance') {
+    if ([string]::IsNullOrWhiteSpace($ExpectationsPath)) { throw 'Acceptance requires -ExpectationsPath' }
+    $expectations = Read-OutcomeExpectations (Get-Content -LiteralPath $ExpectationsPath -Raw | ConvertFrom-Json) $manifest.rows $selected
+    $expectationIdentity = [ordered]@{path=[IO.Path]::GetFullPath($ExpectationsPath);sha256=(Get-FileHash -LiteralPath $ExpectationsPath -Algorithm SHA256).Hash.ToLowerInvariant()}
+}
+if ($DeviceSerial -notmatch '^emulator-[0-9]+$') { throw 'Require explicit disposable emulator DeviceSerial' }
+if ([string]::IsNullOrWhiteSpace($CorpusRoot) -or !(Test-Path -LiteralPath $CorpusRoot -PathType Container)) { throw 'Real fixture execution requires explicit existing -CorpusRoot' }
+$CorpusRoot = (Resolve-Path -LiteralPath $CorpusRoot).Path
+$adbName = if ($IsWindows) { 'adb.exe' } else { 'adb' }
+if (!$Adb) {
+    foreach ($sdkRoot in @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME)) {
+        if ($sdkRoot -and (Test-Path -LiteralPath (Join-Path $sdkRoot "platform-tools/$adbName"))) {
+            $Adb = Join-Path $sdkRoot "platform-tools/$adbName"; break
+        }
+    }
+    if (!$Adb) { $command = Get-Command $adbName -ErrorAction SilentlyContinue; if ($command) { $Adb=$command.Source } }
+}
+if (!$Adb -or !(Test-Path -LiteralPath $Adb -PathType Leaf)) { throw 'Cannot resolve adb: supply -Adb or Android SDK environment/PATH' }
+$Adb = (Resolve-Path -LiteralPath $Adb).Path
+$platformTools = Split-Path -Parent $Adb
+if ((Split-Path -Leaf $platformTools) -eq 'platform-tools') {
+    $sdk = Split-Path -Parent $platformTools
+    $env:ANDROID_HOME=$sdk; $env:ANDROID_SDK_ROOT=$sdk
+}
+Write-Host "Requested: $(if ($requested.Count) { $requested -join ',' } else { '<all>' }); resolved: $($resolved -join ','); mode=$Mode"
+$records = @(); $runReasons=@(); $commit=(& git -C $repo rev-parse HEAD | Out-String).Trim()
+function Write-CorpusSummary {
+    $summary=Get-CorpusOutcome $selected $records $Mode $expectations
+    $summary.schemaVersion=1; $summary.runner='milestone5-corpus'; $summary.mode=$Mode; $summary.sourceCommit=$commit
+    $summary.requestedSelection=@($requested); $summary.resolvedSelection=@($resolved); $summary.expectationFile=$expectationIdentity
+    $summary.reasons=@($summary.reasons)+@($runReasons)
+    if ($summary.reasons.Count) { $summary.outcome='failed' }
+    $summary | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'summary.json') -Encoding utf8
+    return $summary
+}
 
 function Get-RemainingMilliseconds([DateTime]$Deadline, [int]$Cap = 30000) {
     $remaining = [int][Math]::Floor(($Deadline - [DateTime]::UtcNow).TotalMilliseconds)
@@ -85,7 +129,7 @@ function Assert-DeviceIdentity {
     $boot = (Invoke-Adb @('shell','getprop','sys.boot_completed') | Out-String).Trim()
     $api = (Invoke-Adb @('shell','getprop','ro.build.version.sdk') | Out-String).Trim()
     $abi = (Invoke-Adb @('shell','getprop','ro.product.cpu.abi') | Out-String).Trim()
-    if ($qemu -ne '1' -or $boot -ne '1' -or $api -ne '31' -or $abi -ne 'x86_64') {
+    if ($qemu -ne '1' -or $boot -ne '1' -or $api -notmatch '^\d+$' -or [int]$api -lt 31 -or $abi -ne 'x86_64') {
         throw "Unexpected device identity qemu=$qemu boot=$boot api=$api abi=$abi"
     }
     return [ordered]@{serial=$DeviceSerial;qemu=$qemu;boot=$boot;api=$api;abi=$abi}
@@ -163,7 +207,7 @@ function Invoke-Row($row, [string]$source, [bool]$expectedPass, [bool]$wrongHash
         $passHash = if ($wrongHash) { '0' * 64 } else { $actual }
         $stdout = Join-Path $rowDir 'instrument.stdout.log'
         $stderr = Join-Path $rowDir 'instrument.stderr.log'
-        $arguments = @('-s',$DeviceSerial,'shell','am','instrument','-w','-e','corpusPath','corpus-input.nar',
+        $arguments = @('-s',$DeviceSerial,'shell','am','instrument','-w','-r','-e','corpusPath','corpus-input.nar',
             '-e','corpusSha256',$passHash,'-e','corpusLabel',$row.label,
             '-e','corpusKind',$row.packageKind,'-e','class',$class,$runner)
         $process = Start-Process -FilePath $adb -ArgumentList $arguments -PassThru -WindowStyle Hidden `
@@ -184,6 +228,7 @@ function Invoke-Row($row, [string]$source, [bool]$expectedPass, [bool]$wrongHash
         }
         $raw = if (Test-Path -LiteralPath $stdout) { Get-Content -LiteralPath $stdout -Raw } else { '' }
         $record.instrumentOneTestOk = $raw -match 'OK \(1 test\)'
+        $record.instrumentStatus = Get-InstrumentationOutcome $raw $process.ExitCode "$package.corpus.Milestone5CorpusTest" 'smokeArchive'
         $result = Assert-Result (Join-Path $rowDir 'corpus-result.json') $expectedPass `
             $row.label $passHash $actual
         $record.deviceResult = $result
@@ -201,14 +246,19 @@ function Invoke-Row($row, [string]$source, [bool]$expectedPass, [bool]$wrongHash
             $record.screenshotPath = $null
             $record.skippedSteps = 'activation, first boot, stage capture and close after import rejection'
         }
-        if ($expectedPass -and ($process.ExitCode -ne 0 -or !$record.instrumentOneTestOk)) {
+        if ($expectedPass -and ($record.instrumentStatus -ne 'passed')) {
             throw 'Instrumentation failed, timed out or lacked OK (1 test)'
         }
         if ($result.classification -notin @('supported-smoke','partial-unsupported','expected-rejection',
             'unsupported-engine','in-scope-failure','native-failure','unverified') -and !$wrongHash) {
             throw "Unknown device classification: $($result.classification)"
         }
-        $record.outcome = if ($wrongHash) { 'expected-rejection' } else { $result.classification }
+        if ($wrongHash) { $record.outcome = 'expected-rejection' }
+        else {
+            $classification = Get-CorpusClassification $result
+            $record.outcome = $classification.classification
+            $record.classificationBasis = $classification.basis
+        }
     } catch {
         $record.hostError = $_.Exception.Message
         if ($record.hostError -match 'timed out|deadline') { $record.timeout = $true }
@@ -264,6 +314,9 @@ function Assert-GuardRejects([scriptblock]$Probe, [string]$Name) {
     }
 }
 
+if (Test-Path -LiteralPath $OutputDirectory) { throw "Output directory already exists: $OutputDirectory" }
+[IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
+try {
 $guardRoot = Join-Path $OutputDirectory 'host-guards'
 [IO.Directory]::CreateDirectory($guardRoot) | Out-Null
 $absent = Join-Path $guardRoot 'absent.json'
@@ -291,9 +344,11 @@ $hostGuards | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $guardRoot 'r
 $identity = Assert-DeviceIdentity
 $identity | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'device.json')
 if (!$SkipBuild) {
-    $env:GRADLE_USER_HOME = 'C:/Users/yenchi/.gradle'
-    & (Join-Path $repo 'gradlew.bat') :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain `
-        *> (Join-Path $OutputDirectory 'build.log')
+    Push-Location $repo
+    try {
+        if ($IsWindows) { & "$repo/gradlew.bat" :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain *> (Join-Path $OutputDirectory 'build.log') }
+        else { & bash "$repo/gradlew" :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain *> (Join-Path $OutputDirectory 'build.log') }
+    } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw 'Build failed; inspect build.log' }
 }
 $appHash = (Get-FileHash -LiteralPath $appApk -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -319,17 +374,25 @@ $gates = @(
 $gates | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'gates.json')
 if ($gates[0].outcome -ne 'supported-smoke' -or
     $gates[1].outcome -ne 'expected-rejection' -or $gates[2].outcome -ne 'expected-rejection' -or
-    $gates[2].instrumentOneTestOk) {
+    $gates[2].instrumentOneTestOk -or $gates[2].instrumentStatus -ne 'failed') {
     throw 'Harness gates failed; inspect gates.json and host-guards/results.json'
 }
 
-$selected = @($manifest.rows | Where-Object { !$Label -or $_.label -eq $Label })
-if ($selected.Count -eq 0) { throw "Unknown label: $Label" }
-$records = @()
 foreach ($row in $selected) {
     $source = Join-Path $CorpusRoot $row.relativePath
     if (!(Test-Path -LiteralPath $source)) { throw "Corpus input missing: $source" }
     $records += Invoke-Row $row $source $true
 }
 $records | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'rows.json')
-Write-Host "Corpus rows=$($records.Count); unverified=$(@($records | Where-Object outcome -eq 'unverified').Count); evidence=$OutputDirectory"
+} catch {
+    $runReasons += $_.Exception.Message
+    # Quarantined records were written before Invoke-Row stopped the run.
+    foreach ($row in $selected) {
+        $path=Join-Path $OutputDirectory "$($row.label)/row.json"
+        if (Test-Path -LiteralPath $path) {
+            if (!@($records | Where-Object label -eq $row.label).Count) { $records += Get-Content -LiteralPath $path -Raw | ConvertFrom-Json }
+        }
+    }
+} finally { $summary=Write-CorpusSummary }
+if ($summary.outcome -eq 'failed') { throw "Corpus $Mode failed: $($summary.reasons -join '; '); evidence=$OutputDirectory" }
+Write-Host "Corpus $(if ($Mode -eq 'Acceptance') {'acceptance passed'} else {'diagnostic complete (classifications are findings)'}); rows=$($records.Count); evidence=$OutputDirectory"

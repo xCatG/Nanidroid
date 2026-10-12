@@ -65,12 +65,15 @@ class Milestone4CorpusDynamicUiTest {
         save(context, before, "task7-earthquake-before.png")
         println("M4_DYNAMIC before offset=${initial.offsetX},${initial.offsetY} " +
             "sakuraLeft=$beforeLeft root=${before.width}x${before.height}")
-        Thread.sleep(1_500)
 
         val moved = animator.advanceBy(100, emptySet())!!.getValue(0)
         assertEquals(10, moved.offsetX)
         compose.runOnIdle { state.value = frame(moved) }
         compose.waitForIdle()
+        compose.waitUntil(30_000) {
+            compose.onNodeWithTag("sakura").fetchSemanticsNode().boundsInRoot.left - beforeLeft > 2f &&
+                changedPixels(before, compose.onRoot().captureToImage().asAndroidBitmap()) > 100
+        }
         val afterLeft = compose.onNodeWithTag("sakura").fetchSemanticsNode().boundsInRoot.left
         val after = compose.onRoot().captureToImage().asAndroidBitmap()
         save(context, after, "task7-earthquake-after.png")
@@ -79,7 +82,6 @@ class Milestone4CorpusDynamicUiTest {
             "sakuraLeft=$afterLeft changedRootPixels=$changed")
         assertTrue("authored +10 move did not shift rendered Canvas right", afterLeft - beforeLeft > 2f)
         assertTrue("rendered Compose root pixels did not change with move", changed > 100)
-        Thread.sleep(1_500)
     }
 
     @Test fun authoredStaticPartsChangeBothRenderedEarthquakeCharacters() = runBlocking {
