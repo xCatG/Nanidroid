@@ -54,6 +54,8 @@ import com.cattailsw.nanidroid.runtime.StageState
 import com.cattailsw.nanidroid.runtime.HostUiRequest
 import com.cattailsw.nanidroid.runtime.ScriptPlayer
 import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +65,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
@@ -309,8 +312,13 @@ class BundledAssistantUiTest {
         compose.waitUntil(5_000) { ready(runtime).input != null && ready(runtime).hostUiRequest != null }
         compose.onNodeWithTag("ghost-input").assertIsDisplayed()
         compose.onNodeWithTag("about-dialog").assertDoesNotExist()
+        val beforeCancel = ready(runtime)
+        val dialogue = requireNotNull(beforeCancel.dialogueToken)
+        assertEquals(HostUiCommand.About, beforeCancel.hostUiRequest!!.command)
         compose.onNodeWithContentDescription("Input Cancel").performClick()
         compose.onNodeWithTag("about-dialog").assertIsDisplayed()
+        assertEquals(dialogue, ready(runtime).dialogueToken)
+        assertEquals(dialogue.sessionId, ready(runtime).dialogueToken!!.sessionId)
         assertNull(ready(runtime).hostUiRequest)
     }
 
@@ -328,8 +336,10 @@ class BundledAssistantUiTest {
         assertEquals("Other", ready(runtime).ghostName)
     }
 
-    @Test fun englishStartupMenusAndDebugResources() = localizedMenus("en-US",
-        "What is Nanidroid?", "Ghosts", "Debug tools", "Show touch bounds", "Close")
+    @Test fun englishStartupMenusAndDebugResources() {
+        assertFixtureSetupFailureCleanup()
+        localizedMenus("en-US", "What is Nanidroid?", "Ghosts", "Debug tools", "Show touch bounds", "Close")
+    }
 
     @Test fun japaneseStartupMenusAndDebugResources() = localizedMenus("ja-JP",
         "Nanidroidとは？", "ゴースト管理", "デバッグツール", "タッチ範囲を表示", "閉じる")
@@ -364,28 +374,60 @@ class BundledAssistantUiTest {
     }
 
     private fun localizedMenus(tag: String, help: String, ghosts: String, debug: String,
-        bounds: String, close: String) = withAssistant(localeTag = tag) { _, _ ->
+        bounds: String, close: String) = withAssistant(localeTag = tag) { _, runtime ->
         compose.onNodeWithTag("sakura").performTouchInput { click() }
         choice(help)
-        capture("$tag-help")
+        capture("$tag-help", runtime)
         compose.onNodeWithTag("kero").performTouchInput { click() }
         choice(ghosts)
         choice(debug)
-        capture("$tag-tools")
+        capture("$tag-tools", runtime)
         choose(debug)
         compose.onNodeWithTag("debug-tools-dialog").assertIsDisplayed()
         compose.onNodeWithText(bounds).assertIsDisplayed()
         compose.onNodeWithText(close).assertIsDisplayed()
-        capture("$tag-debug")
+        capture("$tag-debug", runtime)
     }
 
-    private fun capture(name: String) {
+    private fun capture(name: String, runtime: GhostRuntime) {
+        compose.waitUntil(5_000) { ready(runtime).frame.ended }
         compose.waitForIdle()
+        // UiAutomation reads the display compositor, which can lag idle semantics.
+        android.os.SystemClock.sleep(100)
         val app = ApplicationProvider.getApplicationContext<NanidroidApplication>()
         val directory = File(app.getExternalFilesDir(null), "cleanup-evidence").apply { mkdirs() }
         val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
         File(directory, "$name.png").outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         bitmap.recycle()
+    }
+
+    private fun assertFixtureSetupFailureCleanup() {
+        val app = ApplicationProvider.getApplicationContext<NanidroidApplication>()
+        val previousLocale = Locale.getDefault()
+        val previousLocaleList = LocaleList.getDefault()
+        val previousLocales = app.resources.configuration.locales
+        val runtimeField = NanidroidApplication::class.java.getDeclaredField("runtime\$delegate").apply { isAccessible = true }
+        val priorRuntime = runtimeField.get(app)
+        fun ownedCacheRoots() = app.cacheDir.listFiles().orEmpty()
+            .filter { it.name.startsWith("assistant-ui-") }.map { it.name }.toSet()
+        val priorRoots = ownedCacheRoots()
+        try {
+            withAssistant(localeTag = "ja-JP", openArchive = { ByteArrayInputStream(byteArrayOf(1)) }) { _, _ ->
+                fail("Invalid bundled archive reached Activity startup")
+            }
+            fail("Invalid bundled archive was accepted")
+        } catch (failure: IllegalArgumentException) {
+            assertEquals("Bundled ghost hash mismatch", failure.message)
+        }
+        assertEquals(previousLocale, Locale.getDefault())
+        assertEquals(previousLocaleList, LocaleList.getDefault())
+        assertEquals(previousLocales, app.resources.configuration.locales)
+        assertSame(priorRuntime, runtimeField.get(app))
+        assertEquals(priorRoots, ownedCacheRoots())
+        // A leaked callback would override the next ordinary Activity to ja-JP.
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { assertEquals(previousLocales, it.resources.configuration.locales) }
+        }
     }
 
     private fun repositoryContent(app: NanidroidApplication): String {
@@ -434,22 +476,30 @@ class BundledAssistantUiTest {
     }
 
     private fun withAssistant(debugEnabled: Boolean = true, localeTag: String = "en-US",
+        openArchive: (NanidroidApplication) -> InputStream = { it.assets.open("nanidroid.zip") },
         block: (ActivityScenario<MainActivity>, GhostRuntime) -> Unit) {
         val app = ApplicationProvider.getApplicationContext<NanidroidApplication>()
         val previousLocale = Locale.getDefault()
         val previousLocaleList = LocaleList.getDefault()
         val previousConfiguration = Configuration(app.resources.configuration)
         val locale = Locale.forLanguageTag(localeTag)
-        Locale.setDefault(locale)
-        LocaleList.setDefault(LocaleList(locale))
+        val root = File(app.cacheDir, "assistant-ui-${System.nanoTime()}")
+        val runtimeField = NanidroidApplication::class.java.getDeclaredField("runtime\$delegate").apply { isAccessible = true }
+        val priorRuntime = runtimeField.get(app)
+        var rootCreated = false
+        var runtimeReplaced = false
+        var fixtureScope: CoroutineScope? = null
+        val localizedActivityResources = mutableSetOf<android.content.res.Resources>()
         // Give each newly attached Activity the startup locale before MainActivity composes.
         // The emulator's global locale and unrelated imported tables remain unchanged.
         val localeCallbacks = object : Application.ActivityLifecycleCallbacks {
             override fun onActivityPreCreated(activity: Activity, savedInstanceState: Bundle?) {
+                val resources = activity.resources
+                localizedActivityResources += resources
                 @Suppress("DEPRECATION")
-                activity.resources.updateConfiguration(Configuration(activity.resources.configuration).apply {
+                resources.updateConfiguration(Configuration(resources.configuration).apply {
                     setLocales(LocaleList(locale))
-                }, activity.resources.displayMetrics)
+                }, resources.displayMetrics)
             }
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
             override fun onActivityStarted(activity: Activity) = Unit
@@ -459,52 +509,64 @@ class BundledAssistantUiTest {
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             override fun onActivityDestroyed(activity: Activity) = Unit
         }
-        app.registerActivityLifecycleCallbacks(localeCallbacks)
-        @Suppress("DEPRECATION")
-        app.resources.updateConfiguration(Configuration(previousConfiguration).apply {
-            setLocales(LocaleList(locale))
-        }, app.resources.displayMetrics)
-        val root = File(app.cacheDir, "assistant-ui-${System.nanoTime()}").apply { mkdirs() }
-        val repository = BundledGhostRepository({ app.assets.open("nanidroid.zip") }, root)
-        val installed = repository.ensureInstalled()
-        File(installed, "ghost/master/en/content.txt").appendText(
-            "\nOnUiBatch,\\![open,ghostexplorer]\\![open,configurationdialog,about]\\e\n" +
-            "OnUiRepeat,\\![open,configurationdialog,about]\\![open,configurationdialog,about]\\e\n" +
-            "OnUiInput,\\![open,configurationdialog,about]\\![open,inputbox,answer]\\e\n")
-        val base = repository.load(installed, locale)
-        val master = File(root, "other/ghost/master").apply { mkdirs() }
-        File(master, "descript.txt").writeText("name,Other\nsakura.name,Other guide\nkero.name,Other companion\nshiori,Nanidroid")
-        File(master, "en").mkdirs()
-        File(master, "en/content.txt").writeText("OnFirstBoot,\\_q\\0Other ghost\\e\nOnBoot,\\_q\\0Other ghost\\e\n" +
-            "OnUiOrdinary,\\![open,ghostexplorer]\\![open,configurationdialog,about]\\![open,developer]\\e\n")
-        val shell = File(root, "other/shell/master").apply { mkdirs() }
-        base.surfaces.forEach { (id, image) -> image.copyTo(File(shell, "surface$id.png")) }
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-        val runtime = GhostRuntime({ base }, { BuiltInShiori(it.content) }, object : BootStateStore {
-            override suspend fun recordActivation(directoryId: String) = false
-            override suspend fun consumeOnboarding() = false
-        }, scope, installedGhosts = InstalledGhostRepository(root),
-            bundledEngineFactory = { BuiltInShiori.bundled(it.content, debugEnabled) },
-            // Advance the real script player promptly; assets, routes and dialogue tokens remain real.
-            elapsedRealtime = { android.os.SystemClock.elapsedRealtime() * 20 })
-        val runtimeField = NanidroidApplication::class.java.getDeclaredField("runtime\$delegate").apply { isAccessible = true }
-        val priorRuntime = runtimeField.get(app)
-        runtimeField.set(app, lazy { runtime })
         try {
+            Locale.setDefault(locale)
+            LocaleList.setDefault(LocaleList(locale))
+            app.registerActivityLifecycleCallbacks(localeCallbacks)
+            @Suppress("DEPRECATION")
+            app.resources.updateConfiguration(Configuration(previousConfiguration).apply {
+                setLocales(LocaleList(locale))
+            }, app.resources.displayMetrics)
+            check(root.mkdir()) { "Cannot create owned assistant fixture directory" }
+            rootCreated = true
+            val repository = BundledGhostRepository({ openArchive(app) }, root)
+            val installed = repository.ensureInstalled()
+            File(installed, "ghost/master/en/content.txt").appendText(
+                "\nOnUiBatch,\\![open,ghostexplorer]\\![open,configurationdialog,about]\\e\n" +
+                "OnUiRepeat,\\![open,configurationdialog,about]\\![open,configurationdialog,about]\\e\n" +
+                "OnUiInput,\\![open,configurationdialog,about]\\![open,inputbox,answer]\\e\n")
+            val base = repository.load(installed, locale)
+            val master = File(root, "other/ghost/master").apply { mkdirs() }
+            File(master, "descript.txt").writeText("name,Other\nsakura.name,Other guide\nkero.name,Other companion\nshiori,Nanidroid")
+            File(master, "en").mkdirs()
+            File(master, "en/content.txt").writeText("OnFirstBoot,\\_q\\0Other ghost\\e\nOnBoot,\\_q\\0Other ghost\\e\n" +
+                "OnUiOrdinary,\\![open,ghostexplorer]\\![open,configurationdialog,about]\\![open,developer]\\e\n")
+            val shell = File(root, "other/shell/master").apply { mkdirs() }
+            base.surfaces.forEach { (id, image) -> image.copyTo(File(shell, "surface$id.png")) }
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { fixtureScope = it }
+            val runtime = GhostRuntime({ base }, { BuiltInShiori(it.content) }, object : BootStateStore {
+                override suspend fun recordActivation(directoryId: String) = false
+                override suspend fun consumeOnboarding() = false
+            }, scope, installedGhosts = InstalledGhostRepository(root),
+                bundledEngineFactory = { BuiltInShiori.bundled(it.content, debugEnabled) },
+                // Advance the real script player promptly; assets, routes and dialogue tokens remain real.
+                elapsedRealtime = { android.os.SystemClock.elapsedRealtime() * 20 })
+            runtimeField.set(app, lazy { runtime })
+            runtimeReplaced = true
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 waitForStage()
                 compose.waitUntil(10_000) { ready(runtime).frame.ended }
                 block(scenario, runtime)
             }
         } finally {
-            scope.cancel()
-            runtimeField.set(app, priorRuntime)
-            root.deleteRecursively()
-            app.unregisterActivityLifecycleCallbacks(localeCallbacks)
-            Locale.setDefault(previousLocale)
-            LocaleList.setDefault(previousLocaleList)
-            @Suppress("DEPRECATION")
-            app.resources.updateConfiguration(previousConfiguration, app.resources.displayMetrics)
+            try {
+                fixtureScope?.cancel()
+                if (runtimeReplaced) runtimeField.set(app, priorRuntime)
+                if (rootCreated) root.deleteRecursively()
+            } finally {
+                app.unregisterActivityLifecycleCallbacks(localeCallbacks)
+                // Activity Resources can be reused on the next launch after this Activity closes.
+                localizedActivityResources.forEach { resources ->
+                    @Suppress("DEPRECATION")
+                    resources.updateConfiguration(Configuration(resources.configuration).apply {
+                        setLocales(previousConfiguration.locales)
+                    }, resources.displayMetrics)
+                }
+                LocaleList.setDefault(previousLocaleList)
+                Locale.setDefault(previousLocale)
+                @Suppress("DEPRECATION")
+                app.resources.updateConfiguration(previousConfiguration, app.resources.displayMetrics)
+            }
         }
     }
 }

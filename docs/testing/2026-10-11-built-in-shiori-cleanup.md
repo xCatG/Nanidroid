@@ -9,13 +9,15 @@ are owned by the controller and are recorded separately after this device work.
 ## Source, device and artifact provenance
 
 Workspace: `C:/Users/yenchi/.codex/worktrees/cc61/Nanidroid`, branch
-`codex/default-ghost-assistant`. Production source at verification was
+`codex/default-ghost-assistant`. Initial production source at verification was
 `3060d8258e491c1a00d1b831408af99545fe829d`; Task 3 changes only instrumentation,
-inventory and documentation. The compiled UI source SHA-256 was
+inventory and documentation. The initial compiled UI source SHA-256 was
 `f93c07e391cfa689b7612608da42c6b87f8d5c93a6546f58523ef2e071ddead2`.
 The exact per-file input hashes are retained in `source-file-hashes.txt` below;
 the APK hashes identify the actual installed builds. The controller's pending
 plan edit was preserved and excluded from this worker's commit.
+The review-round correction and latest executable provenance are recorded at the
+end of this document; the initial results below remain historical evidence.
 
 Only explicitly selected `emulator-5580`, AVD `CodexShioriCleanup`, was used:
 API **31**, ABI **x86_64**, **1080×2400**, **420 dpi**. The identity is retained
@@ -199,3 +201,72 @@ outside this approved design, and is not claimed fixed. Imported ghosts retain
 their authored language. The non-debug policy test models a cleared debuggable
 flag on the debug APK; no release APK was installed, signed, published or run on
 a physical device, and no signing keys were used.
+
+## Review round 1 corrections and latest verification
+
+The bounded review identified two test-integrity defects: fixture setup could
+leak locale/callback state if setup threw before its cleanup block, and the input
+case did not prove cancellation preserved the dialogue generation. Both were
+corrected in instrumentation only; production/APK dialogue policy did not change.
+
+The outer cleanup boundary now begins before locale mutations, callback
+registration, cache creation, install/load, fixture writes and scope/runtime
+construction. It restores the prior runtime delegate, cancels any created scope,
+deletes only an exclusively created cache root, unregisters callbacks, and restores
+process/app locales. It also restores the locales of every Activity Resources
+instance touched by the fixture, because those instances can be reused by a later
+ordinary Activity. Input cancellation now asserts the queued command is About
+while input is visible, then compares the complete dialogue token and its session
+when About opens.
+
+A narrow failure-path assertion runs inside the existing English locale identity,
+so the strict inventory remains unchanged. It feeds an invalid archive into the
+real repository, requires its actual hash-mismatch exception, compares saved
+Locale/LocaleList/app configuration/delegate/cache identities, and launches an
+ordinary Activity to detect a leaked locale callback or cached Activity resources.
+This is a private fixture input, with no production seam or broader test framework.
+`review-round1-red.log` failed before the cleanup fix with expected en_US/actual
+ja_JP. The affected two cases then passed in `review-round1-green.log`.
+
+Fresh visual QA subsequently rejected
+`screenshots-review-round1/ja-JP-help.png`: it showed the stage without the menu
+although that run's semantics and all 17 test identities passed. That image is
+preserved. Capture now waits for completed real playback and Compose idleness,
+then allows 100 ms for the display compositor before UiAutomation reads the screen.
+The wait is confined to evidence capture. The next three-locale run additionally
+exposed cached Activity resources retaining ja-JP at ordinary startup despite
+restored process/app defaults (`review-round1-capture-fixed.log`, two passes/one
+failure). After restoring all touched Activity resource locales, the affected
+four cases passed together (`review-round1-activity-cleanup-fixed.log`). These
+failures and intermediate gates remain retained, rather than being recast as passes.
+
+The final combined command above passed in **18 seconds**, **136 tasks: 12
+executed, 124 up-to-date** (`review-round1-final2-gate.log`). Unit execution was
+**UP-TO-DATE**, with unchanged production/unit inputs and the previous executed
+XML result: **440 cases, 435 passes, zero failures/errors, five Windows skips**.
+Lint remained **zero errors, 26 warnings, one hint**. Debug/test and unsigned
+release assembly succeeded. Strict ListOnly/SelfCheck passed again at **134/180**
+identities (`review-round1-final-inventory.txt`, `review-round1-final-selfcheck.txt`).
+
+Latest exact device evidence: `review-round1-ui-final2.log` and its strict
+`review-round1-ui-final2-summary.json`: **17 selected/17 unique terminal identities,
+17 passes, zero failures/skips/incomplete**, **46.16 seconds**, `OK (17 tests)`,
+one successful final code -1. No Android CLI layout server was invoked during
+these screenshot runs. All nine corresponding PNGs in
+`screenshots-review-round1-final/` were regenerated and visually inspected
+individually: complete readable help/tools choices and debug title/Bounds/Switch/
+Close, with the same clean Japanese wrapping and original artwork as above.
+`review-round1-final-screenshot-hashes.json` identifies their bytes.
+
+| Latest revised executable input/artifact | SHA-256 |
+| --- | --- |
+| BundledAssistantUiTest.kt compiled source | `c5a0dd35559a368d7f435208ba1ac0c2ddbf182b05fe794b1e3a073ec992dc60` |
+| Debug instrumentation APK | `a3dfd5acf96fe52386a2fb7932516f6153ed38d378634cf28e819acf0b538e47` |
+
+The debug app and unsigned release APK hashes remain exactly those in the initial
+table; production is unchanged. `review-round1-final-artifact-hashes.json` and
+`review-round1-final-source-file-hashes.txt` record matching inputs for this final
+executable. The normal-factory preservation evidence above therefore still applies
+to the identical production APK. Emulator-5580 remains running for the controller;
+Pixel 7 remains untouched. Independent re-review/whole-branch review and external
+PR actions remain the controller's work.
