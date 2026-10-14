@@ -2,13 +2,14 @@ package com.cattailsw.nanidroid.ghost
 
 import java.io.File
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SurfaceDefinitionsTest {
     @Test fun retainsElementsCollisionsAndNormalizedAnimationWaits() {
-        val definitions = SurfaceDefinitions.parse("""
+        val definitions = SurfaceDefinitions.parse(
+            """
             surface0
             {
             element2,overlay,parts\eye.png,-3,4
@@ -20,7 +21,8 @@ class SurfaceDefinitionsTest {
             animation8.pattern0,overlayfast,102,70,4,5
             animation8.pattern1,alternativestart,(7,9)
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
         val definition = definitions.definition(0)!!
         assertEquals(listOf(0, 2), definition.elements.map { it.id })
         assertEquals("parts\\eye.png", definition.elements[1].fileName)
@@ -29,24 +31,32 @@ class SurfaceDefinitionsTest {
         val modern = definition.animations.last().patterns.first() as SurfacePattern.Image
         assertEquals(70L, legacy.waitMinMs)
         assertEquals(70L, modern.waitMinMs)
-        assertEquals(listOf(7, 9), (definition.animations.last().patterns.last() as SurfacePattern.Alternative).animationIds)
+        assertEquals(
+            listOf(7, 9),
+            (definition.animations.last().patterns.last() as SurfacePattern.Alternative).animationIds
+        )
         assertTrue(0 in definitions.ids())
         assertNull(definitions.definition(10))
     }
 
     @Test fun parsesBracketedAlternativeTargetsInLegacyPattern() {
-        val definition = SurfaceDefinitions.parse("""
+        val definition = SurfaceDefinitions.parse(
+            """
             surface0 {
             3interval,never
             3pattern0,alternativestart,[1.2.4]
             }
-        """.trimIndent()).definition(0)!!
-        assertEquals(listOf(1, 2, 4),
-            (definition.animations.single().patterns.single() as SurfacePattern.Alternative).animationIds)
+            """.trimIndent()
+        ).definition(0)!!
+        assertEquals(
+            listOf(1, 2, 4),
+            (definition.animations.single().patterns.single() as SurfacePattern.Alternative).animationIds
+        )
     }
 
     @Test fun alternativesAcceptUnbracketedAndAlternateSeparatorLists() {
-        val definition = SurfaceDefinitions.parse("""
+        val definition = SurfaceDefinitions.parse(
+            """
             surface0 {
             1pattern0,0,0,alternativestart,4.5.6
             2pattern0,0,0,alternativestart,[4 5 6]
@@ -56,9 +66,12 @@ class SurfaceDefinitionsTest {
             6pattern0,0,0,alternativestart,[]
             7pattern0,0,0,alternativestart,[bad.x]
             }
-        """.trimIndent()).definition(0)!!
-        fun targets(id: Int) = (definition.animations.first { it.id == id }.patterns.single()
-            as SurfacePattern.Alternative).animationIds
+            """.trimIndent()
+        ).definition(0)!!
+        fun targets(id: Int) = (
+            definition.animations.first { it.id == id }.patterns.single()
+                as SurfacePattern.Alternative
+            ).animationIds
         assertEquals(listOf(4, 5, 6), targets(1))
         assertEquals(listOf(4, 5, 6), targets(2))
         assertEquals(listOf(4, 5, 6), targets(3))
@@ -69,7 +82,8 @@ class SurfaceDefinitionsTest {
     }
 
     @Test fun alternativesUseAuthoredTargetColumnAndKeepValidTargets() {
-        val definition = SurfaceDefinitions.parse("""
+        val definition = SurfaceDefinitions.parse(
+            """
             surface0 {
             333pattern0,0,0,alternativestart,[4.5.6]
             334pattern0,0,0,alternativestart,(7,8,9)
@@ -77,21 +91,33 @@ class SurfaceDefinitionsTest {
             animation336.pattern0,alternativestart,[10.11]
             animation337.pattern0,alternativestart,(10,bad)
             }
-        """.trimIndent()).definition(0)!!
-        assertEquals(listOf(4, 5, 6),
-            (definition.animations.first { it.id == 333 }.patterns.single() as SurfacePattern.Alternative).animationIds)
-        assertEquals(listOf(7, 8, 9),
-            (definition.animations.first { it.id == 334 }.patterns.single() as SurfacePattern.Alternative).animationIds)
-        assertEquals(listOf(4, 6),
-            (definition.animations.first { it.id == 335 }.patterns.single() as SurfacePattern.Alternative).animationIds)
-        assertEquals(listOf(10, 11),
-            (definition.animations.first { it.id == 336 }.patterns.single() as SurfacePattern.Alternative).animationIds)
-        assertEquals(listOf(10),
-            (definition.animations.first { it.id == 337 }.patterns.single() as SurfacePattern.Alternative).animationIds)
+            """.trimIndent()
+        ).definition(0)!!
+        assertEquals(
+            listOf(4, 5, 6),
+            (definition.animations.first { it.id == 333 }.patterns.single() as SurfacePattern.Alternative).animationIds
+        )
+        assertEquals(
+            listOf(7, 8, 9),
+            (definition.animations.first { it.id == 334 }.patterns.single() as SurfacePattern.Alternative).animationIds
+        )
+        assertEquals(
+            listOf(4, 6),
+            (definition.animations.first { it.id == 335 }.patterns.single() as SurfacePattern.Alternative).animationIds
+        )
+        assertEquals(
+            listOf(10, 11),
+            (definition.animations.first { it.id == 336 }.patterns.single() as SurfacePattern.Alternative).animationIds
+        )
+        assertEquals(
+            listOf(10),
+            (definition.animations.first { it.id == 337 }.patterns.single() as SurfacePattern.Alternative).animationIds
+        )
     }
 
     @Test fun boundsInputAndSkipsMalformedRecordsLocally() {
-        val definitions = SurfaceDefinitions.parse("""
+        val definitions = SurfaceDefinitions.parse(
+            """
             surface0 {
             element0,overlay,body.png,0,0
             element1,overlay,bad.png,NaN,0
@@ -100,14 +126,17 @@ class SurfaceDefinitionsTest {
             animation0.pattern0,overlay,100,-3,0,0
             animation0.pattern1,overlay,101,70,0,0
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
         assertEquals(1, definitions.definition(0)!!.elements.size)
         assertEquals(1, definitions.definition(0)!!.animations.single().patterns.size)
         val file = File.createTempFile("oversized-surfaces", ".txt")
         try {
             java.io.RandomAccessFile(file, "rw").use { it.setLength(4L * 1024 * 1024 + 1) }
             assertTrue(runCatching { SurfaceDefinitions.read(file) }.isFailure)
-        } finally { file.delete() }
+        } finally {
+            file.delete()
+        }
     }
 
     @Test fun expandedRecordsStopAtRetainedRecordLimit() {
@@ -133,20 +162,24 @@ class SurfaceDefinitionsTest {
                 }
             """.trimIndent()
             file.writeBytes(byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + text.toByteArray())
-            assertEquals(listOf(SurfacePattern.Image(301, "overlay", 0, 0, 0, 0)),
-                SurfaceDefinitions.read(file).definition(0)!!.animations.single().patterns)
+            assertEquals(
+                listOf(SurfacePattern.Image(301, "overlay", 0, 0, 0, 0)),
+                SurfaceDefinitions.read(file).definition(0)!!.animations.single().patterns
+            )
         } finally {
             file.delete()
         }
     }
 
     @Test fun parsesNumericListsRangesExclusionsAndInlineBrace() {
-        val definitions = SurfaceDefinitions.parse("""
+        val definitions = SurfaceDefinitions.parse(
+            """
             surface 0, 10, 20-22, !21 {
             animation0.interval,always
             animation0.pattern0,overlay,301,0,2,3
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
         assertEquals(setOf(0, 10, 20, 22), definitions.ids())
     }
 }

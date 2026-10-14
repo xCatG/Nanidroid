@@ -24,13 +24,17 @@ class NativePersistenceTest {
 
     @Before fun requireHostStaging() {
         val args = arguments
-        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
-            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) }
+        )
         require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
             "Provide all nonblank host arguments: fixtureId, runId"
         }
         require(args.getString("fixtureId")!!.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid fixtureId" }
-        require(args.getString("runId")!!.matches(Regex("[0-9a-f]{32}"))) { "runId must be 32 lowercase hex characters" }
+        require(args.getString("runId")!!.matches(Regex("[0-9a-f]{32}"))) {
+            "runId must be 32 lowercase hex characters"
+        }
     }
 
     @Test fun satoriOrderlyUnloadRestoresChangedFlag() = runBlocking {
@@ -42,20 +46,27 @@ class NativePersistenceTest {
             val after = get(first, "見切れ重なり消滅表示")
             println("PERSIST SATORI before=$before changed=$changed after=$after")
             assertTrue(after.contains("見切れ：現在 OFF"))
-        } finally { shutdown(first) }
+        } finally {
+            shutdown(first)
+        }
         val save = saveFile("satori_savedata.txt", "satori_savedata.sat")
         val hash = sha(save)
         if (initial != null) assertNotEquals("Satori save unchanged from pristine fixture", initial, hash)
         println("PERSIST SATORI save=${save.absolutePath} sha256=$hash")
-        assertTrue("Satori saved flag is absent", save.readText(charset("Shift_JIS"))
-            .contains("見切れ利用\t０"))
+        assertTrue(
+            "Satori saved flag is absent",
+            save.readText(charset("Shift_JIS"))
+                .contains("見切れ利用\t０")
+        )
         val second = load(NativeKind.SATORI, "satori.dll")
         try {
             val restored = get(second, "見切れ重なり消滅表示")
             println("PERSIST SATORI restored=$restored")
             assertTrue(restored.contains("見切れ：現在 OFF"))
             assertEquals(hash, sha(save))
-        } finally { shutdown(second) }
+        } finally {
+            shutdown(second)
+        }
     }
 
     @Test fun loboMinuteSaveRestoresTalkInterval() = runBlocking {
@@ -84,7 +95,9 @@ class NativePersistenceTest {
                 println("PERSIST LOBO restored=$restored")
                 assertTrue(restored.contains("Talkrate: 1 minute"))
                 assertEquals(minuteHash, sha(save))
-            } finally { shutdown(second) }
+            } finally {
+                shutdown(second)
+            }
         } catch (error: Throwable) {
             if (host.availability.value == NativeAvailability.Occupied) host.shutdown(first)
             throw error
@@ -116,7 +129,9 @@ class NativePersistenceTest {
             println("PERSIST YAYA before=$before changed=$changed after=$after")
             assertEquals("USER", before)
             assertEquals("User", after)
-        } finally { shutdown(first) }
+        } finally {
+            shutdown(first)
+        }
         val save = saveFile("yaya_variable.cfg", "yaya_variable.ays")
         val hash = sha(save)
         if (initial != null) assertNotEquals("YAYA save unchanged from pristine fixture", initial, hash)
@@ -126,7 +141,9 @@ class NativePersistenceTest {
         try {
             assertEquals("User", get(second, "On_username"))
             assertEquals(hash, sha(save))
-        } finally { shutdown(second) }
+        } finally {
+            shutdown(second)
+        }
     }
 
     /** Host force-stops this still-running instrumentation after reading the readiness marker. */
@@ -143,7 +160,13 @@ class NativePersistenceTest {
         assertEquals(0, observation.unloads)
         assertFalse(observation.events.contains("OnDestroy"))
         val marker = File(context.filesDir, "native-persistence-$runId.ready")
-        marker.writeText("runId=$runId\npid=${Process.myPid()}\nvalue=60\nsha256=${sha(save)}\nunloads=${observation.unloads}\ndestroys=${observation.events.count { it == "OnDestroy" }}\nfile=${save.absolutePath}\n")
+        marker.writeText(
+            "runId=$runId\npid=${Process.myPid()}\nvalue=60\nsha256=${sha(
+                save
+            )}\nunloads=${observation.unloads}\ndestroys=${observation.events.count {
+                it == "OnDestroy"
+            }}\nfile=${save.absolutePath}\n"
+        )
         println("PERSIST KILL READY ${marker.absolutePath} pid=${Process.myPid()}")
         // The host owns the kill. This process deliberately never calls shutdown/unload.
         java.util.concurrent.CountDownLatch(1).await()
@@ -164,7 +187,9 @@ class NativePersistenceTest {
             val value = get(fresh, "OnSakuraMenu")
             println("PERSIST KILL READ pid=${Process.myPid()} sha256=${sha(save)} value=$value")
             assertTrue(value.contains("Talkrate: 1 minute"))
-        } finally { shutdown(fresh) }
+        } finally {
+            shutdown(fresh)
+        }
     }
 
     private suspend fun load(kind: NativeKind, library: String): NativeLease {
@@ -202,7 +227,9 @@ class NativePersistenceTest {
     private fun baseline(vararg names: String): String? {
         val existing = names.map { File(master, it) }.firstOrNull(File::isFile)
         val hash = existing?.let(::sha)
-        println("PERSIST BASELINE candidates=${names.joinToString()} path=${existing?.absolutePath ?: "absent"} hash=${hash ?: "absent"}")
+        println(
+            "PERSIST BASELINE candidates=${names.joinToString()} path=${existing?.absolutePath ?: "absent"} hash=${hash ?: "absent"}"
+        )
         return hash
     }
 

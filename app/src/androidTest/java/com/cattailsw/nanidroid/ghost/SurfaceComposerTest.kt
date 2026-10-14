@@ -11,7 +11,6 @@ import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -22,17 +21,26 @@ class SurfaceComposerTest {
         val numbered = file(shell, "surface0.png")
         file(shell, "body.png")
         file(shell, "top.png")
-        val catalog = catalog(shell, mapOf(0 to numbered), """
+        val catalog =
+            catalog(
+                shell,
+                mapOf(0 to numbered),
+                """
             surface0 {
             element2,overlay,top.png,1,0
             element0,base,body.png,0,0
             }
-        """)
+        """
+            )
         val loaded = mutableListOf<String>()
-        val result = SurfaceComposer.composeBase(catalog, 0, SurfaceImageLoader { f ->
-            loaded += f.name
-            image(2, 1, if (f.name == "top.png") Color.BLUE else Color.RED)
-        })!!
+        val result = SurfaceComposer.composeBase(
+            catalog,
+            0,
+            SurfaceImageLoader { f ->
+                loaded += f.name
+                image(2, 1, if (f.name == "top.png") Color.BLUE else Color.RED)
+            }
+        )!!
         assertEquals(listOf("body.png", "top.png"), loaded)
         assertEquals(Color.BLUE, result.image.asAndroidBitmap().getPixel(1, 0))
         assertEquals(3, result.image.width)
@@ -42,13 +50,18 @@ class SurfaceComposerTest {
         val shell = freshShell()
         val nested = File(shell, "parts").apply { mkdirs() }
         file(nested, "body.png")
-        val catalog = catalog(shell, emptyMap(), """
+        val catalog =
+            catalog(
+                shell,
+                emptyMap(),
+                """
             surface10 {
             element0,base,parts\body.png,-5,2
             element1,overlay,..\escape.png,0,0
             element2,overlay,missing.png,0,0
             }
-        """)
+        """
+            )
         val result = SurfaceComposer.composeBase(catalog, 10, SurfaceImageLoader { image(2, 3, Color.GREEN) })!!
         assertEquals(-5, result.originX)
         assertEquals(2, result.originY)
@@ -73,9 +86,15 @@ class SurfaceComposerTest {
         Files.createSymbolicLink(mask.toPath(), outside.toPath())
         try {
             val catalog = catalog(shell, emptyMap(), "surface0 {\nelement0,base,parts/body.png,0,0\n}")
-            assertNull(SurfaceComposer.composeBase(catalog, 0, SurfaceImageLoader {
-                throw AssertionError("Linked companion mask must stop element loading")
-            }))
+            assertNull(
+                SurfaceComposer.composeBase(
+                    catalog,
+                    0,
+                    SurfaceImageLoader {
+                        throw AssertionError("Linked companion mask must stop element loading")
+                    }
+                )
+            )
         } finally {
             Files.delete(mask.toPath())
         }
@@ -83,8 +102,10 @@ class SurfaceComposerTest {
 
     private fun catalog(shell: File, numbered: Map<Int, File>, text: String) =
         ShellCatalog(numbered, SurfaceDefinitions.parse(text.trimIndent()), shell)
-    private fun freshShell(): File = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-        "authored-${System.nanoTime()}").apply { mkdirs() }
+    private fun freshShell(): File = File(
+        InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
+        "authored-${System.nanoTime()}"
+    ).apply { mkdirs() }
     private fun file(parent: File, name: String) = File(parent, name).apply { writeBytes(byteArrayOf(1)) }
     private fun image(width: Int, height: Int, color: Int) =
         Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }.asImageBitmap()

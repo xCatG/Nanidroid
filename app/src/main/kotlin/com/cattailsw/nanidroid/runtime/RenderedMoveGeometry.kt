@@ -15,21 +15,22 @@ data class MoveCoordinateSpace(
     val width: Int,
     val height: Int,
     val offsetX: Int,
-    val offsetY: Int,
+    val offsetY: Int
 )
 
 /** [layers] are the accepted layers, with x/y already placed in image coordinates. */
-data class RenderedMoveGeometry(
-    val coordinates: MoveCoordinateSpace,
-    val layers: List<SurfaceLayer>,
-)
+data class RenderedMoveGeometry(val coordinates: MoveCoordinateSpace, val layers: List<SurfaceLayer>)
 
 /** Shared by the Canvas renderer and queued-move admission. */
 object MoveGeometryResolver {
     fun fallbackSurfaceId(speaker: Int): Int = if (speaker == 0) 0 else 10
 
-    fun resolve(logicalId: Int, visual: SurfaceVisual?, images: Map<Int, SurfaceImageBounds>,
-        fallbackId: Int): RenderedMoveGeometry? {
+    fun resolve(
+        logicalId: Int,
+        visual: SurfaceVisual?,
+        images: Map<Int, SurfaceImageBounds>,
+        fallbackId: Int
+    ): RenderedMoveGeometry? {
         val animatedId = visual?.baseSurfaceId ?: logicalId
         val baseId = when {
             animatedId in images -> animatedId
@@ -52,9 +53,15 @@ object MoveGeometryResolver {
                 if (layer.method !in LAYER_METHODS) continue
                 val x = layer.x.toLong() + image.x
                 val y = layer.y.toLong() + image.y
-                if (x !in SurfaceComposer.INT_RANGE || y !in SurfaceComposer.INT_RANGE ||
-                    x >= baseRight || y >= baseBottom ||
-                    x + image.width <= baseLeft || y + image.height <= baseTop) continue
+                if (x !in SurfaceComposer.INT_RANGE ||
+                    y !in SurfaceComposer.INT_RANGE ||
+                    x >= baseRight ||
+                    y >= baseBottom ||
+                    x + image.width <= baseLeft ||
+                    y + image.height <= baseTop
+                ) {
+                    continue
+                }
                 add(layer.copy(x = x.toInt(), y = y.toInt()))
                 left = minOf(left, x)
                 top = minOf(top, y)
@@ -63,8 +70,17 @@ object MoveGeometryResolver {
             }
         }
         if (!SurfaceComposer.fitsCanvas(left, top, right, bottom)) return null
-        return RenderedMoveGeometry(MoveCoordinateSpace(baseId, left.toInt(), top.toInt(),
-            (right - left).toInt(), (bottom - top).toInt(), visual?.offsetX ?: 0, visual?.offsetY ?: 0),
-            accepted)
+        return RenderedMoveGeometry(
+            MoveCoordinateSpace(
+                baseId,
+                left.toInt(),
+                top.toInt(),
+                (right - left).toInt(),
+                (bottom - top).toInt(),
+                visual?.offsetX ?: 0,
+                visual?.offsetY ?: 0
+            ),
+            accepted
+        )
     }
 }

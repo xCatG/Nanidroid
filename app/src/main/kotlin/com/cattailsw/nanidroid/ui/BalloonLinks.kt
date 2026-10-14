@@ -11,7 +11,7 @@ object BalloonLinks {
     private val japaneseScripts = setOf(
         Character.UnicodeScript.HAN,
         Character.UnicodeScript.HIRAGANA,
-        Character.UnicodeScript.KATAKANA,
+        Character.UnicodeScript.KATAKANA
     )
 
     fun find(text: String): List<BalloonLink> = candidates.findAll(text).mapNotNull { match ->
@@ -22,8 +22,9 @@ object BalloonLinks {
             while (boundary > 0 && text[boundary - 1] == 'ー') boundary--
             val japaneseAdjacent = boundary > 0 &&
                 Character.UnicodeScript.of(text.codePointBefore(boundary)) in japaneseScripts
-            if ((Character.isLetterOrDigit(previous) || previous == '_'.code) && !japaneseAdjacent)
+            if ((Character.isLetterOrDigit(previous) || previous == '_'.code) && !japaneseAdjacent) {
                 return@mapNotNull null
+            }
         }
         var end = match.range.last + 1
         while (end > start && text[end - 1] in trailing) end--
@@ -33,7 +34,11 @@ object BalloonLinks {
 
     fun isAllowed(url: String): Boolean {
         if (url.isBlank() || url.any { it.isWhitespace() || Character.isISOControl(it) }) return false
-        val uri = try { URI(url) } catch (_: Exception) { return false }
+        val uri = try {
+            URI(url)
+        } catch (_: Exception) {
+            return false
+        }
         return when (uri.scheme?.lowercase()) {
             "http", "https" -> !uri.host.isNullOrBlank() && uri.rawUserInfo == null
             "mailto" -> !uri.schemeSpecificPart.isNullOrBlank() && uri.schemeSpecificPart.contains('@')
@@ -42,8 +47,12 @@ object BalloonLinks {
     }
 
     /** Returns a readable error, or null after a successful launch. */
-    fun open(token: DialogueToken, url: String, isCurrent: (DialogueToken) -> Boolean,
-        launch: (String) -> Unit): String? {
+    fun open(
+        token: DialogueToken,
+        url: String,
+        isCurrent: (DialogueToken) -> Boolean,
+        launch: (String) -> Unit
+    ): String? {
         if (!isCurrent(token)) return null
         if (!isAllowed(url)) return "This link is not supported."
         return try {

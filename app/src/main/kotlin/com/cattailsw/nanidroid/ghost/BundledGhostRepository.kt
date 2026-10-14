@@ -40,8 +40,10 @@ class BundledGhostRepository(
                     val entry = zip.nextEntry ?: break
                     val name = entry.name.replace('\\', '/')
                     require(
-                        name.isNotEmpty() && !name.startsWith('/') &&
-                            !name.contains(':') && name.split('/').none { it == ".." || it == "." }
+                        name.isNotEmpty() &&
+                            !name.startsWith('/') &&
+                            !name.contains(':') &&
+                            name.split('/').none { it == ".." || it == "." }
                     ) {
                         "Unsafe bundled entry"
                     }
@@ -135,7 +137,8 @@ class BundledGhostRepository(
     private fun confined(root: File, relative: String): File {
         require(
             Files.readAttributes(
-                ghostRoot.toPath(), BasicFileAttributes::class.java,
+                ghostRoot.toPath(),
+                BasicFileAttributes::class.java,
                 NOFOLLOW_LINKS
             ).isDirectory
         ) { "Invalid ghost root" }
@@ -148,10 +151,14 @@ class BundledGhostRepository(
             if (Files.exists(file.toPath(), NOFOLLOW_LINKS)) {
                 val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java, NOFOLLOW_LINKS)
                 require(
-                    !attributes.isSymbolicLink && (
-                        if (index == parts.lastIndex)
-                            attributes.isRegularFile else attributes.isDirectory
-                        )
+                    !attributes.isSymbolicLink &&
+                        (
+                            if (index == parts.lastIndex) {
+                                attributes.isRegularFile
+                            } else {
+                                attributes.isDirectory
+                            }
+                            )
                 ) { "Unsafe dictionary path" }
             }
         }
@@ -164,8 +171,10 @@ class BundledGhostRepository(
         if (!install.exists() || !descriptor.exists()) return false
         val manifest = DescriptorReader.read(boundedBytes(install))
         val fields = DescriptorReader.read(boundedBytes(descriptor))
-        return manifest["type"] == "ghost" && manifest["directory"] == "nanidroid" &&
-            fields["id"] == "nanidroid" && fields["shiori"] == "Nanidroid"
+        return manifest["type"] == "ghost" &&
+            manifest["directory"] == "nanidroid" &&
+            fields["id"] == "nanidroid" &&
+            fields["shiori"] == "Nanidroid"
     }
 
     private fun hashFile(file: File): String = file.inputStream().use { input ->
@@ -189,7 +198,8 @@ class BundledGhostRepository(
                 if (entry.name in MANAGED_PATHS) {
                     require(entry.name !in replacement) { "Duplicate managed dictionary" }
                     replacement[entry.name] = ShellFiles.readAtMost(
-                        zip, CONTENT_LIMIT,
+                        zip,
+                        CONTENT_LIMIT,
                         "Bundled content exceeds 64 KiB"
                     )
                 }
@@ -214,7 +224,9 @@ class BundledGhostRepository(
                 val current = checked.takeIf { it.exists() }?.let(::hashFile)
                 if (current != before) continue // A newly customized dictionary remains authoritative.
                 Files.move(
-                    temporary, checked.toPath(), StandardCopyOption.ATOMIC_MOVE,
+                    temporary,
+                    checked.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING
                 )
             } finally {
@@ -229,7 +241,8 @@ class BundledGhostRepository(
         private const val CONTENT_LIMIT = 64 * 1024
         private val MANAGED_PATHS = linkedSetOf(
             "ghost/master/en/content.txt",
-            "ghost/master/ja/content.txt", "ghost/master/zh-TW/content.txt"
+            "ghost/master/ja/content.txt",
+            "ghost/master/zh-TW/content.txt"
         )
         private val ARCHIVE_REQUIRED = setOf(
             "OnFirstBoot", "OnBoot", "OnClose",

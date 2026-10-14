@@ -20,9 +20,13 @@ object ShioriCodec {
         val lines = String(bytes, charset).split(Regex("\r\n|\n"))
         val status = Regex("^SHIORI/[0-9]+\\.[0-9]+ ([0-9]{3})(?:[ \\t].*)?$", RegexOption.IGNORE_CASE)
             .matchEntire(lines.firstOrNull().orEmpty().removePrefix("\uFEFF"))?.groupValues?.get(1)?.toIntOrNull() ?: 0
-        val value = if (status == 200) lines.drop(1).takeWhile { it.isNotEmpty() }
-            .firstOrNull { it.startsWith("Value:", true) }
-            ?.substringAfter(':')?.removePrefix(" ") else null
+        val value = if (status == 200) {
+            lines.drop(1).takeWhile { it.isNotEmpty() }
+                .firstOrNull { it.startsWith("Value:", true) }
+                ?.substringAfter(':')?.removePrefix(" ")
+        } else {
+            null
+        }
         return ShioriReply(status, value, charset.name())
     }
 

@@ -1,18 +1,18 @@
 package com.cattailsw.nanidroid.ui
 
 import android.graphics.Bitmap
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.click
-import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import com.cattailsw.nanidroid.data.BootStateStore
 import com.cattailsw.nanidroid.engine.ShioriEngine
 import com.cattailsw.nanidroid.engine.ShioriEvent
@@ -21,17 +21,17 @@ import com.cattailsw.nanidroid.ghost.BundledGhost
 import com.cattailsw.nanidroid.ghost.GhostDescriptor
 import com.cattailsw.nanidroid.ghost.SurfaceImageLoader
 import com.cattailsw.nanidroid.runtime.GhostRuntime
-import com.cattailsw.nanidroid.runtime.StageState
 import com.cattailsw.nanidroid.runtime.PlaybackFrame
 import com.cattailsw.nanidroid.runtime.SpeakerFrame
+import com.cattailsw.nanidroid.runtime.StageState
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import org.junit.Assert.assertEquals
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -39,7 +39,9 @@ class GhostStageTest {
     @get:Rule val compose = createComposeRule()
     private var shownRuntime: GhostRuntime? = null
 
-    @After fun pauseShownRuntime() { shownRuntime?.setResumed(false) }
+    @After fun pauseShownRuntime() {
+        shownRuntime?.setResumed(false)
+    }
 
     private val sakura = Bitmap.createBitmap(250, 144, Bitmap.Config.ARGB_8888).asImageBitmap()
     private val kero = Bitmap.createBitmap(235, 200, Bitmap.Config.ARGB_8888).asImageBitmap()
@@ -62,14 +64,23 @@ class GhostStageTest {
     @Test fun doubleTapUsesSurfaceCoordinatesWithoutSendingSingleTap() {
         val stage = StageState.Ready(
             PlaybackFrame(SpeakerFrame(0, true, "", false), SpeakerFrame(10, true, "", false), false),
-            "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura"), 10 to File("kero")))
+            "Nanidroid",
+            "Sakura",
+            "Kero",
+            mapOf(0 to File("sakura"), 10 to File("kero"))
+        )
         val singles = mutableListOf<List<Int>>()
         val doubles = mutableListOf<List<Int>>()
         compose.setContent {
-            GhostStage(stage, images,
-                onSelectGhost = {}, onConfirmSwitch = {}, onDismissSwitch = {},
+            GhostStage(
+                stage,
+                images,
+                onSelectGhost = {},
+                onConfirmSwitch = {},
+                onDismissSwitch = {},
                 onCharacterDoubleClick = { speaker, x, y -> doubles.add(listOf(speaker, x, y)) },
-                onCharacterClick = { speaker, x, y -> singles.add(listOf(speaker, x, y)) })
+                onCharacterClick = { speaker, x, y -> singles.add(listOf(speaker, x, y)) }
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { doubleClick(center) }
         compose.waitForIdle()
@@ -80,14 +91,27 @@ class GhostStageTest {
     @Test fun blockedImageLoadShowsLoadingThenBothCharacters() {
         val gate = CompletableDeferred<androidx.compose.ui.graphics.ImageBitmap>()
         val runtime = runtime { ShioriReply(204) }
-        show(runtime, SurfaceImageLoader { file -> if (file.name == "sakura") gate.await() else kero }, waitForImages = false)
+        show(
+            runtime,
+            SurfaceImageLoader { file ->
+                if (file.name ==
+                    "sakura"
+                ) {
+                    gate.await()
+                } else {
+                    kero
+                }
+            },
+            waitForImages = false
+        )
         compose.onNodeWithText("Loading ghost…").assertExists()
         gate.complete(sakura)
         compose.waitUntil(3_000) {
-            compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Sakura")).fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodes(
+                androidx.compose.ui.test.hasContentDescription("Sakura")
+            ).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithContentDescription("Kero").assertExists()
-
     }
 
     @Test fun failedImageLoadShowsMissingSurfaceMessage() {
@@ -104,7 +128,10 @@ class GhostStageTest {
         var taps = 0
         val stage = StageState.Ready(
             PlaybackFrame(SpeakerFrame(0, true, "Hello", true), SpeakerFrame(10, true, "", false), false),
-            "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura"), 10 to File("kero")),
+            "Nanidroid",
+            "Sakura",
+            "Kero",
+            mapOf(0 to File("sakura"), 10 to File("kero"))
         )
         compose.setContent { GhostStage(stage, images) { _, _, _ -> taps++ } }
         compose.waitUntil(3_000) {
@@ -118,22 +145,44 @@ class GhostStageTest {
     }
 
     @Test fun ghostSelectionWaitsForConfirmationAndCancelKeepsCurrentGhost() {
-        val candidate = GhostDescriptor("guest", "Guest Ghost", "Guest", "Companion",
-            File("guest/master"), mapOf(0 to File("sakura"), 10 to File("kero")),
-            "satori.dll", File("guest/readme.txt"))
-        val stage = mutableStateOf(StageState.Ready(
-            PlaybackFrame(SpeakerFrame(0, true, "", false), SpeakerFrame(10, true, "", false), false),
-            "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura"), 10 to File("kero")),
-            installedGhosts = listOf(candidate),
-        ))
+        val candidate = GhostDescriptor(
+            "guest",
+            "Guest Ghost",
+            "Guest",
+            "Companion",
+            File("guest/master"),
+            mapOf(0 to File("sakura"), 10 to File("kero")),
+            "satori.dll",
+            File("guest/readme.txt")
+        )
+        val stage = mutableStateOf(
+            StageState.Ready(
+                PlaybackFrame(SpeakerFrame(0, true, "", false), SpeakerFrame(10, true, "", false), false),
+                "Nanidroid",
+                "Sakura",
+                "Kero",
+                mapOf(0 to File("sakura"), 10 to File("kero")),
+                installedGhosts = listOf(candidate)
+            )
+        )
         var confirmed = 0
         compose.setContent {
-            GhostStage(stage.value, images,
-                onSelectGhost = { id -> stage.value = stage.value.copy(
-                    switchPrompt = com.cattailsw.nanidroid.runtime.SwitchPrompt(id, "Guest Ghost", "Read me first")) },
-                onConfirmSwitch = { confirmed++; stage.value = stage.value.copy(ghostName = "Guest Ghost", switchPrompt = null) },
+            GhostStage(
+                stage.value,
+                images,
+                onSelectGhost = { id ->
+                    stage.value = stage.value.copy(
+                        switchPrompt = com.cattailsw.nanidroid.runtime.SwitchPrompt(id, "Guest Ghost", "Read me first")
+                    )
+                },
+                onConfirmSwitch = {
+                    confirmed++
+                    stage.value =
+                        stage.value.copy(ghostName = "Guest Ghost", switchPrompt = null)
+                },
                 onDismissSwitch = { stage.value = stage.value.copy(switchPrompt = null) },
-                onCharacterClick = { _, _, _ -> })
+                onCharacterClick = { _, _, _ -> }
+            )
         }
         compose.onNodeWithContentDescription("Ghosts").performClick()
         compose.onNodeWithText("Guest Ghost").performClick()
@@ -151,8 +200,12 @@ class GhostStageTest {
     @Test fun activationErrorIsVisibleAndAccessible() {
         val stage = StageState.Ready(
             PlaybackFrame(SpeakerFrame(0, true, "", false), SpeakerFrame(10, true, "", false), false),
-            "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura"), 10 to File("kero")),
-            activationError = "Native load failed: 0")
+            "Nanidroid",
+            "Sakura",
+            "Kero",
+            mapOf(0 to File("sakura"), 10 to File("kero")),
+            activationError = "Native load failed: 0"
+        )
         compose.setContent { GhostStage(stage, images) { _, _, _ -> } }
         compose.onNodeWithContentDescription("Ghost error: Native load failed: 0").assertExists()
     }
@@ -160,7 +213,11 @@ class GhostStageTest {
     @Test fun nonstandardShellSurfaceIdsStillRenderBothCharacters() {
         val stage = StageState.Ready(
             PlaybackFrame(SpeakerFrame(100, true, "", false), SpeakerFrame(101, true, "", false), false),
-            "LOBO", "Lobo", "Companion", mapOf(100 to File("sakura"), 101 to File("kero")))
+            "LOBO",
+            "Lobo",
+            "Companion",
+            mapOf(100 to File("sakura"), 101 to File("kero"))
+        )
         compose.setContent { GhostStage(stage, images) { _, _, _ -> } }
         compose.waitUntil(3_000) {
             compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Lobo"))
@@ -172,9 +229,16 @@ class GhostStageTest {
 
     @Test fun ghostsActionDoesNotCoverVisibleDialogue() {
         val stage = StageState.Ready(
-            PlaybackFrame(SpeakerFrame(100, true, "Visible dialogue", true),
-                SpeakerFrame(101, true, "", false), false),
-            "LOBO", "Lobo", "Companion", mapOf(100 to File("sakura"), 101 to File("kero")))
+            PlaybackFrame(
+                SpeakerFrame(100, true, "Visible dialogue", true),
+                SpeakerFrame(101, true, "", false),
+                false
+            ),
+            "LOBO",
+            "Lobo",
+            "Companion",
+            mapOf(100 to File("sakura"), 101 to File("kero"))
+        )
         compose.setContent { GhostStage(stage, images) { _, _, _ -> } }
         compose.waitUntil(3_000) {
             compose.onAllNodes(androidx.compose.ui.test.hasTestTag("balloon-Lobo"))
@@ -182,22 +246,34 @@ class GhostStageTest {
         }
         val action = compose.onNodeWithContentDescription("Ghosts").fetchSemanticsNode().boundsInRoot
         val balloon = compose.onNodeWithTag("balloon-Lobo").fetchSemanticsNode().boundsInRoot
-        org.junit.Assert.assertTrue("Ghosts action overlaps dialogue: $action vs $balloon",
-            action.bottom <= balloon.top)
+        org.junit.Assert.assertTrue(
+            "Ghosts action overlaps dialogue: $action vs $balloon",
+            action.bottom <= balloon.top
+        )
     }
 
     private fun runtime(engine: suspend (ShioriEvent) -> ShioriReply): GhostRuntime = GhostRuntime(
         loadGhost = {
-            BundledGhost("nanidroid", "Nanidroid", "Sakura", "Kero",
-                mapOf(0 to File("sakura"), 10 to File("kero")), "")
+            BundledGhost(
+                "nanidroid",
+                "Nanidroid",
+                "Sakura",
+                "Kero",
+                mapOf(0 to File("sakura"), 10 to File("kero")),
+                ""
+            )
         },
-        engineFactory = { object : ShioriEngine { override suspend fun request(event: ShioriEvent) = engine(event) } },
+        engineFactory = {
+            object : ShioriEngine {
+                override suspend fun request(event: ShioriEvent) = engine(event)
+            }
+        },
         bootState = object : BootStateStore {
             override suspend fun recordActivation(directoryId: String) = true
             override suspend fun consumeOnboarding() = false
         },
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
-        elapsedRealtime = { 0L },
+        elapsedRealtime = { 0L }
     )
 
     private fun show(runtime: GhostRuntime, loader: SurfaceImageLoader, waitForImages: Boolean = true) {
@@ -211,8 +287,10 @@ class GhostStageTest {
             CoroutineScope(Dispatchers.Main.immediate).launch { runtime.start("en") }
         }
         compose.waitUntil(3_000) { runtime.state.value is StageState.Ready }
-        if (waitForImages) compose.waitUntil(3_000) {
-            compose.onAllNodes(androidx.compose.ui.test.hasTestTag("kero")).fetchSemanticsNodes().isNotEmpty()
+        if (waitForImages) {
+            compose.waitUntil(3_000) {
+                compose.onAllNodes(androidx.compose.ui.test.hasTestTag("kero")).fetchSemanticsNodes().isNotEmpty()
+            }
         }
     }
 }

@@ -8,9 +8,7 @@ data class SurfaceLayer(val surfaceId: Int, val method: String, val x: Int, val 
 /** Element and animation methods drawn as layers over a base image. */
 val LAYER_METHODS = setOf("overlay", "overlayfast", "interpolate")
 
-class SurfaceDefinitions private constructor(
-    private val byDefinition: Map<Int, SurfaceDefinition>,
-) {
+class SurfaceDefinitions private constructor(private val byDefinition: Map<Int, SurfaceDefinition>) {
     fun definition(id: Int): SurfaceDefinition? = byDefinition[id]
     fun ids(): Set<Int> = byDefinition.keys
 
@@ -68,14 +66,20 @@ class SurfaceDefinitions private constructor(
             var records = 0
             fun finish() {
                 val animations = (intervals.keys + authoredPatterns.keys).distinct().sorted().map { id ->
-                    SurfaceAnimation(id, intervals[id].orEmpty(), authoredPatterns[id].orEmpty().toSortedMap().values.toList())
+                    SurfaceAnimation(
+                        id,
+                        intervals[id].orEmpty(),
+                        authoredPatterns[id].orEmpty().toSortedMap().values.toList()
+                    )
                 }
                 selected.forEach { id ->
                     val old = definitions[id]
-                    definitions[id] = SurfaceDefinition(id,
+                    definitions[id] = SurfaceDefinition(
+                        id,
                         (old?.elements.orEmpty() + authoredElements.values).distinctBy { it.id }.sortedBy { it.id },
                         old?.collisions.orEmpty() + authoredCollisions,
-                        (old?.animations.orEmpty() + animations).distinctBy { it.id }.sortedBy { it.id })
+                        (old?.animations.orEmpty() + animations).distinctBy { it.id }.sortedBy { it.id }
+                    )
                 }
                 intervals.clear()
                 authoredElements.clear()
@@ -111,17 +115,24 @@ class SurfaceDefinitions private constructor(
                     val fileName = fields.getOrNull(2).orEmpty()
                     val x = fields.getOrNull(3)?.toIntOrNull()
                     val y = fields.getOrNull(4)?.toIntOrNull()
-                    if (id != null && method in elementMethods &&
-                        fileName.isNotBlank() && x != null && y != null)
+                    if (id != null &&
+                        method in elementMethods &&
+                        fileName.isNotBlank() &&
+                        x != null &&
+                        y != null
+                    ) {
                         authoredElements[id] = SurfaceElement(id, method!!, fileName, x, y)
+                    }
                     continue
                 }
                 collision.matchEntire(key)?.let { match ->
                     val id = match.groupValues[1].toIntOrNull()
                     val bounds = (1..4).map { fields.getOrNull(it)?.toIntOrNull() }
                     val name = fields.drop(5).joinToString(",")
-                    if (id != null && bounds.all { it != null } && name.isNotBlank())
-                        authoredCollisions += SurfaceCollision(id, bounds[0]!!, bounds[1]!!, bounds[2]!!, bounds[3]!!, name)
+                    if (id != null && bounds.all { it != null } && name.isNotBlank()) {
+                        authoredCollisions +=
+                            SurfaceCollision(id, bounds[0]!!, bounds[1]!!, bounds[2]!!, bounds[3]!!, name)
+                    }
                     continue
                 }
                 interval.matchEntire(key)?.let { match ->
@@ -146,7 +157,8 @@ class SurfaceDefinitions private constructor(
                     ?.takeIf { it.isNotEmpty() }?.toLongOrNull()
                     ?.let { runCatching { Math.multiplyExact(it, multiplier) }.getOrNull() } ?: min
                 val parsed = if (method == "alternativestart" ||
-                    fields.getOrNull(1)?.equals("alternativestart", true) == true) {
+                    fields.getOrNull(1)?.equals("alternativestart", true) == true
+                ) {
                     val targetStart = if (!modern && method == "alternativestart") 4 else 2
                     val rawTargets = fields.drop(targetStart).joinToString(",")
                     val contents = when {
@@ -158,10 +170,20 @@ class SurfaceDefinitions private constructor(
                     val targets = contents.split('.', ',', ' ', ':', '\t')
                         .mapNotNull { it.trim().toIntOrNull() }
                     if (targets.isNotEmpty()) SurfacePattern.Alternative(targets) else null
-                } else if (surfaceId != null && surfaceId >= -1 && method in patternMethods &&
-                    min != null && max != null && max >= min && max <= Int.MAX_VALUE && x != null && y != null) {
+                } else if (surfaceId != null &&
+                    surfaceId >= -1 &&
+                    method in patternMethods &&
+                    min != null &&
+                    max != null &&
+                    max >= min &&
+                    max <= Int.MAX_VALUE &&
+                    x != null &&
+                    y != null
+                ) {
                     SurfacePattern.Image(surfaceId, method!!, min, max, x, y)
-                } else null
+                } else {
+                    null
+                }
                 if (parsed != null) authoredPatterns.getOrPut(id) { mutableMapOf() }[frame] = parsed
             }
             if (inBlock) finish()

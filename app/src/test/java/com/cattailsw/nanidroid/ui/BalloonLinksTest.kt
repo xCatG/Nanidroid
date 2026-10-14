@@ -1,9 +1,9 @@
 package com.cattailsw.nanidroid.ui
 
+import com.cattailsw.nanidroid.runtime.DialogueToken
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import com.cattailsw.nanidroid.runtime.DialogueToken
 
 class BalloonLinksTest {
     @Test fun findsLinksAdjacentToJapaneseTextWithoutIncludingTheNextSentence() {
@@ -19,13 +19,17 @@ class BalloonLinksTest {
     }
 
     @Test fun JapaneseCommaSeparatesLinkFromFollowingText() {
-        assertEquals(listOf("https://example.org"),
-            BalloonLinks.find("案内https://example.org、続き").map { it.url })
+        assertEquals(
+            listOf("https://example.org"),
+            BalloonLinks.find("案内https://example.org、続き").map { it.url }
+        )
     }
 
     @Test fun prolongedSoundMarkBeforeSchemeIsJapaneseAdjacentText() {
-        assertEquals(listOf("https://example.org"),
-            BalloonLinks.find("メニューhttps://example.org。").map { it.url })
+        assertEquals(
+            listOf("https://example.org"),
+            BalloonLinks.find("メニューhttps://example.org。").map { it.url }
+        )
     }
 
     @Test fun isolatedProlongedSoundMarkDoesNotHideLatinPrefix() {
@@ -33,9 +37,11 @@ class BalloonLinksTest {
     }
 
     @Test fun repeatedProlongedSoundMarksAfterJapaneseTextAllowLink() {
-        assertEquals(listOf("https://example.org", "https://example.net"),
+        assertEquals(
+            listOf("https://example.org", "https://example.net"),
             BalloonLinks.find("メニューーhttps://example.org すごーーhttps://example.net")
-                .map { it.url })
+                .map { it.url }
+        )
     }
 
     @Test fun repeatedProlongedSoundMarksDoNotHideLatinOrUnderscorePrefix() {
@@ -54,8 +60,15 @@ class BalloonLinksTest {
         assertTrue(BalloonLinks.isAllowed("http://example.org/a"))
         assertTrue(BalloonLinks.isAllowed("https://example.org/a"))
         assertTrue(BalloonLinks.isAllowed("mailto:person@example.org"))
-        listOf("file:///tmp/a", "content://x", "intent://x", "javascript:alert(1)",
-            "https://", "https://example.org\nX", "mailto:").forEach {
+        listOf(
+            "file:///tmp/a",
+            "content://x",
+            "intent://x",
+            "javascript:alert(1)",
+            "https://",
+            "https://example.org\nX",
+            "mailto:"
+        ).forEach {
             assertEquals(it, false, BalloonLinks.isAllowed(it))
         }
     }
@@ -65,8 +78,14 @@ class BalloonLinksTest {
         val launched = mutableListOf<String>()
         assertEquals(null, BalloonLinks.open(token, "https://example.org", { false }) { launched += it })
         assertTrue(launched.isEmpty())
-        assertEquals("No app can open this link.", BalloonLinks.open(token,
-            "https://example.org", { true }) { throw IllegalStateException("no handler") })
+        assertEquals(
+            "No app can open this link.",
+            BalloonLinks.open(
+                token,
+                "https://example.org",
+                { true }
+            ) { throw IllegalStateException("no handler") }
+        )
         assertEquals(null, BalloonLinks.open(token, "mailto:a@example.org", { true }) { launched += it })
         assertEquals(listOf("mailto:a@example.org"), launched)
     }

@@ -7,21 +7,21 @@ import java.io.File
 import java.nio.charset.Charset
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 enum class NativeKind { SATORI, KAWARI, YAYA }
 enum class NativeAvailability { Available, Occupied, Quarantined }
@@ -44,7 +44,7 @@ internal data class NativeObservation(
     val unloads: Int,
     val events: List<String>,
     val requestOrdinal: Long,
-    val eventCounts: Map<String, Long>,
+    val eventCounts: Map<String, Long>
 ) {
     fun eventCount(id: String): Long = requireNotNull(eventCounts[id]) { "Event ID is not tracked: $id" }
 }
@@ -52,7 +52,7 @@ internal data class NativeReplyObservation(
     val eventId: String,
     val ordinal: Long,
     val references: List<String>,
-    val reply: ShioriReply,
+    val reply: ShioriReply
 )
 
 interface NativeBinding {
@@ -66,14 +66,19 @@ interface NativeBinding {
 class NativeShioriHost private constructor(
     private val lane: Lane,
     private val bindings: (NativeKind) -> NativeBinding,
-    private val deadlinePause: suspend (Long) -> Unit = { delay(it) },
+    private val deadlinePause: suspend (Long) -> Unit = { delay(it) }
 ) {
     val availability: StateFlow<NativeAvailability> = lane.availability
 
     /** Read-only counters for device lifecycle assertions; no native operation is performed. */
     internal fun observationForTest(): NativeObservation = synchronized(lane.gate) {
-        NativeObservation(lane.loadCount, lane.unloadCount, lane.eventIds.toList(), lane.requestOrdinal,
-            lane.eventCounts?.toMap().orEmpty())
+        NativeObservation(
+            lane.loadCount,
+            lane.unloadCount,
+            lane.eventIds.toList(),
+            lane.requestOrdinal,
+            lane.eventCounts?.toMap().orEmpty()
+        )
     }
 
     /** Counts only explicitly selected IDs until closed; snapshots are immutable. */
@@ -81,9 +86,11 @@ class NativeShioriHost private constructor(
         check(lane.eventCounts == null) { "Event tracking is already active" }
         val counts = ids.associateWith { 0L }.toMutableMap()
         lane.eventCounts = counts
-        AutoCloseable { synchronized(lane.gate) {
-            if (lane.eventCounts === counts) lane.eventCounts = null
-        } }
+        AutoCloseable {
+            synchronized(lane.gate) {
+                if (lane.eventCounts === counts) lane.eventCounts = null
+            }
+        }
     }
 
     /** One removable observer; invoked after decode on the native lane. */
@@ -107,7 +114,13 @@ class NativeShioriHost private constructor(
         }
     }
 
-    private fun loadOnLane(kind: NativeKind, directory: File, libraryName: String, caller: Job?, attempt: Any): NativeLoadResult {
+    private fun loadOnLane(
+        kind: NativeKind,
+        directory: File,
+        libraryName: String,
+        caller: Job?,
+        attempt: Any
+    ): NativeLoadResult {
         synchronized(lane.gate) {
             if (lane.quarantined) return NativeLoadResult.Unresolved("Native ownership is unresolved")
             if (lane.owner != null) return NativeLoadResult.Failed(-1)
@@ -127,11 +140,22 @@ class NativeShioriHost private constructor(
                     }
                     if (caller?.isCancelled == true) {
                         lane.cleanupCancelledOwner(attempt)
-                        if (lane.isQuarantined()) NativeLoadResult.Unresolved("Cancelled load cleanup failed; ownership is unresolved")
-                        else NativeLoadResult.Failed(0)
-                    } else NativeLoadResult.Loaded(lease)
+                        if (lane.isQuarantined()) {
+                            NativeLoadResult.Unresolved("Cancelled load cleanup failed; ownership is unresolved")
+                        } else {
+                            NativeLoadResult.Failed(0)
+                        }
+                    } else {
+                        NativeLoadResult.Loaded(lease)
+                    }
                 }
-                0 -> if (lane.isQuarantined()) NativeLoadResult.Unresolved("Native ownership is unresolved") else NativeLoadResult.Failed(0)
+                0 -> if (lane.isQuarantined()) {
+                    NativeLoadResult.Unresolved(
+                        "Native ownership is unresolved"
+                    )
+                } else {
+                    NativeLoadResult.Failed(0)
+                }
                 else -> {
                     lane.quarantine()
                     NativeLoadResult.Unresolved("Native load returned $status; ownership is unresolved")
@@ -149,15 +173,27 @@ class NativeShioriHost private constructor(
         val references = event.references.toList()
         val ordinal = lane.noteEvent(event.id)
         try {
-            val before = if (owner.kind == NativeKind.YAYA) resolveCharset(lane.jni { owner.binding.transportCharset() })
-                else SHIFT_JIS
+            val before = if (owner.kind ==
+                NativeKind.YAYA
+            ) {
+                resolveCharset(lane.jni { owner.binding.transportCharset() })
+            } else {
+                SHIFT_JIS
+            }
             val request = ShioriCodec.encode(event, before, owner.kind == NativeKind.SATORI)
             val response = lane.jni { owner.binding.request(request) }
             val after = if (owner.kind == NativeKind.YAYA) {
                 val raw = lane.jni { owner.binding.transportCharset() }
-                try { resolveCharset(raw) }
-                catch (error: NativeTransportException) { ShioriCodec.declaredCharset(response) ?: throw error }
-            } else SHIFT_JIS
+                try {
+                    resolveCharset(raw)
+                } catch (
+                    error: NativeTransportException
+                ) {
+                    ShioriCodec.declaredCharset(response) ?: throw error
+                }
+            } else {
+                SHIFT_JIS
+            }
             ShioriCodec.decode(response, after).also { lane.noteReply(event.id, ordinal, references, it) }
         } catch (error: NativeTransportException) {
             throw error
@@ -174,8 +210,9 @@ class NativeShioriHost private constructor(
         try {
             if (lane.jni { owner.binding.unload() }) {
                 synchronized(lane.gate) {
-                    if (lane.quarantined) NativeUnloadResult.Unresolved("Native ownership is unresolved")
-                    else {
+                    if (lane.quarantined) {
+                        NativeUnloadResult.Unresolved("Native ownership is unresolved")
+                    } else {
                         lane.owner = null
                         lane.unloadCount++
                         lane.availability.value = NativeAvailability.Available
@@ -195,16 +232,20 @@ class NativeShioriHost private constructor(
     suspend fun shutdown(
         lease: NativeLease,
         notifyDestroy: Boolean = true,
-        timeoutMillis: Long = 5_000L,
+        timeoutMillis: Long = 5_000L
     ): NativeShutdownResult {
         val operation = synchronized(lane.gate) {
             lane.shutdowns[lease] ?: run {
                 if (lane.quarantined) return NativeShutdownResult.Unresolved("Native ownership is unresolved")
-                if (lane.owner?.lease !== lease) return NativeShutdownResult.Failed("No active native owner for this lease")
+                if (lane.owner?.lease !==
+                    lease
+                ) {
+                    return NativeShutdownResult.Failed("No active native owner for this lease")
+                }
                 ShutdownOperation(
                     lease,
                     notifyDestroy,
-                    System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis.coerceAtLeast(0)),
+                    System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis.coerceAtLeast(0))
                 ).also { lane.shutdowns[lease] = it }
             }
         }
@@ -213,7 +254,11 @@ class NativeShioriHost private constructor(
                 while (!operation.result.isCompleted) {
                     val remaining = operation.deadline - System.nanoTime()
                     if (remaining <= 0) {
-                        lane.finish(operation, NativeShutdownResult.Unresolved("Native shutdown deadline expired"), quarantine = true)
+                        lane.finish(
+                            operation,
+                            NativeShutdownResult.Unresolved("Native shutdown deadline expired"),
+                            quarantine = true
+                        )
                         break
                     }
                     // Round upward; a scheduler or injected pause can still wake early.
@@ -240,14 +285,31 @@ class NativeShioriHost private constructor(
         if (operation.notifyDestroy) {
             try {
                 lane.noteEvent("OnDestroy")
-                val before = if (owner.kind == NativeKind.YAYA) resolveCharset(lane.shutdownJni(operation) { owner.binding.transportCharset() }) else SHIFT_JIS
-                val bytes = ShioriCodec.encode(ShioriEvent("OnDestroy", method = ShioriMethod.NOTIFY), before, owner.kind == NativeKind.SATORI)
+                val before = if (owner.kind ==
+                    NativeKind.YAYA
+                ) {
+                    resolveCharset(lane.shutdownJni(operation) { owner.binding.transportCharset() })
+                } else {
+                    SHIFT_JIS
+                }
+                val bytes = ShioriCodec.encode(
+                    ShioriEvent("OnDestroy", method = ShioriMethod.NOTIFY),
+                    before,
+                    owner.kind == NativeKind.SATORI
+                )
                 val response = lane.shutdownJni(operation) { owner.binding.request(bytes) }
                 val after = if (owner.kind == NativeKind.YAYA) {
                     val raw = lane.shutdownJni(operation) { owner.binding.transportCharset() }
-                    try { resolveCharset(raw) }
-                    catch (error: NativeTransportException) { ShioriCodec.declaredCharset(response) ?: throw error }
-                } else SHIFT_JIS
+                    try {
+                        resolveCharset(raw)
+                    } catch (
+                        error: NativeTransportException
+                    ) {
+                        ShioriCodec.declaredCharset(response) ?: throw error
+                    }
+                } else {
+                    SHIFT_JIS
+                }
                 val status = ShioriCodec.decode(response, after).status
                 if (status != 200 && status != 204) failure = "OnDestroy returned $status"
             } catch (error: AbandonedShutdown) {
@@ -255,21 +317,37 @@ class NativeShioriHost private constructor(
             } catch (error: NativeTransportException) {
                 failure = "OnDestroy transport error: ${error.message}"
             } catch (error: Throwable) {
-                lane.finish(operation, NativeShutdownResult.Unresolved("OnDestroy transport failed: ${error.message}"), quarantine = true)
+                lane.finish(
+                    operation,
+                    NativeShutdownResult.Unresolved("OnDestroy transport failed: ${error.message}"),
+                    quarantine = true
+                )
                 return
             }
         }
         try {
             val unloaded = lane.shutdownJni(operation) { owner.binding.unload() }
             if (!unloaded) {
-                lane.finish(operation, NativeShutdownResult.Unresolved("Native unload returned false"), quarantine = true)
+                lane.finish(
+                    operation,
+                    NativeShutdownResult.Unresolved("Native unload returned false"),
+                    quarantine = true
+                )
             } else {
-                lane.finish(operation, failure?.let { NativeShutdownResult.Failed(it) } ?: NativeShutdownResult.Completed, release = true)
+                lane.finish(
+                    operation,
+                    failure?.let { NativeShutdownResult.Failed(it) } ?: NativeShutdownResult.Completed,
+                    release = true
+                )
             }
         } catch (_: AbandonedShutdown) {
             // The deadline owns the terminal result and quarantine.
         } catch (error: Throwable) {
-            lane.finish(operation, NativeShutdownResult.Unresolved("Native unload threw ${error.javaClass.simpleName}: ${error.message}"), quarantine = true)
+            lane.finish(
+                operation,
+                NativeShutdownResult.Unresolved("Native unload threw ${error.javaClass.simpleName}: ${error.message}"),
+                quarantine = true
+            )
         }
     }
 
@@ -301,7 +379,11 @@ class NativeShioriHost private constructor(
         }
         fun noteReply(id: String, ordinal: Long, references: List<String>, reply: ShioriReply) {
             val observer = synchronized(gate) { replyObserver } ?: return
-            try { observer(NativeReplyObservation(id, ordinal, references, reply)) } catch (_: Throwable) { /* Observation cannot alter dispatch. */ }
+            try {
+                observer(NativeReplyObservation(id, ordinal, references, reply))
+            } catch (
+                _: Throwable
+            ) { /* Observation cannot alter dispatch. */ }
         }
         var quarantined = false
         val shutdowns = mutableMapOf<NativeLease, ShutdownOperation>()
@@ -314,19 +396,30 @@ class NativeShioriHost private constructor(
         fun <T> shutdownJni(operation: ShutdownOperation, call: () -> T): T {
             synchronized(gate) {
                 if (quarantined || operation.result.isCompleted || System.nanoTime() >= operation.deadline) {
-                    finish(operation, NativeShutdownResult.Unresolved("Native shutdown deadline expired"), quarantine = true)
+                    finish(
+                        operation,
+                        NativeShutdownResult.Unresolved("Native shutdown deadline expired"),
+                        quarantine = true
+                    )
                     throw AbandonedShutdown()
                 }
             }
             return call()
         }
-        fun finish(operation: ShutdownOperation, result: NativeShutdownResult, quarantine: Boolean = false, release: Boolean = false) {
+        fun finish(
+            operation: ShutdownOperation,
+            result: NativeShutdownResult,
+            quarantine: Boolean = false,
+            release: Boolean = false
+        ) {
             synchronized(gate) {
                 if (operation.result.isCompleted) return
                 if (quarantine || System.nanoTime() >= operation.deadline) {
                     this.quarantined = true
                     availability.value = NativeAvailability.Quarantined
-                    operation.result.complete(NativeShutdownResult.Unresolved("Native shutdown deadline or ownership unresolved"))
+                    operation.result.complete(
+                        NativeShutdownResult.Unresolved("Native shutdown deadline or ownership unresolved")
+                    )
                 } else {
                     if (release) {
                         owner = null
@@ -337,7 +430,10 @@ class NativeShioriHost private constructor(
                 }
             }
         }
-        fun quarantine() = synchronized(gate) { quarantined = true; availability.value = NativeAvailability.Quarantined }
+        fun quarantine() = synchronized(gate) {
+            quarantined = true
+            availability.value = NativeAvailability.Quarantined
+        }
         fun cleanupCancelledOwner(attempt: Any) {
             val active = synchronized(gate) { owner?.takeIf { it.attempt === attempt && !quarantined } } ?: return
             try {
@@ -348,8 +444,12 @@ class NativeShioriHost private constructor(
                             availability.value = NativeAvailability.Available
                         }
                     }
-                } else quarantine()
-            } catch (_: Throwable) { quarantine() }
+                } else {
+                    quarantine()
+                }
+            } catch (_: Throwable) {
+                quarantine()
+            }
         }
     }
 
@@ -361,10 +461,11 @@ class NativeShioriHost private constructor(
         val process: NativeShioriHost by lazy { NativeShioriHost(Lane(), ::realBinding) }
 
         /** Isolated state is only for local fake-binding tests. */
-        internal fun forTest(binding: (NativeKind) -> NativeBinding): NativeShioriHost = NativeShioriHost(Lane(), binding)
+        internal fun forTest(binding: (NativeKind) -> NativeBinding): NativeShioriHost =
+            NativeShioriHost(Lane(), binding)
         internal fun forTest(
             binding: (NativeKind) -> NativeBinding,
-            deadlinePause: suspend (Long) -> Unit,
+            deadlinePause: suspend (Long) -> Unit
         ): NativeShioriHost = NativeShioriHost(Lane(), binding, deadlinePause)
 
         private fun resolveCharset(raw: String): Charset {
@@ -373,28 +474,41 @@ class NativeShioriHost private constructor(
                 "binary" -> "ISO-8859-1"
                 else -> raw.trim()
             }
-            return try { Charset.forName(name) }
-            catch (error: Exception) { throw NativeTransportException("Invalid YAYA transport charset: $raw", error) }
+            return try {
+                Charset.forName(name)
+            } catch (
+                error: Exception
+            ) {
+                throw NativeTransportException("Invalid YAYA transport charset: $raw", error)
+            }
         }
 
         private fun realBinding(kind: NativeKind): NativeBinding = when (kind) {
             NativeKind.KAWARI -> object : NativeBinding {
                 private val native = Kawari()
-                override fun load(directory: File, libraryName: String) = native.nativeLoad(directory.absolutePath + File.separator)
+                override fun load(directory: File, libraryName: String) = native.nativeLoad(
+                    directory.absolutePath + File.separator
+                )
                 override fun unload() = native.nativeUnload()
                 override fun request(bytes: ByteArray) = native.requestFromJNI(bytes)
                 override fun transportCharset() = "Shift_JIS"
             }
             NativeKind.SATORI -> object : NativeBinding {
                 private val native = SatoriShiori()
-                override fun load(directory: File, libraryName: String) = native.nativeLoad(directory.absolutePath + File.separator, directory.absolutePath)
+                override fun load(directory: File, libraryName: String) = native.nativeLoad(
+                    directory.absolutePath + File.separator,
+                    directory.absolutePath
+                )
                 override fun unload() = native.nativeUnload()
                 override fun request(bytes: ByteArray) = native.nativeRequest(bytes)
                 override fun transportCharset() = "Shift_JIS"
             }
             NativeKind.YAYA -> object : NativeBinding {
                 private val native = YayaShiori()
-                override fun load(directory: File, libraryName: String) = native.nativeLoad(directory.absolutePath + File.separator, directory.absolutePath)
+                override fun load(directory: File, libraryName: String) = native.nativeLoad(
+                    directory.absolutePath + File.separator,
+                    directory.absolutePath
+                )
                 override fun unload() = native.nativeUnload()
                 override fun request(bytes: ByteArray) = native.nativeRequest(bytes)
                 override fun transportCharset() = native.nativeTransportCharset()

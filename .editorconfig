@@ -10,15 +10,13 @@ indent_size = 4
 ktlint_code_style = android_studio
 max_line_length = 120
 ktlint_function_naming_ignore_when_annotated_with = Composable
-# Wrapping rules disabled: the existing code uses a dense layout that violates them ~5.7k times;
-# baseline entries are line-based and would resurface whenever those files are edited.
-# (`wrapping` itself must stay enabled: ktlint needs it for trailing-comma rules and fails to parse otherwise.)
-ktlint_standard_argument-list-wrapping = disabled
-ktlint_standard_statement-wrapping = disabled
-ktlint_standard_function-literal = disabled
-ktlint_standard_parameter-list-wrapping = disabled
-ktlint_standard_function-signature = disabled
-ktlint_standard_multiline-if-else = disabled
-ktlint_standard_binary-expression-wrapping = disabled
-ktlint_standard_condition-wrapping = disabled
-ktlint_standard_class-signature = disabled
+# Wrapping rules are enabled after the whole-codebase format pass (#445).
+ktlint_standard_argument-list-wrapping = enabled
+ktlint_standard_statement-wrapping = enabled
+ktlint_standard_function-literal = enabled
+ktlint_standard_parameter-list-wrapping = enabled
+ktlint_standard_function-signature = enabled
+ktlint_standard_multiline-if-else = enabled
+ktlint_standard_binary-expression-wrapping = enabled
+ktlint_standard_condition-wrapping = enabled
+ktlint_standard_class-signature = enabled

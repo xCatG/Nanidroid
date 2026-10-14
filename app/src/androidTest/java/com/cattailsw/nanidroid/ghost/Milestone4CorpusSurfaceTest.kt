@@ -32,8 +32,10 @@ class Milestone4CorpusSurfaceTest {
         assertNotNull(ten)
         assertTrue(zero!!.image.asAndroidBitmap().sameAs(loader.load(body).asAndroidBitmap()))
         assertTrue(ten!!.image.asAndroidBitmap().sameAs(loader.load(menu).asAndroidBitmap()))
-        println("M4_CORPUS LOBO zero=${zero.image.width}x${zero.image.height} " +
-            "ten=${ten.image.width}x${ten.image.height} origins=${zero.originX},${zero.originY};${ten.originX},${ten.originY}")
+        println(
+            "M4_CORPUS LOBO zero=${zero.image.width}x${zero.image.height} " +
+                "ten=${ten.image.width}x${ten.image.height} origins=${zero.originX},${zero.originY};${ten.originX},${ten.originY}"
+        )
     }
 
     @Test fun earthquakeStaticPartsAndAuthoredMoveSequence() = runBlocking {
@@ -53,13 +55,20 @@ class Milestone4CorpusSurfaceTest {
         val second = animator.advanceBy(100, emptySet())!!.getValue(0)
         assertEquals(10, first.offsetX)
         assertEquals(12, second.offsetX)
-        assertNotNull(SurfaceComposer.composeBase(
-            loadShellCatalog(shell, mapOf(1303 to File(shell, "surface1303.png"))), 1303, loader))
-        println("M4_CORPUS EARTHQUAKE staticLayers=${parts.size} move=${first.offsetX},${second.offsetX}; rendered pixels checked by Milestone4CorpusDynamicUiTest")
+        assertNotNull(
+            SurfaceComposer.composeBase(
+                loadShellCatalog(shell, mapOf(1303 to File(shell, "surface1303.png"))),
+                1303,
+                loader
+            )
+        )
+        println(
+            "M4_CORPUS EARTHQUAKE staticLayers=${parts.size} move=${first.offsetX},${second.offsetX}; rendered pixels checked by Milestone4CorpusDynamicUiTest"
+        )
     }
 
     private fun shell(id: String): File = File(
         InstrumentationRegistry.getInstrumentation().targetContext.filesDir,
-        "ghost/${InstrumentationRegistry.getArguments().getString("fixtureId") ?: id}/shell/master",
+        "ghost/${InstrumentationRegistry.getArguments().getString("fixtureId") ?: id}/shell/master"
     )
 }

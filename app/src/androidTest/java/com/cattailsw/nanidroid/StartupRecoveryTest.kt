@@ -27,12 +27,16 @@ class StartupRecoveryTest {
             assertTrue(published.mkdirs())
             File(published, "sentinel").writeText("published")
 
-            val app = Instrumentation.newApplication(NanidroidApplication::class.java,
-                instrumentation.targetContext) as NanidroidApplication
+            val app = Instrumentation.newApplication(
+                NanidroidApplication::class.java,
+                instrumentation.targetContext
+            ) as NanidroidApplication
             val started = SystemClock.elapsedRealtime()
             instrumentation.runOnMainSync { app.onCreate() }
-            assertTrue("Application.onCreate blocked the UI thread",
-                SystemClock.elapsedRealtime() - started < 2_000)
+            assertTrue(
+                "Application.onCreate blocked the UI thread",
+                SystemClock.elapsedRealtime() - started < 2_000
+            )
 
             val deadline = SystemClock.elapsedRealtime() + 10_000
             while (attempt.exists() && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(20)
@@ -59,8 +63,10 @@ class StartupRecoveryTest {
             assertTrue(published.mkdirs())
             File(published, "sentinel").writeText("published")
 
-            val app = Instrumentation.newApplication(NanidroidApplication::class.java,
-                instrumentation.targetContext) as NanidroidApplication
+            val app = Instrumentation.newApplication(
+                NanidroidApplication::class.java,
+                instrumentation.targetContext
+            ) as NanidroidApplication
             instrumentation.runOnMainSync { app.onCreate() }
             assertTrue(runCatching { runBlocking { app.ghostImporter.recoverAbandonedAttempts() } }.isFailure)
 

@@ -55,11 +55,12 @@ class MainActivity : ComponentActivity() {
             override fun <T : ViewModel> create(
                 modelClass: Class<T>,
                 extras: androidx.lifecycle.viewmodel.CreationExtras
-            ): T =
-                StageViewModel(
-                    app.runtime, app.importCoordinator, extras.createSavedStateHandle(),
-                    app.importAttemptStore
-                ) as T
+            ): T = StageViewModel(
+                app.runtime,
+                app.importCoordinator,
+                extras.createSavedStateHandle(),
+                app.importAttemptStore
+            ) as T
         }
     }
 
@@ -127,8 +128,11 @@ class MainActivity : ComponentActivity() {
                     onOpenLink = { token, url ->
                         linkError = BalloonLinks.open(token, url, viewModel::isCurrentDialogue) { safeUrl ->
                             val uri = Uri.parse(safeUrl)
-                            val action = if (uri.scheme.equals("mailto", ignoreCase = true))
-                                Intent.ACTION_SENDTO else Intent.ACTION_VIEW
+                            val action = if (uri.scheme.equals("mailto", ignoreCase = true)) {
+                                Intent.ACTION_SENDTO
+                            } else {
+                                Intent.ACTION_VIEW
+                            }
                             startActivity(Intent(action, uri))
                         }
                     },

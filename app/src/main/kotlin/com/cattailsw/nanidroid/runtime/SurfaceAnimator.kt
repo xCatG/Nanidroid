@@ -7,17 +7,12 @@ import com.cattailsw.nanidroid.ghost.SurfaceLayer
 import com.cattailsw.nanidroid.ghost.SurfacePattern
 
 /** The authored image IDs and offsets to draw for one logical surface. */
-data class SurfaceVisual(
-    val baseSurfaceId: Int,
-    val layers: List<SurfaceLayer>,
-    val offsetX: Int,
-    val offsetY: Int,
-)
+data class SurfaceVisual(val baseSurfaceId: Int, val layers: List<SurfaceLayer>, val offsetX: Int, val offsetY: Int)
 
 /** A deterministic SERIKO subset; all time is supplied by the owning runtime. */
 class SurfaceAnimator(
     private val definitions: SurfaceDefinitions,
-    private val nextLong: (boundExclusive: Long) -> Long,
+    private val nextLong: (boundExclusive: Long) -> Long
 ) {
     private class Track(val animation: SurfaceAnimation) {
         val self = setOf(animation.id)
@@ -79,13 +74,18 @@ class SurfaceAnimator(
                     }
                 }
             }
-            speaker.talkElapsed = if (elapsedMs >= 500 - speaker.talkElapsed) 500
-                else speaker.talkElapsed + elapsedMs
+            speaker.talkElapsed = if (elapsedMs >= 500 - speaker.talkElapsed) {
+                500
+            } else {
+                speaker.talkElapsed + elapsedMs
+            }
             if (speakerId in talking && speaker.talkElapsed >= 500) {
-                if (speakerId !in explicitSpeakers) for (track in speaker.tracks.values) {
-                    if (!track.running && track.animation.interval == "talk") {
-                        start(speaker, track.animation.id, emptySet())
-                        autoStarted += track.animation.id
+                if (speakerId !in explicitSpeakers) {
+                    for (track in speaker.tracks.values) {
+                        if (!track.running && track.animation.interval == "talk") {
+                            start(speaker, track.animation.id, emptySet())
+                            autoStarted += track.animation.id
+                        }
                     }
                 }
                 speaker.talkElapsed = 0
@@ -124,14 +124,23 @@ class SurfaceAnimator(
         while (track.running && transitions++ < 64) {
             val patterns = track.animation.patterns
             if (track.nextPattern >= patterns.size) {
-                if (track.animation.interval == "always" && patterns.isNotEmpty()) track.nextPattern = 0
-                else { track.running = false; break }
+                if (track.animation.interval == "always" && patterns.isNotEmpty()) {
+                    track.nextPattern = 0
+                } else {
+                    track.running = false
+                    break
+                }
             }
             val pattern = patterns.getOrNull(track.nextPattern) ?: break
             if (pattern is SurfacePattern.Alternative) {
                 val targets = pattern.animationIds.filter { it in speaker.tracks && it != track.animation.id }
-                if (targets.isNotEmpty()) start(speaker, targets[sample(targets.size.toLong()).toInt()],
-                    track.alternativePath)
+                if (targets.isNotEmpty()) {
+                    start(
+                        speaker,
+                        targets[sample(targets.size.toLong()).toInt()],
+                        track.alternativePath
+                    )
+                }
                 track.nextPattern++
                 continue
             }

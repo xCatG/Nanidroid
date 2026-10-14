@@ -33,7 +33,9 @@ class ScriptPlayerTest {
             assertEquals("BeforeAfter", player.advanceBy(0).sakura.text)
         }
         for (target in listOf(
-            "open,ghostexplorer", "open,configurationdialog,about", "open,developer",
+            "open,ghostexplorer",
+            "open,configurationdialog,about",
+            "open,developer",
             "open,developer," + "x".repeat(9_000)
         )) {
             val player = ScriptPlayer("\\_qBefore\\![$target")
@@ -87,8 +89,10 @@ class ScriptPlayerTest {
         )
         assertEquals(
             listOf(
-                HostUiCommand.GhostExplorer, HostUiCommand.Developer,
-                HostUiCommand.GhostExplorer, HostUiCommand.About
+                HostUiCommand.GhostExplorer,
+                HostUiCommand.Developer,
+                HostUiCommand.GhostExplorer,
+                HostUiCommand.About
             ),
             player.advanceBy(0).hostCommands
         )
@@ -315,7 +319,10 @@ class ScriptPlayerTest {
             ScriptPlayer.substituteNames(
                 "%username|%selfname2|%selfname|%keroname|%other",
                 mapOf(
-                    "username" to "$\\%keroname", "selfname" to "First", "selfname2" to "Second", "keroname" to "Kero"
+                    "username" to "$\\%keroname",
+                    "selfname" to "First",
+                    "selfname2" to "Second",
+                    "keroname" to "Kero"
                 )
             )
         )
@@ -347,14 +354,16 @@ class ScriptPlayerTest {
         for (id in listOf("talk100%\\path", "OnTalk100%\\path", "話題\u0001ID100%\\path\u000112")) {
             val frame = ScriptPlayer(
                 ScriptPlayer.substituteNames(
-                    "\\q[%selfname,%selfname]", mapOf("selfname" to id)
+                    "\\q[%selfname,%selfname]",
+                    mapOf("selfname" to id)
                 )
             ).advanceBy(0)
             val choice = frame.sakura.choices.single()
             assertEquals(id, choice.label)
             assertEquals(id, choice.choiceId)
-            if (id.startsWith("On")) assertEquals(id, choice.event.id)
-            else {
+            if (id.startsWith("On")) {
+                assertEquals(id, choice.event.id)
+            } else {
                 assertEquals("OnChoiceSelect", choice.event.id)
                 assertEquals(listOf(id), choice.event.references)
             }
@@ -498,8 +507,9 @@ class ScriptPlayerTest {
             val player = ScriptPlayer(prefix + text)
             repeat(4) { player.advanceBy(0) }
             val frame = player.advanceBy(0)
-            if (prefix == "\\_q") assertEquals(text, frame.sakura.text)
-            else {
+            if (prefix == "\\_q") {
+                assertEquals(text, frame.sakura.text)
+            } else {
                 // The ordinary 50 ms cadence still applies without quick mode.
                 assertEquals("", frame.sakura.text)
                 assertEquals("A", player.advanceBy(50).sakura.text)
@@ -558,7 +568,8 @@ class ScriptPlayerTest {
             "\\0\\s[0]\\b2Welcom to the offical MAN Software menu. Please make a selection when you are ready."
         ).advanceBy(5_000)
         assertEquals(
-            "Welcom to the offical MAN Software menu. Please make a selection when you are ready.", frame.sakura.text
+            "Welcom to the offical MAN Software menu. Please make a selection when you are ready.",
+            frame.sakura.text
         )
     }
 }

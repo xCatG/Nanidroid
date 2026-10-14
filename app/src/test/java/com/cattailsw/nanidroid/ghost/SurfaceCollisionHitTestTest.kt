@@ -6,7 +6,7 @@ import org.junit.Test
 class SurfaceCollisionHitTestTest {
     private val collisions = listOf(
         SurfaceCollision(3, -20, 10, 20, 40, "first"),
-        SurfaceCollision(1, 0, 20, 30, 50, "second"),
+        SurfaceCollision(1, 0, 20, 30, 50, "second")
     )
 
     @Test fun firstDeclaredRectangleWinsOverlap() {

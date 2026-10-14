@@ -1,25 +1,25 @@
 package com.cattailsw.nanidroid.engine
 
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.async
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestCoroutineScheduler
-import org.junit.Assert.*
-import org.junit.Test
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.withTimeout
+import org.junit.Assert.*
+import org.junit.Test
 
 class NativeShioriHostTest {
     private val directory = File(".")
@@ -84,13 +84,18 @@ class NativeShioriHostTest {
         val fake = FakeBinding()
         val host = NativeShioriHost.forTest { fake }
         val lease = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-        fake.onRequest = { entered.countDown(); release.await(5, TimeUnit.SECONDS) }
+        fake.onRequest = {
+            entered.countDown()
+            release.await(5, TimeUnit.SECONDS)
+        }
         try {
             val pending = async(start = CoroutineStart.UNDISPATCHED) { host.shutdown(lease, timeoutMillis = 100) }
             assertTrue(entered.await(2, TimeUnit.SECONDS))
             assertTrue(withTimeout(2_000) { pending.await() } is NativeShutdownResult.Unresolved)
             assertEquals(NativeAvailability.Quarantined, host.availability.value)
-        } finally { release.countDown() }
+        } finally {
+            release.countDown()
+        }
         assertTrue(host.load(NativeKind.KAWARI, directory, "shiori.dll") is NativeLoadResult.Unresolved)
         assertEquals(0, fake.unloads)
         assertEquals(1, fake.loads)
@@ -103,13 +108,18 @@ class NativeShioriHostTest {
         val fake = FakeBinding()
         val host = NativeShioriHost.forTest { fake }
         val lease = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-        fake.onUnload = { entered.countDown(); release.await(5, TimeUnit.SECONDS) }
+        fake.onUnload = {
+            entered.countDown()
+            release.await(5, TimeUnit.SECONDS)
+        }
         try {
             val pending = async(start = CoroutineStart.UNDISPATCHED) { host.shutdown(lease, timeoutMillis = 100) }
             assertTrue(entered.await(2, TimeUnit.SECONDS))
             assertTrue(withTimeout(2_000) { pending.await() } is NativeShutdownResult.Unresolved)
             assertEquals(NativeAvailability.Quarantined, host.availability.value)
-        } finally { release.countDown() }
+        } finally {
+            release.countDown()
+        }
         assertTrue(host.load(NativeKind.KAWARI, directory, "shiori.dll") is NativeLoadResult.Unresolved)
         assertEquals(1, fake.unloads)
         assertEquals(NativeAvailability.Quarantined, host.availability.value)
@@ -121,7 +131,10 @@ class NativeShioriHostTest {
         val fake = FakeBinding()
         val host = NativeShioriHost.forTest { fake }
         val lease = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-        fake.onRequest = { entered.countDown(); release.await(5, TimeUnit.SECONDS) }
+        fake.onRequest = {
+            entered.countDown()
+            release.await(5, TimeUnit.SECONDS)
+        }
         try {
             val blocked = async(start = CoroutineStart.UNDISPATCHED) { host.request(lease, ShioriEvent("Block")) }
             assertTrue(entered.await(2, TimeUnit.SECONDS))
@@ -133,7 +146,9 @@ class NativeShioriHostTest {
             blocked.await()
             assertEquals(NativeAvailability.Quarantined, host.availability.value)
             assertEquals(1, fake.requests)
-        } finally { release.countDown() }
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test fun cancellationOfWaiterDoesNotCancelShutdownOrSecondWaiter() = runBlocking {
@@ -142,7 +157,10 @@ class NativeShioriHostTest {
         val fake = FakeBinding()
         val host = NativeShioriHost.forTest { fake }
         val lease = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-        fake.onRequest = { entered.countDown(); release.await(5, TimeUnit.SECONDS) }
+        fake.onRequest = {
+            entered.countDown()
+            release.await(5, TimeUnit.SECONDS)
+        }
         try {
             val first = async(start = CoroutineStart.UNDISPATCHED) { host.shutdown(lease, timeoutMillis = 1_000) }
             assertTrue(entered.await(2, TimeUnit.SECONDS))
@@ -153,7 +171,9 @@ class NativeShioriHostTest {
             first.join()
             assertEquals(1, fake.requests)
             assertEquals(1, fake.unloads)
-        } finally { release.countDown() }
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test fun notificationTransportFailureWithKnownOwnerStillUnloads() = runBlocking {
@@ -199,7 +219,10 @@ class NativeShioriHostTest {
         val old = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
         assertEquals(NativeUnloadResult.Unloaded, host.unload(old))
         val current = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-        fake.onRequest = { entered.countDown(); release.await(5, TimeUnit.SECONDS) }
+        fake.onRequest = {
+            entered.countDown()
+            release.await(5, TimeUnit.SECONDS)
+        }
         try {
             val blocked = async(start = CoroutineStart.UNDISPATCHED) { host.request(current, ShioriEvent("Block")) }
             assertTrue(entered.await(2, TimeUnit.SECONDS))
@@ -208,7 +231,9 @@ class NativeShioriHostTest {
             assertEquals(NativeAvailability.Occupied, host.availability.value)
             release.countDown()
             blocked.await()
-        } finally { release.countDown() }
+        } finally {
+            release.countDown()
+        }
         Unit
     }
 
@@ -218,7 +243,10 @@ class NativeShioriHostTest {
         val fake = FakeBinding()
         val host = NativeShioriHost.forTest { fake }
         val lease = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-        fake.onUnload = { entered.countDown(); release.await(5, TimeUnit.SECONDS) }
+        fake.onUnload = {
+            entered.countDown()
+            release.await(5, TimeUnit.SECONDS)
+        }
         try {
             val ordinary = async(start = CoroutineStart.UNDISPATCHED) { host.unload(lease) }
             assertTrue(entered.await(2, TimeUnit.SECONDS))
@@ -227,7 +255,9 @@ class NativeShioriHostTest {
             assertTrue(ordinary.await() is NativeUnloadResult.Unresolved)
             assertEquals(NativeAvailability.Quarantined, host.availability.value)
             assertEquals(1, fake.unloads)
-        } finally { release.countDown() }
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test fun unloadCompletionRacingDeadlineHasOneCoherentTerminalState() = runBlocking {
@@ -237,7 +267,10 @@ class NativeShioriHostTest {
             val fake = FakeBinding()
             val host = NativeShioriHost.forTest { fake }
             val lease = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-            fake.onUnload = { entered.countDown(); release.await(5, TimeUnit.SECONDS) }
+            fake.onUnload = {
+                entered.countDown()
+                release.await(5, TimeUnit.SECONDS)
+            }
             try {
                 val pending = async(start = CoroutineStart.UNDISPATCHED) { host.shutdown(lease, timeoutMillis = 80) }
                 assertTrue(entered.await(2, TimeUnit.SECONDS))
@@ -245,7 +278,10 @@ class NativeShioriHostTest {
                 release.countDown()
                 val result = withTimeout(2_000) { pending.await() }
                 when (result) {
-                    NativeShutdownResult.Completed -> assertEquals(NativeAvailability.Available, host.availability.value)
+                    NativeShutdownResult.Completed -> assertEquals(
+                        NativeAvailability.Available,
+                        host.availability.value
+                    )
                     is NativeShutdownResult.Unresolved -> {
                         assertEquals(NativeAvailability.Quarantined, host.availability.value)
                         assertEquals(result, host.shutdown(lease))
@@ -253,7 +289,9 @@ class NativeShioriHostTest {
                     }
                     is NativeShutdownResult.Failed -> fail("Unexpected shutdown failure: ${result.message}")
                 }
-            } finally { release.countDown() }
+            } finally {
+                release.countDown()
+            }
         }
     }
 
@@ -266,14 +304,18 @@ class NativeShioriHostTest {
         var timerCalls = 0
         val fake = FakeBinding()
         val host = NativeShioriHost.forTest({ fake }, deadlinePause = {
-            if (timerCalls++ == 0) firstTimerWake.complete(Unit)
-            else {
+            if (timerCalls++ == 0) {
+                firstTimerWake.complete(Unit)
+            } else {
                 secondTimerWait.complete(Unit)
                 releaseTimer.await()
             }
         })
         val lease = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-        fake.onUnload = { entered.countDown(); releaseUnload.await(5, TimeUnit.SECONDS) }
+        fake.onUnload = {
+            entered.countDown()
+            releaseUnload.await(5, TimeUnit.SECONDS)
+        }
         try {
             val pending = async(start = CoroutineStart.UNDISPATCHED) { host.shutdown(lease, timeoutMillis = 5_000) }
             assertTrue(entered.await(2, TimeUnit.SECONDS))
@@ -332,7 +374,11 @@ class NativeShioriHostTest {
         val host = NativeShioriHost.forTest { fake }
         val other = NativeShioriHost.forTest { FakeBinding() }
         val lease = (other.load(NativeKind.YAYA, directory, "yaya.dll") as NativeLoadResult.Loaded).lease
-        assertTrue(runCatching { host.request(lease, ShioriEvent("OnBoot")) }.exceptionOrNull() is NativeTransportException)
+        assertTrue(
+            runCatching {
+                host.request(lease, ShioriEvent("OnBoot"))
+            }.exceptionOrNull() is NativeTransportException
+        )
         fake.onRequest = { throw IllegalStateException("broken JNI") }
         val own = (host.load(NativeKind.YAYA, directory, "yaya.dll") as NativeLoadResult.Loaded).lease
         val error = runCatching { host.request(own, ShioriEvent("OnBoot")) }.exceptionOrNull()
@@ -379,9 +425,13 @@ class NativeShioriHostTest {
         val gate = CountDownLatch(1)
         val entered = CountDownLatch(1)
         val fake = FakeBinding()
-        fake.onLoad = { entered.countDown(); gate.await(5, TimeUnit.SECONDS) }
+        fake.onLoad = {
+            entered.countDown()
+            gate.await(5, TimeUnit.SECONDS)
+        }
         val host = NativeShioriHost.forTest { fake }
-        val loading = async(start = CoroutineStart.UNDISPATCHED) { host.load(NativeKind.SATORI, directory, "satori.dll") }
+        val loading =
+            async(start = CoroutineStart.UNDISPATCHED) { host.load(NativeKind.SATORI, directory, "satori.dll") }
         assertTrue(entered.await(5, TimeUnit.SECONDS))
         loading.cancel()
         gate.countDown()
@@ -396,9 +446,13 @@ class NativeShioriHostTest {
         val gate = CountDownLatch(1)
         val entered = CountDownLatch(1)
         val fake = FakeBinding(unloadSuccess = false)
-        fake.onLoad = { entered.countDown(); gate.await(5, TimeUnit.SECONDS) }
+        fake.onLoad = {
+            entered.countDown()
+            gate.await(5, TimeUnit.SECONDS)
+        }
         val host = NativeShioriHost.forTest { fake }
-        val loading = async(start = CoroutineStart.UNDISPATCHED) { host.load(NativeKind.SATORI, directory, "satori.dll") }
+        val loading =
+            async(start = CoroutineStart.UNDISPATCHED) { host.load(NativeKind.SATORI, directory, "satori.dll") }
         assertTrue(entered.await(5, TimeUnit.SECONDS))
         loading.cancel()
         gate.countDown()
@@ -444,7 +498,12 @@ class NativeShioriHostTest {
                 assertTrue(loading.isCancelled)
                 val expected = if (unloadSuccess) NativeAvailability.Available else NativeAvailability.Quarantined
                 // StateFlow publishes cleanup's writes; the next load is also a native-lane barrier.
-                assertEquals(expected, withTimeout(5_000) { host.availability.first { it != NativeAvailability.Occupied } })
+                assertEquals(
+                    expected,
+                    withTimeout(5_000) {
+                        host.availability.first { it != NativeAvailability.Occupied }
+                    }
+                )
                 val next = host.load(NativeKind.SATORI, directory, "satori.dll")
                 assertEquals(1, fake.unloads)
                 if (unloadSuccess) {
@@ -469,7 +528,10 @@ class NativeShioriHostTest {
         val fake = FakeBinding()
         val host = NativeShioriHost.forTest { fake }
         val lease = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-        fake.onRequest = { entered.countDown(); gate.await(5, TimeUnit.SECONDS) }
+        fake.onRequest = {
+            entered.countDown()
+            gate.await(5, TimeUnit.SECONDS)
+        }
         val running = async(start = CoroutineStart.UNDISPATCHED) { host.request(lease, ShioriEvent("OnBoot")) }
         assertTrue(entered.await(5, TimeUnit.SECONDS))
         running.cancel()
@@ -485,7 +547,10 @@ class NativeShioriHostTest {
         val fake = FakeBinding()
         val host = NativeShioriHost.forTest { fake }
         val a = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-        fake.onRequest = { entered.countDown(); gate.await(5, TimeUnit.SECONDS) }
+        fake.onRequest = {
+            entered.countDown()
+            gate.await(5, TimeUnit.SECONDS)
+        }
         val blocked = async(start = CoroutineStart.UNDISPATCHED) { host.request(a, ShioriEvent("Block")) }
         assertTrue(entered.await(5, TimeUnit.SECONDS))
         val unloadA = async(start = CoroutineStart.UNDISPATCHED) { host.unload(a) }
@@ -507,7 +572,10 @@ class NativeShioriHostTest {
         val fake = FakeBinding()
         val host = NativeShioriHost.forTest { fake }
         val lease = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-        fake.onRequest = { entered.countDown(); gate.await(5, TimeUnit.SECONDS) }
+        fake.onRequest = {
+            entered.countDown()
+            gate.await(5, TimeUnit.SECONDS)
+        }
         val blocked = async(start = CoroutineStart.UNDISPATCHED) { host.request(lease, ShioriEvent("Block")) }
         assertTrue(entered.await(5, TimeUnit.SECONDS))
         val unloading = async(start = CoroutineStart.UNDISPATCHED) { host.unload(lease) }
@@ -525,12 +593,18 @@ class NativeShioriHostTest {
         val fake = FakeBinding()
         val host = NativeShioriHost.forTest { fake }
         val a = (host.load(NativeKind.SATORI, directory, "satori.dll") as NativeLoadResult.Loaded).lease
-        fake.onRequest = { entered.countDown(); gate.await(5, TimeUnit.SECONDS) }
+        fake.onRequest = {
+            entered.countDown()
+            gate.await(5, TimeUnit.SECONDS)
+        }
         val blocked = async(start = CoroutineStart.UNDISPATCHED) { host.request(a, ShioriEvent("Block")) }
         assertTrue(entered.await(5, TimeUnit.SECONDS))
         val unloadA = async(start = CoroutineStart.UNDISPATCHED) { host.unload(a) }
         val loadB = async(start = CoroutineStart.UNDISPATCHED) { host.load(NativeKind.KAWARI, directory, "shiori.dll") }
-        val staleRequest = async(start = CoroutineStart.UNDISPATCHED) { runCatching { host.request(a, ShioriEvent("Stale")) }.exceptionOrNull() }
+        val staleRequest =
+            async(start = CoroutineStart.UNDISPATCHED) {
+                runCatching { host.request(a, ShioriEvent("Stale")) }.exceptionOrNull()
+            }
         val staleUnload = async(start = CoroutineStart.UNDISPATCHED) { host.unload(a) }
         gate.countDown()
         blocked.await()
@@ -543,10 +617,7 @@ class NativeShioriHostTest {
         assertEquals(1, fake.unloads)
     }
 
-    private class FakeBinding(
-        var loadStatus: Int = 1,
-        var unloadSuccess: Boolean = true,
-    ) : NativeBinding {
+    private class FakeBinding(var loadStatus: Int = 1, var unloadSuccess: Boolean = true) : NativeBinding {
         var loads = 0
         var unloads = 0
         var requests = 0
@@ -558,8 +629,18 @@ class NativeShioriHostTest {
         var charsetQueries = 0
         var lastRequest: ByteArray? = null
         val threads = mutableListOf<String>()
-        override fun load(directory: File, libraryName: String): Int { threads += Thread.currentThread().name; loads++; onLoad?.invoke(); return loadStatus }
-        override fun unload(): Boolean { threads += Thread.currentThread().name; unloads++; onUnload?.invoke(); return unloadSuccess }
+        override fun load(directory: File, libraryName: String): Int {
+            threads += Thread.currentThread().name
+            loads++
+            onLoad?.invoke()
+            return loadStatus
+        }
+        override fun unload(): Boolean {
+            threads += Thread.currentThread().name
+            unloads++
+            onUnload?.invoke()
+            return unloadSuccess
+        }
         override fun request(bytes: ByteArray): ByteArray {
             threads += Thread.currentThread().name
             requests++

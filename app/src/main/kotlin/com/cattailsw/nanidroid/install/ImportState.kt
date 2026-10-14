@@ -11,6 +11,6 @@ sealed interface ImportState {
         val outcome: ImportOutcome,
         val pendingDirectoryId: String? = null,
         val pendingPrompt: Boolean = false,
-        val promptResult: ImportPromptResult? = null,
+        val promptResult: ImportPromptResult? = null
     ) : ImportState
 }

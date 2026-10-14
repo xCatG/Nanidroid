@@ -14,26 +14,27 @@ import com.cattailsw.nanidroid.engine.ShioriEvent
 import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
 import com.cattailsw.nanidroid.install.ImportOutcome
 import com.cattailsw.nanidroid.runtime.StageState
+import com.cattailsw.nanidroid.testing.OwnedFixtureDirectoryRule
 import java.io.File
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.runBlocking
 import org.apache.commons.compress.archivers.zip.UnixStat
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
-import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Test
 import org.junit.Rule
-import com.cattailsw.nanidroid.testing.OwnedFixtureDirectoryRule
+import org.junit.Test
 import org.junit.runner.RunWith
 
 /** One process and one app-data reset per host row; results precede assertions. */
 @RunWith(AndroidJUnit4::class)
 class Milestone5CorpusTest {
     @get:Rule val fixtures = OwnedFixtureDirectoryRule()
+
     /** The harmless separator installs only in invocation-owned storage. */
     @Test fun rootOnlyDirectoryRegression() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -47,9 +48,13 @@ class Milestone5CorpusTest {
             assertTrue("Empty root-directory record must be ignored: $result", result is ImportOutcome.Installed)
             val installed = File(filesRoot, "ghost/" + (result as ImportOutcome.Installed).directoryId)
             assertTrue("Installed payload missing from owned root: $installed", installed.isDirectory)
-            assertTrue("Installed payload escaped owned root: $installed",
-                installed.canonicalPath.startsWith(filesRoot.canonicalPath + File.separator))
-        } finally { root.deleteRecursively() }
+            assertTrue(
+                "Installed payload escaped owned root: $installed",
+                installed.canonicalPath.startsWith(filesRoot.canonicalPath + File.separator)
+            )
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     @Test fun unsafeRootEntryVariantsStayRejected() = runBlocking {
@@ -62,7 +67,7 @@ class Milestone5CorpusTest {
                 Triple("root-symlink", "\\", UnixStat.LINK_FLAG to byteArrayOf()),
                 Triple("absolute-child", "/escape", UnixStat.FILE_FLAG to byteArrayOf(1)),
                 Triple("drive-child", "C:/escape", UnixStat.FILE_FLAG to byteArrayOf(1)),
-                Triple("traversal", "../escape", UnixStat.FILE_FLAG to byteArrayOf(1)),
+                Triple("traversal", "../escape", UnixStat.FILE_FLAG to byteArrayOf(1))
             )
             for ((label, name, entry) in cases) {
                 val source = File(root, "$label.nar")
@@ -74,7 +79,9 @@ class Milestone5CorpusTest {
                 assertTrue("$label published", File(target, "ghost").listFiles().isNullOrEmpty())
                 assertTrue("$label left staging", File(target, "import-staging").listFiles().isNullOrEmpty())
             }
-        } finally { root.deleteRecursively() }
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     @Test fun smokeArchive() {
@@ -82,12 +89,17 @@ class Milestone5CorpusTest {
         val args = InstrumentationRegistry.getArguments()
         val context = instrumentation.targetContext
         val app = context.applicationContext as NanidroidApplication
-        org.junit.Assume.assumeTrue("Run tools/test-milestone5-corpus.ps1; required arguments: corpusLabel, corpusSha256, corpusPath",
-            listOf("corpusLabel", "corpusSha256", "corpusPath", "corpusKind").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run tools/test-milestone5-corpus.ps1; required arguments: corpusLabel, corpusSha256, corpusPath",
+            listOf("corpusLabel", "corpusSha256", "corpusPath", "corpusKind").any { args.containsKey(it) }
+        )
         require(listOf("corpusLabel", "corpusSha256", "corpusPath").all { !args.getString(it).isNullOrBlank() }) {
             "Provide all nonblank host arguments: corpusLabel, corpusSha256, corpusPath"
         }
-        require(!args.containsKey("corpusKind") || args.getString("corpusKind")?.matches(Regex("[A-Za-z0-9_-]{1,100}")) == true) { "Invalid corpusKind" }
+        require(
+            !args.containsKey("corpusKind") ||
+                args.getString("corpusKind")?.matches(Regex("[A-Za-z0-9_-]{1,100}")) == true
+        ) { "Invalid corpusKind" }
         val label = requireNotNull(args.getString("corpusLabel"))
         require(label.matches(Regex("[a-zA-Z0-9_-]{1,100}"))) { "Invalid corpusLabel" }
         val expectedHash = requireNotNull(args.getString("corpusSha256"))
@@ -163,13 +175,17 @@ class Milestone5CorpusTest {
                         .put("activationError", first.activationError)
                         .put("surfaceIds", first.surfaces.keys.sorted().joinToString(","))
                         .put("firstBootText", first.frame.sakura.text + first.frame.kero.text)
-                    phaseFile.appendText("phase=ready ghost=${first.ghostName} error=${first.activationError} surfaces=${first.surfaces.keys}\n")
+                    phaseFile.appendText(
+                        "phase=ready ghost=${first.ghostName} error=${first.activationError} surfaces=${first.surfaces.keys}\n"
+                    )
                     SystemClock.sleep(1500)
                     val later = runtime.state.value as? StageState.Ready
                     val laterText = later?.frame?.let { frame -> frame.sakura.text + frame.kero.text }.orEmpty()
                     result.put("laterText", laterText)
-                    if (first.frame.sakura.text.isEmpty() && first.frame.kero.text.isEmpty() &&
-                        laterText.isEmpty()) {
+                    if (first.frame.sakura.text.isEmpty() &&
+                        first.frame.kero.text.isEmpty() &&
+                        laterText.isEmpty()
+                    ) {
                         val lease = runtime.activeNativeLeaseForTest()
                         if (lease != null) {
                             // One exact boot-event replay to diagnose a silent stage; it does not
@@ -179,14 +195,21 @@ class Milestone5CorpusTest {
                             }
                             result.put("bootReplayStatus", reply.status)
                                 .put("bootReplayValue", reply.value)
-                            phaseFile.appendText("phase=boot-replay status=${reply.status} valueLength=${reply.value?.length ?: 0}\n")
-                        } else result.put("bootReplayStatus", "no-native-lease")
+                            phaseFile.appendText(
+                                "phase=boot-replay status=${reply.status} valueLength=${reply.value?.length ?: 0}\n"
+                            )
+                        } else {
+                            result.put("bootReplayStatus", "no-native-lease")
+                        }
                     }
                     val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot()) {
                         "Stage screenshot unavailable"
                     }
                     File(output, "corpus-stage.png").outputStream().use { stream ->
-                        assertTrue("PNG compression failed", screenshot.compress(Bitmap.CompressFormat.PNG, 100, stream))
+                        assertTrue(
+                            "PNG compression failed",
+                            screenshot.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                        )
                     }
                     screenshot.recycle()
                     phaseFile.appendText("phase=screenshot bytes=${File(output, "corpus-stage.png").length()}\n")
@@ -194,15 +217,28 @@ class Milestone5CorpusTest {
                     phaseFile.appendText("phase=close-requested count=1\n")
                     val closeDeadline = SystemClock.elapsedRealtime() + 25_000
                     while (SystemClock.elapsedRealtime() < closeDeadline &&
-                        runtime.state.value !is StageState.Finished) SystemClock.sleep(100)
+                        runtime.state.value !is StageState.Finished
+                    ) {
+                        SystemClock.sleep(100)
+                    }
                     result.put("closeState", runtime.state.value.javaClass.simpleName)
-                    assertTrue("Close incomplete: ${runtime.state.value}",
-                        runtime.state.value is StageState.Finished)
+                    assertTrue(
+                        "Close incomplete: ${runtime.state.value}",
+                        runtime.state.value is StageState.Finished
+                    )
                     phaseFile.appendText("phase=closed\n")
                 }
-                result.put("classification", if (result.isNull("activationError")) "supported-smoke"
-                    else "in-scope-failure")
-            } else result.put("classification", "in-scope-failure")
+                result.put(
+                    "classification",
+                    if (result.isNull("activationError")) {
+                        "supported-smoke"
+                    } else {
+                        "in-scope-failure"
+                    }
+                )
+            } else {
+                result.put("classification", "in-scope-failure")
+            }
             result.put("testStatus", "completed")
             resultFile.writeText(result.toString(2))
         } catch (failure: Throwable) {
@@ -232,7 +268,7 @@ class Milestone5CorpusTest {
             mapOf(
                 "install.txt" to "type,ghost\ndirectory,corpus-sentinel\n",
                 "ghost/master/descript.txt" to "name,Corpus sentinel\nshiori,Nanidroid\n",
-                "shell/master/placeholder.txt" to "placeholder",
+                "shell/master/placeholder.txt" to "placeholder"
             ).forEach { (name, content) ->
                 zip.putNextEntry(ZipEntry(name))
                 zip.write(content.toByteArray())
@@ -246,11 +282,17 @@ class Milestone5CorpusTest {
             val entries = listOf(
                 Triple(name, mode, payload),
                 Triple("install.txt", UnixStat.FILE_FLAG, "type,ghost\ndirectory,root-test\n".toByteArray()),
-                Triple("ghost/master/descript.txt", UnixStat.FILE_FLAG,
-                    "name,Root test\nshiori,Nanidroid\n".toByteArray()),
-                Triple("ghost/master/ja/content.txt", UnixStat.FILE_FLAG,
-                    "OnFirstBoot,\\0Ready\\e".toByteArray()),
-                Triple("shell/master/placeholder.txt", UnixStat.FILE_FLAG, byteArrayOf(1)),
+                Triple(
+                    "ghost/master/descript.txt",
+                    UnixStat.FILE_FLAG,
+                    "name,Root test\nshiori,Nanidroid\n".toByteArray()
+                ),
+                Triple(
+                    "ghost/master/ja/content.txt",
+                    UnixStat.FILE_FLAG,
+                    "OnFirstBoot,\\0Ready\\e".toByteArray()
+                ),
+                Triple("shell/master/placeholder.txt", UnixStat.FILE_FLAG, byteArrayOf(1))
             )
             for ((path, unixMode, bytes) in entries) {
                 val entry = ZipArchiveEntry(path).apply { this.unixMode = unixMode or 0x1FF }

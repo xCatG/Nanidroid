@@ -24,16 +24,24 @@ object StageGeometry {
         val width: Float,
         val height: Float,
         val surfaceWidth: Int,
-        val surfaceHeight: Int,
+        val surfaceHeight: Int
     ) {
         fun toAuthored(x: Float, y: Float, originX: Int, originY: Int): Pixel? =
             toLocal(x, y)?.let { Pixel(it.x + originX, it.y + originY) }
 
         fun toLocal(x: Float, y: Float): Pixel? {
-            if (width <= 0f || height <= 0f || x < left || y < top || x >= left + width || y >= top + height) return null
+            if (width <= 0f ||
+                height <= 0f ||
+                x < left ||
+                y < top ||
+                x >= left + width ||
+                y >= top + height
+            ) {
+                return null
+            }
             return Pixel(
                 floor((x - left) * surfaceWidth / width).toInt().coerceIn(0, surfaceWidth - 1),
-                floor((y - top) * surfaceHeight / height).toInt().coerceIn(0, surfaceHeight - 1),
+                floor((y - top) * surfaceHeight / height).toInt().coerceIn(0, surfaceHeight - 1)
             )
         }
     }
@@ -45,17 +53,39 @@ object StageGeometry {
         val scale = min(viewWidth.toFloat() / surfaceWidth, viewHeight.toFloat() / surfaceHeight)
         val width = (surfaceWidth * scale).roundToInt()
         val height = (surfaceHeight * scale).roundToInt()
-        return SurfaceRectangle(((viewWidth - width) / 2).toFloat(), ((viewHeight - height) / 2).toFloat(),
-            width.toFloat(), height.toFloat(), surfaceWidth, surfaceHeight)
+        return SurfaceRectangle(
+            ((viewWidth - width) / 2).toFloat(),
+            ((viewHeight - height) / 2).toFloat(),
+            width.toFloat(),
+            height.toFloat(),
+            surfaceWidth,
+            surfaceHeight
+        )
     }
 
     fun scaleFor(
-        sakuraWidth: Int, sakuraHeight: Int, keroWidth: Int, keroHeight: Int,
-        width: Int, height: Int, desiredCeiling: Float,
+        sakuraWidth: Int,
+        sakuraHeight: Int,
+        keroWidth: Int,
+        keroHeight: Int,
+        width: Int,
+        height: Int,
+        desiredCeiling: Float
     ): Float {
-        if (sakuraWidth <= 0 || sakuraHeight <= 0 || keroWidth <= 0 || keroHeight <= 0 || width <= 0 || height <= 0 ||
-            !desiredCeiling.isFinite() || desiredCeiling <= 0f) return 0f
-        return min(desiredCeiling,
-            min(width.toFloat() / (sakuraWidth + keroWidth), height.toFloat() / maxOf(sakuraHeight, keroHeight)))
+        if (sakuraWidth <= 0 ||
+            sakuraHeight <= 0 ||
+            keroWidth <= 0 ||
+            keroHeight <= 0 ||
+            width <= 0 ||
+            height <= 0 ||
+            !desiredCeiling.isFinite() ||
+            desiredCeiling <= 0f
+        ) {
+            return 0f
+        }
+        return min(
+            desiredCeiling,
+            min(width.toFloat() / (sakuraWidth + keroWidth), height.toFloat() / maxOf(sakuraHeight, keroHeight))
+        )
     }
 }

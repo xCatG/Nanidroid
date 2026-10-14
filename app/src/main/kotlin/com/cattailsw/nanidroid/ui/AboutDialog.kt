@@ -42,7 +42,7 @@ object NoticeCatalog {
         "Kotlin standard library copyright" to "kotlin-stdlib-copyright.txt",
         "Kotlin standard library GWT and Guava terms" to "kotlin-stdlib-gwt.txt",
         "Kotlin standard library ThreeTenBP terms" to "kotlin-stdlib-threetenbp.txt",
-        "Kotlin standard library Boost terms" to "kotlin-stdlib-boost.txt",
+        "Kotlin standard library Boost terms" to "kotlin-stdlib-boost.txt"
     )
 
     fun load(assets: AssetManager): List<Notice> = entries.map { (title, file) ->
@@ -56,23 +56,35 @@ fun AboutDialog(versionName: String, notices: List<Notice>, onDismiss: () -> Uni
         Surface(
             Modifier.fillMaxWidth().fillMaxHeight(0.94f).testTag("about-dialog"),
             shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surface,
+            color = MaterialTheme.colorScheme.surface
         ) {
             Column(Modifier.padding(16.dp)) {
                 Text("Nanidroid", style = MaterialTheme.typography.titleLarge)
-                Text("Version $versionName", style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.testTag("about-version"))
+                Text(
+                    "Version $versionName",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.testTag("about-version")
+                )
                 LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("about-notices")) {
                     if (notices.isEmpty()) item { Text("Loading notices…") }
                     itemsIndexed(notices) { index, notice ->
-                        Text(notice.title, style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(top = 16.dp).testTag("notice-title-$index"))
-                        Text(notice.text, style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.testTag("notice-text-$index"))
+                        Text(
+                            notice.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(top = 16.dp).testTag("notice-title-$index")
+                        )
+                        Text(
+                            notice.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.testTag("notice-text-$index")
+                        )
                     }
                     item {
-                        Text("End of notices", modifier = Modifier.padding(top = 16.dp)
-                            .testTag("notice-end"))
+                        Text(
+                            "End of notices",
+                            modifier = Modifier.padding(top = 16.dp)
+                                .testTag("notice-end")
+                        )
                     }
                 }
                 TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End).testTag("about-close")) {

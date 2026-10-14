@@ -2,36 +2,36 @@ package com.cattailsw.nanidroid.ui
 
 import android.graphics.Bitmap
 import android.os.SystemClock
-import androidx.compose.ui.platform.LocalViewConfiguration
 import android.view.ViewConfiguration
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.unit.dp
+import androidx.test.platform.app.InstrumentationRegistry
 import com.cattailsw.nanidroid.ghost.SurfaceImageLoader
 import com.cattailsw.nanidroid.ghost.SurfaceLayer
+import com.cattailsw.nanidroid.runtime.DialogueToken
 import com.cattailsw.nanidroid.runtime.PlaybackFrame
+import com.cattailsw.nanidroid.runtime.RenderedMoveSource
 import com.cattailsw.nanidroid.runtime.SpeakerFrame
 import com.cattailsw.nanidroid.runtime.StageState
-import com.cattailsw.nanidroid.runtime.DialogueToken
-import com.cattailsw.nanidroid.runtime.RenderedMoveSource
 import com.cattailsw.nanidroid.runtime.SurfaceImageBounds
 import com.cattailsw.nanidroid.runtime.SurfaceVisual
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -44,17 +44,27 @@ class CharacterGestureTest {
     private val loader = SurfaceImageLoader { image }
     private val stage = StageState.Ready(
         PlaybackFrame(SpeakerFrame(0, true, "Hello", true), SpeakerFrame(10, true, "", false), false),
-        "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura"), 10 to File("kero")))
+        "Nanidroid",
+        "Sakura",
+        "Kero",
+        mapOf(0 to File("sakura"), 10 to File("kero"))
+    )
 
     @Test fun dragSendsMovesWithoutTapOrDoubleTap() {
         val taps = mutableListOf<Int>()
         val doubles = mutableListOf<Int>()
         val moves = mutableListOf<Pair<Int, Int>>()
         compose.setContent {
-            GhostStage(stage, loader, {}, {}, {},
+            GhostStage(
+                stage,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterDoubleClick = { speaker, _, _ -> doubles += speaker },
                 onCharacterClick = { speaker, _, _ -> taps += speaker },
-                onCharacterMove = { _, x, y -> moves += x to y })
+                onCharacterMove = { _, x, y -> moves += x to y }
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { swipe(center, bottomRight) }
         compose.waitForIdle()
@@ -67,9 +77,15 @@ class CharacterGestureTest {
         val taps = mutableListOf<Int>()
         val doubles = mutableListOf<Int>()
         compose.setContent {
-            GhostStage(stage, loader, {}, {}, {},
+            GhostStage(
+                stage,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterDoubleClick = { speaker, _, _ -> doubles += speaker },
-                onCharacterClick = { speaker, _, _ -> taps += speaker })
+                onCharacterClick = { speaker, _, _ -> taps += speaker }
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { click(center) }
         compose.waitUntil(2_000) { taps.size == 1 }
@@ -81,9 +97,15 @@ class CharacterGestureTest {
         val taps = mutableListOf<Int>()
         val doubles = mutableListOf<Int>()
         compose.setContent {
-            GhostStage(stage, loader, {}, {}, {},
+            GhostStage(
+                stage,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterDoubleClick = { speaker, _, _ -> doubles += speaker },
-                onCharacterClick = { speaker, _, _ -> taps += speaker })
+                onCharacterClick = { speaker, _, _ -> taps += speaker }
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { doubleClick(center) }
         compose.waitUntil(2_000) { doubles.size == 1 }
@@ -95,9 +117,15 @@ class CharacterGestureTest {
         var taps = 0
         var moves = 0
         compose.setContent {
-            GhostStage(stage, loader, {}, {}, {},
+            GhostStage(
+                stage,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClick = { _, _, _ -> taps++ },
-                onCharacterMove = { _, _, _ -> moves++ })
+                onCharacterMove = { _, _, _ -> moves++ }
+            )
         }
         compose.onNodeWithTag("balloon-Sakura").performTouchInput { swipe(center, topCenter) }
         compose.waitForIdle()
@@ -110,12 +138,21 @@ class CharacterGestureTest {
         var moves = 0
         var cancellations = 0
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClick = { _, _, _ -> },
                 onCharacterMove = { _, _, _ -> moves++ },
-                onCharacterMoveCancel = { cancellations++ })
+                onCharacterMoveCancel = { cancellations++ }
+            )
         }
-        compose.onNodeWithTag("kero").performTouchInput { down(center); moveTo(bottomRight) }
+        compose.onNodeWithTag("kero").performTouchInput {
+            down(center)
+            moveTo(bottomRight)
+        }
         compose.waitUntil(2_000) { moves > 0 }
         compose.runOnIdle { current.value = StageState.Loading }
         compose.waitUntil(2_000) { cancellations == 1 }
@@ -123,13 +160,22 @@ class CharacterGestureTest {
     }
 
     @Test fun missingLogicalImageReportsDisplayedFallbackCollisionSurface() {
-        val fallback = stage.copy(frame = stage.frame.copy(
-            sakura = stage.frame.sakura.copy(surfaceId = 42)))
+        val fallback = stage.copy(
+            frame = stage.frame.copy(
+                sakura = stage.frame.sakura.copy(surfaceId = 42)
+            )
+        )
         val resolved = mutableListOf<Int>()
         compose.setContent {
-            GhostStage(fallback, loader, {}, {}, {},
+            GhostStage(
+                fallback,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClick = { _, _, _ -> },
-                onCharacterClickResolved = { _, _, _, collisionId, _ -> resolved += collisionId })
+                onCharacterClickResolved = { _, _, _, collisionId, _ -> resolved += collisionId }
+            )
         }
         compose.onNodeWithTag("sakura").performTouchInput { click(center) }
         compose.waitUntil(2_000) { resolved.isNotEmpty() }
@@ -143,58 +189,109 @@ class CharacterGestureTest {
         val token = DialogueToken(7, 8)
         val rendered = stage.copy(
             frame = stage.frame.copy(kero = stage.frame.kero.copy(visual = visual)),
-            dialogueToken = token)
+            dialogueToken = token
+        )
         val sources = mutableListOf<RenderedMoveSource>()
         compose.setContent {
-            GhostStage(rendered, loader, {}, {}, {},
+            GhostStage(
+                rendered,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClick = { _, _, _ -> },
-                onCharacterMoveResolved = { _, _, _, _, source -> sources += source })
+                onCharacterMoveResolved = { _, _, _, _, source -> sources += source }
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { swipe(center, bottomRight) }
         compose.waitUntil(2_000) { sources.isNotEmpty() }
-        assertTrue(sources.all { it.dialogueToken == token && it.logicalSurfaceId == 10 &&
-            it.visual == visual && it.geometry?.images?.get(10) ==
-            SurfaceImageBounds(0, 0, 200, 200) })
+        assertTrue(
+            sources.all {
+                it.dialogueToken == token &&
+                    it.logicalSurfaceId == 10 &&
+                    it.visual == visual &&
+                    it.geometry?.images?.get(10) ==
+                    SurfaceImageBounds(0, 0, 200, 200)
+            }
+        )
     }
 
     @Test fun pendingSingleTapSurvivesMoveOnlyVisualTick() {
         val token = DialogueToken(7, 8)
-        val first = stage.copy(dialogueToken = token,
-            frame = stage.frame.copy(kero = stage.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 0, 0))))
+        val first = stage.copy(
+            dialogueToken = token,
+            frame = stage.frame.copy(
+                kero = stage.frame.kero.copy(
+                    visual = SurfaceVisual(10, emptyList(), 0, 0)
+                )
+            )
+        )
         val current = mutableStateOf(first)
         var clicks = 0
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
-                onCharacterClick = { _, _, _ -> clicks++ })
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
+                onCharacterClick = { _, _, _ -> clicks++ }
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { click(center) }
         compose.runOnIdle {
-            current.value = first.copy(frame = first.frame.copy(kero = first.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 4, -3))))
+            current.value = first.copy(
+                frame = first.frame.copy(
+                    kero = first.frame.kero.copy(
+                        visual = SurfaceVisual(10, emptyList(), 4, -3)
+                    )
+                )
+            )
         }
         compose.waitUntil(2_000) { clicks == 1 }
         assertEquals(1, clicks)
     }
 
     @Test fun doubleTapSurvivesMoveOnlyVisualTick() {
-        val first = stage.copy(dialogueToken = DialogueToken(7, 8),
-            frame = stage.frame.copy(kero = stage.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 0, 0))))
+        val first = stage.copy(
+            dialogueToken = DialogueToken(7, 8),
+            frame = stage.frame.copy(
+                kero = stage.frame.kero.copy(
+                    visual = SurfaceVisual(10, emptyList(), 0, 0)
+                )
+            )
+        )
         val current = mutableStateOf(first)
         var clicks = 0
         var doubles = 0
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClick = { _, _, _ -> clicks++ },
-                onCharacterDoubleClick = { _, _, _ -> doubles++ })
+                onCharacterDoubleClick = { _, _, _ -> doubles++ }
+            )
         }
-        compose.onNodeWithTag("kero").performTouchInput { down(center); up() }
+        compose.onNodeWithTag("kero").performTouchInput {
+            down(center)
+            up()
+        }
         compose.runOnIdle {
-            current.value = first.copy(frame = first.frame.copy(kero = first.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 4, -3))))
+            current.value = first.copy(
+                frame = first.frame.copy(
+                    kero = first.frame.kero.copy(
+                        visual = SurfaceVisual(10, emptyList(), 4, -3)
+                    )
+                )
+            )
         }
-        compose.onNodeWithTag("kero").performTouchInput { down(center); up() }
+        compose.onNodeWithTag("kero").performTouchInput {
+            down(center)
+            up()
+        }
         compose.waitUntil(2_000) { doubles == 1 }
         assertEquals(0, clicks)
     }
@@ -202,33 +299,58 @@ class CharacterGestureTest {
     @Test fun heldDragCancelsWhenMoveOffsetChangesCoordinateSpace() {
         val token = DialogueToken(7, 8)
         val firstVisual = SurfaceVisual(10, emptyList(), 0, 0)
-        val first = stage.copy(dialogueToken = token,
-            frame = stage.frame.copy(kero = stage.frame.kero.copy(visual = firstVisual)))
+        val first = stage.copy(
+            dialogueToken = token,
+            frame = stage.frame.copy(kero = stage.frame.kero.copy(visual = firstVisual))
+        )
         val current = mutableStateOf(first)
         val sources = mutableListOf<RenderedMoveSource>()
         var clicks = 0
         var cancellations = 0
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClick = { _, _, _ -> clicks++ },
                 onCharacterMoveCancel = { cancellations++ },
-                onCharacterMoveResolved = { _, _, _, _, source -> sources += source })
+                onCharacterMoveResolved = { _, _, _, _, source -> sources += source }
+            )
         }
-        compose.onNodeWithTag("kero").performTouchInput { down(center); moveTo(bottomCenter) }
+        compose.onNodeWithTag("kero").performTouchInput {
+            down(center)
+            moveTo(bottomCenter)
+        }
         compose.waitUntil(2_000) { sources.isNotEmpty() }
         val before = sources.size
         compose.runOnIdle {
-            current.value = first.copy(frame = first.frame.copy(kero = first.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 4, -3))))
+            current.value = first.copy(
+                frame = first.frame.copy(
+                    kero = first.frame.kero.copy(
+                        visual = SurfaceVisual(10, emptyList(), 4, -3)
+                    )
+                )
+            )
         }
         compose.waitUntil(2_000) { cancellations == 1 }
-        compose.onNodeWithTag("kero").performTouchInput { moveTo(bottomRight); up() }
+        compose.onNodeWithTag("kero").performTouchInput {
+            moveTo(bottomRight)
+            up()
+        }
         compose.waitForIdle()
         assertEquals(before, sources.size)
         assertEquals(1, cancellations)
-        assertTrue(sources.all { it.dialogueToken == token && it.logicalSurfaceId == 10 &&
-            it.visual == firstVisual && it.geometry?.images?.get(10) ==
-            SurfaceImageBounds(0, 0, 200, 200) })
+        assertTrue(
+            sources.all {
+                it.dialogueToken == token &&
+                    it.logicalSurfaceId == 10 &&
+                    it.visual == firstVisual &&
+                    it.geometry?.images?.get(10) ==
+                    SurfaceImageBounds(0, 0, 200, 200)
+            }
+        )
         assertEquals(0, clicks)
     }
 
@@ -239,23 +361,39 @@ class CharacterGestureTest {
         var clicks = 0
         compose.setContent {
             Box(Modifier.size(viewportWidth.value, 600.dp)) {
-                GhostStage(stage, loader, {}, {}, {},
+                GhostStage(
+                    stage,
+                    loader,
+                    {},
+                    {},
+                    {},
                     onCharacterClick = { _, _, _ -> clicks++ },
                     onCharacterMove = { _, x, y -> moves += x to y },
-                    onCharacterMoveCancel = { cancellations++ })
+                    onCharacterMoveCancel = { cancellations++ }
+                )
             }
         }
-        assumeTrue("Requires a 600 dp tall fixture viewport",
-            compose.onRoot().fetchSemanticsNode().boundsInRoot.height / compose.density.density >= 600f)
+        assumeTrue(
+            "Requires a 600 dp tall fixture viewport",
+            compose.onRoot().fetchSemanticsNode().boundsInRoot.height / compose.density.density >= 600f
+        )
         val beforeBounds = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
-        compose.onNodeWithTag("kero").performTouchInput { down(center); moveTo(bottomCenter) }
+        compose.onNodeWithTag("kero").performTouchInput {
+            down(center)
+            moveTo(bottomCenter)
+        }
         compose.waitUntil(2_000) { moves.isNotEmpty() }
         val admittedBeforeResize = moves.size
         compose.runOnIdle { viewportWidth.value = 125.dp }
         val afterBounds = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
-        assertTrue("before=$beforeBounds after=$afterBounds",
-            afterBounds.width > beforeBounds.width)
-        compose.onNodeWithTag("kero").performTouchInput { moveTo(bottomRight); up() }
+        assertTrue(
+            "before=$beforeBounds after=$afterBounds",
+            afterBounds.width > beforeBounds.width
+        )
+        compose.onNodeWithTag("kero").performTouchInput {
+            moveTo(bottomRight)
+            up()
+        }
         compose.waitForIdle()
         assertEquals(admittedBeforeResize, moves.size)
         assertEquals(1, cancellations)
@@ -264,72 +402,126 @@ class CharacterGestureTest {
 
     @Test fun sameBoundsOverlayTickKeepsHeldDragActive() {
         val token = DialogueToken(7, 8)
-        val first = stage.copy(dialogueToken = token,
+        val first = stage.copy(
+            dialogueToken = token,
             surfaces = stage.surfaces + mapOf(1001 to File("eye-a"), 1002 to File("eye-b")),
-            frame = stage.frame.copy(kero = stage.frame.kero.copy(
-                visual = SurfaceVisual(10, listOf(SurfaceLayer(1001, "overlay", 0, 0)), 0, 0))))
+            frame = stage.frame.copy(
+                kero = stage.frame.kero.copy(
+                    visual = SurfaceVisual(10, listOf(SurfaceLayer(1001, "overlay", 0, 0)), 0, 0)
+                )
+            )
+        )
         val current = mutableStateOf(first)
         var moves = 0
         var cancellations = 0
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterMove = { _, _, _ -> moves++ },
-                onCharacterMoveCancel = { cancellations++ })
+                onCharacterMoveCancel = { cancellations++ }
+            )
         }
-        compose.onNodeWithTag("kero").performTouchInput { down(center); moveTo(bottomCenter) }
+        compose.onNodeWithTag("kero").performTouchInput {
+            down(center)
+            moveTo(bottomCenter)
+        }
         compose.waitUntil(2_000) { moves > 0 }
         val before = moves
         compose.runOnIdle {
-            current.value = first.copy(frame = first.frame.copy(kero = first.frame.kero.copy(
-                visual = SurfaceVisual(10, listOf(SurfaceLayer(1002, "overlay", 0, 0)), 0, 0))))
+            current.value = first.copy(
+                frame = first.frame.copy(
+                    kero = first.frame.kero.copy(
+                        visual = SurfaceVisual(10, listOf(SurfaceLayer(1002, "overlay", 0, 0)), 0, 0)
+                    )
+                )
+            )
         }
-        compose.onNodeWithTag("kero").performTouchInput { moveTo(bottomRight); up() }
+        compose.onNodeWithTag("kero").performTouchInput {
+            moveTo(bottomRight)
+            up()
+        }
         compose.waitUntil(2_000) { moves > before }
         assertEquals(0, cancellations)
     }
 
     @Test fun sameBoundsBaseSwapCancelsHeldDrag() {
-        val first = stage.copy(dialogueToken = DialogueToken(7, 8),
-            surfaces = stage.surfaces + (1001 to File("replacement")))
+        val first = stage.copy(
+            dialogueToken = DialogueToken(7, 8),
+            surfaces = stage.surfaces + (1001 to File("replacement"))
+        )
         val current = mutableStateOf(first)
         var moves = 0
         var cancellations = 0
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterMove = { _, _, _ -> moves++ },
-                onCharacterMoveCancel = { cancellations++ })
+                onCharacterMoveCancel = { cancellations++ }
+            )
         }
         val beforeBounds = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
-        compose.onNodeWithTag("kero").performTouchInput { down(center); moveTo(bottomCenter) }
+        compose.onNodeWithTag("kero").performTouchInput {
+            down(center)
+            moveTo(bottomCenter)
+        }
         compose.waitUntil(2_000) { moves > 0 }
         val admittedBeforeSwap = moves
         compose.runOnIdle {
-            current.value = first.copy(frame = first.frame.copy(kero = first.frame.kero.copy(
-                visual = SurfaceVisual(1001, emptyList(), 0, 0))))
+            current.value = first.copy(
+                frame = first.frame.copy(
+                    kero = first.frame.kero.copy(
+                        visual = SurfaceVisual(1001, emptyList(), 0, 0)
+                    )
+                )
+            )
         }
         val afterBounds = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
         assertEquals(beforeBounds, afterBounds)
-        compose.onNodeWithTag("kero").performTouchInput { moveTo(bottomRight); up() }
+        compose.onNodeWithTag("kero").performTouchInput {
+            moveTo(bottomRight)
+            up()
+        }
         compose.waitForIdle()
         assertEquals(admittedBeforeSwap, moves)
         assertEquals(1, cancellations)
     }
 
     @Test fun tapPressedAcrossBaseSwapStillClicks() {
-        val first = stage.copy(dialogueToken = DialogueToken(7, 8),
-            surfaces = stage.surfaces + (1001 to File("replacement")))
+        val first = stage.copy(
+            dialogueToken = DialogueToken(7, 8),
+            surfaces = stage.surfaces + (1001 to File("replacement"))
+        )
         val current = mutableStateOf(first)
         val clicks = mutableListOf<Int>()
         var doubles = 0
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClickResolved = { _, _, _, collision, _ -> clicks += collision },
-                onCharacterDoubleClick = { _, _, _ -> doubles++ })
+                onCharacterDoubleClick = { _, _, _ -> doubles++ }
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { down(center) }
         compose.runOnIdle {
-            current.value = first.copy(frame = first.frame.copy(kero = first.frame.kero.copy(
-                visual = SurfaceVisual(1001, emptyList(), 0, 0))))
+            current.value = first.copy(
+                frame = first.frame.copy(
+                    kero = first.frame.kero.copy(
+                        visual = SurfaceVisual(1001, emptyList(), 0, 0)
+                    )
+                )
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { up() }
         compose.waitUntil(2_000) { clicks.isNotEmpty() }
@@ -338,20 +530,37 @@ class CharacterGestureTest {
     }
 
     @Test fun doubleTapWithSecondPressAcrossBaseSwapStillDoubleClicks() {
-        val first = stage.copy(dialogueToken = DialogueToken(7, 8),
-            surfaces = stage.surfaces + (1001 to File("replacement")))
+        val first = stage.copy(
+            dialogueToken = DialogueToken(7, 8),
+            surfaces = stage.surfaces + (1001 to File("replacement"))
+        )
         val current = mutableStateOf(first)
         var clicks = 0
         var doubles = 0
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClick = { _, _, _ -> clicks++ },
-                onCharacterDoubleClick = { _, _, _ -> doubles++ })
+                onCharacterDoubleClick = { _, _, _ -> doubles++ }
+            )
         }
-        compose.onNodeWithTag("kero").performTouchInput { down(center); up(); down(center) }
+        compose.onNodeWithTag("kero").performTouchInput {
+            down(center)
+            up()
+            down(center)
+        }
         compose.runOnIdle {
-            current.value = first.copy(frame = first.frame.copy(kero = first.frame.kero.copy(
-                visual = SurfaceVisual(1001, emptyList(), 0, 0))))
+            current.value = first.copy(
+                frame = first.frame.copy(
+                    kero = first.frame.kero.copy(
+                        visual = SurfaceVisual(1001, emptyList(), 0, 0)
+                    )
+                )
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { up() }
         compose.waitUntil(2_000) { doubles == 1 || clicks > 0 }
@@ -365,9 +574,15 @@ class CharacterGestureTest {
         var doubleTapTimeout = 0L
         compose.setContent {
             doubleTapTimeout = LocalViewConfiguration.current.doubleTapTimeoutMillis
-            GhostStage(stage, loader, {}, {}, {},
+            GhostStage(
+                stage,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClick = { _, _, _ -> clicks++ },
-                interactionActive = active.value)
+                interactionActive = active.value
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { click(center) }
         compose.runOnIdle { active.value = false }
@@ -387,8 +602,14 @@ class CharacterGestureTest {
         var doubleTapTimeout = 0L
         compose.setContent {
             doubleTapTimeout = LocalViewConfiguration.current.doubleTapTimeoutMillis
-            GhostStage(current.value, loader, {}, {}, {},
-                onCharacterClick = { _, _, _ -> clicks++ })
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
+                onCharacterClick = { _, _, _ -> clicks++ }
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { click(center) }
         compose.runOnIdle { current.value = first.copy(dialogueToken = DialogueToken(9, 1)) }
@@ -411,22 +632,38 @@ class CharacterGestureTest {
     @Test fun translatedCanvasDistantScreenTapsAreTwoSingles() {
         val slop = ViewConfiguration.get(InstrumentationRegistry.getInstrumentation().targetContext)
             .scaledDoubleTapSlop.toFloat()
-        val first = stage.copy(dialogueToken = DialogueToken(7, 8),
-            frame = stage.frame.copy(kero = stage.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 0, 0))))
+        val first = stage.copy(
+            dialogueToken = DialogueToken(7, 8),
+            frame = stage.frame.copy(
+                kero = stage.frame.kero.copy(
+                    visual = SurfaceVisual(10, emptyList(), 0, 0)
+                )
+            )
+        )
         val current = mutableStateOf(first)
         var singles = 0
         var doubles = 0
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClick = { _, _, _ -> singles++ },
-                onCharacterDoubleClick = { _, _, _ -> doubles++ })
+                onCharacterDoubleClick = { _, _, _ -> doubles++ }
+            )
         }
         val firstCenter = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot.center
         compose.onNodeWithTag("kero").performTouchInput { click(center) }
         compose.runOnIdle {
-            current.value = first.copy(frame = first.frame.copy(kero = first.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 0, -(slop + 50f).roundToInt()))))
+            current.value = first.copy(
+                frame = first.frame.copy(
+                    kero = first.frame.kero.copy(
+                        visual = SurfaceVisual(10, emptyList(), 0, -(slop + 50f).roundToInt())
+                    )
+                )
+            )
         }
         val secondCenter = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot.center
         assertTrue(abs(secondCenter.y - firstCenter.y) > slop)
@@ -441,28 +678,46 @@ class CharacterGestureTest {
             .scaledDoubleTapSlop.toFloat()
         val large = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888).asImageBitmap()
         val largeLoader = SurfaceImageLoader { large }
-        val first = stage.copy(dialogueToken = DialogueToken(7, 8),
-            frame = stage.frame.copy(kero = stage.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 0, 0))))
+        val first = stage.copy(
+            dialogueToken = DialogueToken(7, 8),
+            frame = stage.frame.copy(
+                kero = stage.frame.kero.copy(
+                    visual = SurfaceVisual(10, emptyList(), 0, 0)
+                )
+            )
+        )
         val current = mutableStateOf(first)
         var singles = 0
         var doubles = 0
         compose.setContent {
-            GhostStage(current.value, largeLoader, {}, {}, {},
+            GhostStage(
+                current.value,
+                largeLoader,
+                {},
+                {},
+                {},
                 onCharacterClick = { _, _, _ -> singles++ },
-                onCharacterDoubleClick = { _, _, _ -> doubles++ })
+                onCharacterDoubleClick = { _, _, _ -> doubles++ }
+            )
         }
         val original = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
         val firstLocal = Offset(original.width / 2f, 40f)
         compose.onNodeWithTag("kero").performTouchInput { click(firstLocal) }
         compose.runOnIdle {
-            current.value = first.copy(frame = first.frame.copy(kero = first.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 0, -(slop + 25f).roundToInt()))))
+            current.value = first.copy(
+                frame = first.frame.copy(
+                    kero = first.frame.kero.copy(
+                        visual = SurfaceVisual(10, emptyList(), 0, -(slop + 25f).roundToInt())
+                    )
+                )
+            )
         }
         val moved = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
         val secondLocal = original.topLeft + firstLocal - moved.topLeft
-        assertTrue("slop=$slop original=$original moved=$moved secondLocal=$secondLocal",
-            secondLocal.y > 0f && secondLocal.y < moved.height)
+        assertTrue(
+            "slop=$slop original=$original moved=$moved secondLocal=$secondLocal",
+            secondLocal.y > 0f && secondLocal.y < moved.height
+        )
         assertTrue(abs(secondLocal.y - firstLocal.y) > slop)
         compose.onNodeWithTag("kero").performTouchInput { click(secondLocal) }
         compose.waitUntil(2_000) { doubles == 1 || singles > 0 }
@@ -471,30 +726,49 @@ class CharacterGestureTest {
     }
 
     @Test fun stationaryScreenPointerAcrossCanvasTranslationKeepsPressCoordinates() {
-        val first = stage.copy(dialogueToken = DialogueToken(7, 8),
-            frame = stage.frame.copy(kero = stage.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 0, 0))))
+        val first = stage.copy(
+            dialogueToken = DialogueToken(7, 8),
+            frame = stage.frame.copy(
+                kero = stage.frame.kero.copy(
+                    visual = SurfaceVisual(10, emptyList(), 0, 0)
+                )
+            )
+        )
         val current = mutableStateOf(first)
         val clicks = mutableListOf<Triple<Int, Int, Int>>()
         var moves = 0
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClickResolved = { _, x, y, collision, _ ->
                     clicks += Triple(x, y, collision)
                 },
-                onCharacterMove = { _, _, _ -> moves++ })
+                onCharacterMove = { _, _, _ -> moves++ }
+            )
         }
         val before = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
         val screenPoint = before.center
         compose.onNodeWithTag("kero").performTouchInput { down(center) }
         compose.runOnIdle {
-            current.value = first.copy(frame = first.frame.copy(kero = first.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 40, 0))))
+            current.value = first.copy(
+                frame = first.frame.copy(
+                    kero = first.frame.kero.copy(
+                        visual = SurfaceVisual(10, emptyList(), 40, 0)
+                    )
+                )
+            )
         }
         val after = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
         assertTrue(after.left > before.left + 20f)
         val releaseLocal = screenPoint - after.topLeft
-        compose.onNodeWithTag("kero").performTouchInput { moveTo(releaseLocal); up() }
+        compose.onNodeWithTag("kero").performTouchInput {
+            moveTo(releaseLocal)
+            up()
+        }
         compose.waitUntil(2_000) { clicks.isNotEmpty() || moves > 0 }
         assertEquals(listOf(Triple(100, 100, 10)), clicks)
         assertEquals(0, moves)
@@ -506,15 +780,23 @@ class CharacterGestureTest {
         var moves = 0
         compose.setContent {
             Box(Modifier.size(viewportWidth.value, 600.dp)) {
-                GhostStage(stage, loader, {}, {}, {},
+                GhostStage(
+                    stage,
+                    loader,
+                    {},
+                    {},
+                    {},
                     onCharacterClickResolved = { _, x, y, collision, _ ->
                         clicks += Triple(x, y, collision)
                     },
-                    onCharacterMove = { _, _, _ -> moves++ })
+                    onCharacterMove = { _, _, _ -> moves++ }
+                )
             }
         }
-        assumeTrue("Requires a 600 dp tall fixture viewport",
-            compose.onRoot().fetchSemanticsNode().boundsInRoot.height / compose.density.density >= 600f)
+        assumeTrue(
+            "Requires a 600 dp tall fixture viewport",
+            compose.onRoot().fetchSemanticsNode().boundsInRoot.height / compose.density.density >= 600f
+        )
         val before = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
         val screenPoint = before.center
         compose.onNodeWithTag("kero").performTouchInput { down(center) }
@@ -522,7 +804,10 @@ class CharacterGestureTest {
         val after = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
         assertTrue(after.width > before.width)
         val releaseLocal = screenPoint - after.topLeft
-        compose.onNodeWithTag("kero").performTouchInput { moveTo(releaseLocal); up() }
+        compose.onNodeWithTag("kero").performTouchInput {
+            moveTo(releaseLocal)
+            up()
+        }
         compose.waitUntil(2_000) { clicks.isNotEmpty() || moves > 0 }
         assertEquals(listOf(Triple(100, 100, 10)), clicks)
         assertEquals(0, moves)
@@ -532,16 +817,26 @@ class CharacterGestureTest {
         val current = mutableStateOf(stage.copy(dialogueToken = DialogueToken(7, 8)))
         val clicks = mutableListOf<Triple<Int, Int, Int>>()
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClickResolved = { _, x, y, collision, _ ->
                     clicks += Triple(x, y, collision)
-                })
+                }
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { down(center) }
         compose.runOnIdle {
             val prior = current.value
-            current.value = prior.copy(frame = prior.frame.copy(kero =
-                prior.frame.kero.copy(text = "長い文章の途中で更新されても押した座標を保持する")))
+            current.value = prior.copy(
+                frame = prior.frame.copy(
+                    kero =
+                    prior.frame.kero.copy(text = "長い文章の途中で更新されても押した座標を保持する")
+                )
+            )
         }
         compose.onNodeWithTag("kero").performTouchInput { up() }
         compose.waitUntil(2_000) { clicks.isNotEmpty() }
@@ -549,32 +844,53 @@ class CharacterGestureTest {
     }
 
     @Test fun secondHeldTapAcrossTranslationStillDoubleClicksAtPressCoordinates() {
-        val first = stage.copy(dialogueToken = DialogueToken(7, 8),
-            frame = stage.frame.copy(kero = stage.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 0, 0))))
+        val first = stage.copy(
+            dialogueToken = DialogueToken(7, 8),
+            frame = stage.frame.copy(
+                kero = stage.frame.kero.copy(
+                    visual = SurfaceVisual(10, emptyList(), 0, 0)
+                )
+            )
+        )
         val current = mutableStateOf(first)
         val doubles = mutableListOf<Triple<Int, Int, Int>>()
         var singles = 0
         var moves = 0
         compose.setContent {
-            GhostStage(current.value, loader, {}, {}, {},
+            GhostStage(
+                current.value,
+                loader,
+                {},
+                {},
+                {},
                 onCharacterClick = { _, _, _ -> singles++ },
                 onCharacterDoubleClickResolved = { _, x, y, collision, _ ->
                     doubles += Triple(x, y, collision)
                 },
-                onCharacterMove = { _, _, _ -> moves++ })
+                onCharacterMove = { _, _, _ -> moves++ }
+            )
         }
         val before = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
         val screenPoint = before.center
-        compose.onNodeWithTag("kero").performTouchInput { down(center); up(); down(center) }
+        compose.onNodeWithTag("kero").performTouchInput {
+            down(center)
+            up()
+            down(center)
+        }
         compose.runOnIdle {
-            current.value = first.copy(frame = first.frame.copy(kero = first.frame.kero.copy(
-                visual = SurfaceVisual(10, emptyList(), 40, 0))))
+            current.value = first.copy(
+                frame = first.frame.copy(
+                    kero = first.frame.kero.copy(
+                        visual = SurfaceVisual(10, emptyList(), 40, 0)
+                    )
+                )
+            )
         }
         val after = compose.onNodeWithTag("kero").fetchSemanticsNode().boundsInRoot
         assertTrue(after.left > before.left + 20f)
         compose.onNodeWithTag("kero").performTouchInput {
-            moveTo(screenPoint - after.topLeft); up()
+            moveTo(screenPoint - after.topLeft)
+            up()
         }
         compose.waitUntil(2_000) { doubles.isNotEmpty() || singles > 0 || moves > 0 }
         assertEquals(listOf(Triple(100, 100, 10)), doubles)

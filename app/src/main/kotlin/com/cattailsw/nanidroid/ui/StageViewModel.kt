@@ -65,7 +65,9 @@ class StageViewModel(
         val id = saved.get<String>("import_attempt_id")
         val phase = saved.get<String>("import_phase")
         val live = coordinator?.state?.value
-        if (id != null && live != ImportState.Idle && when (live) {
+        if (id != null &&
+            live != ImportState.Idle &&
+            when (live) {
                 is ImportState.Picking -> live.attemptId == id
                 is ImportState.Running -> live.attemptId == id
                 is ImportState.Completed -> live.attemptId == id
@@ -73,10 +75,15 @@ class StageViewModel(
             }
         ) {
             // Rotation retains the application-owned attempt, including completed prompts.
-        } else if (id != null && phase == "picking" &&
-            try { attempts?.wasConsumed(id) } catch (cancelled: CancellationException) {
+        } else if (id != null &&
+            phase == "picking" &&
+            try {
+                attempts?.wasConsumed(id)
+            } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) { true } == false &&
+            } catch (_: Exception) {
+                true
+            } == false &&
             coordinator?.restorePicking(id) == true
         ) {
             // This is the first copy after a picker outlived the process.
@@ -122,10 +129,7 @@ class StageViewModel(
         }
     }
 
-    suspend fun acceptPickerResult(
-        openSource: (() -> InputStream)?,
-        awaitStarted: suspend () -> Unit = {}
-    ) {
+    suspend fun acceptPickerResult(openSource: (() -> InputStream)?, awaitStarted: suspend () -> Unit = {}) {
         restoreAttempt()
         val id = saved.get<String>("import_attempt_id") ?: return
         if ((coordinator?.state?.value as? ImportState.Picking)?.attemptId != id || accepting) return
@@ -158,8 +162,12 @@ class StageViewModel(
 
     fun cancelImport() = coordinator?.cancelBeforePublication()
     fun acknowledgeImport(id: String) = coordinator?.acknowledge(id)
-    fun dismissInterrupted() { interrupted.value = false }
-    fun cancelRunningOnStop() { if (importState.value is ImportState.Running) cancelImport() }
+    fun dismissInterrupted() {
+        interrupted.value = false
+    }
+    fun cancelRunningOnStop() {
+        if (importState.value is ImportState.Running) cancelImport()
+    }
 
     private fun saveAttempt(id: String, phase: String) {
         saved["import_attempt_id"] = id
@@ -170,10 +178,8 @@ class StageViewModel(
     fun setResumed(resumed: Boolean) = runtime.setResumed(resumed)
     fun click(speaker: Int, x: Int, y: Int, collisionSurfaceId: Int, origin: DialogueToken?) =
         runtime.click(speaker, x, y, collisionSurfaceId, origin)
-    fun doubleClick(
-        speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
-        origin: DialogueToken?
-    ) = runtime.doubleClick(speaker, x, y, collisionSurfaceId, origin)
+    fun doubleClick(speaker: Int, x: Int, y: Int, collisionSurfaceId: Int, origin: DialogueToken?) =
+        runtime.doubleClick(speaker, x, y, collisionSurfaceId, origin)
     fun move(speaker: Int, x: Int, y: Int, collisionSurfaceId: Int, source: RenderedMoveSource) =
         runtime.move(speaker, x, y, collisionSurfaceId, source)
     fun cancelMove(speaker: Int) = runtime.cancelMove(speaker)

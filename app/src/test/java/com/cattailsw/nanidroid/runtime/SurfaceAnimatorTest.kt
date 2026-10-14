@@ -30,12 +30,15 @@ class SurfaceAnimatorTest {
     }
 
     @Test fun simultaneousTracksReplaceOnlyTheirOwnFramesAndMoveIsAbsolute() {
-        val animator = animator("""
+        val animator =
+            animator(
+                """
             animation0.interval,always
             animation0.pattern0,overlay,1001,0,0,0
             animation1.interval,runonce
             animation1.pattern0,move,0,0,4,-3
-        """.trimIndent())
+                """.trimIndent()
+            )
         animator.setSurface(0, 0)
         val visual = animator.advanceBy(50, emptySet())!![0]!!
         assertEquals(1, visual.layers.size)
@@ -44,11 +47,14 @@ class SurfaceAnimatorTest {
     }
 
     @Test fun negativeOneClearsTrackWithoutChangingLogicalBase() {
-        val animator = animator("""
+        val animator =
+            animator(
+                """
             animation0.interval,runonce
             animation0.pattern0,overlay,1001,0,0,0
             animation0.pattern1,overlay,-1,0,0,0
-        """.trimIndent())
+                """.trimIndent()
+            )
         animator.setSurface(0, 0)
         assertEquals(1001, animator.advanceBy(50, emptySet())!![0]!!.layers.single().surfaceId)
         val cleared = animator.advanceBy(50, emptySet())!![0]!!
@@ -65,14 +71,17 @@ class SurfaceAnimatorTest {
     }
 
     @Test fun automaticRollsAreIndependentAndUnsupportedIntervalsStayIdle() {
-        val animator = animator("""
+        val animator =
+            animator(
+                """
             animation0.interval,sometimes
             animation0.pattern0,overlay,1001,0,0,0
             animation1.interval,rarely
             animation1.pattern0,overlay,1002,0,0,0
             animation2.interval,bind
             animation2.pattern0,overlay,1003,0,0,0
-        """.trimIndent()) { 0 }
+                """.trimIndent()
+            ) { 0 }
         animator.setSurface(0, 0)
         animator.advanceBy(0, emptySet())
         assertNull(animator.advanceBy(1_000, emptySet()))
@@ -83,12 +92,18 @@ class SurfaceAnimatorTest {
     @Test fun sometimesUsesHalfAndRarelyUsesQuarterPerEligibleSecond() {
         val bounds = mutableListOf<Long>()
         val draws = ArrayDeque(listOf(1L, 1L, 0L, 0L))
-        val animator = animator("""
+        val animator =
+            animator(
+                """
             animation0.interval,sometimes
             animation0.pattern0,overlay,1001,0,0,0
             animation1.interval,rarely
             animation1.pattern0,overlay,1002,0,0,0
-        """.trimIndent()) { bound -> bounds += bound; draws.removeFirst() }
+                """.trimIndent()
+            ) { bound ->
+                bounds += bound
+                draws.removeFirst()
+            }
         animator.setSurface(0, 0)
         animator.advanceBy(0, emptySet())
         assertNull(animator.advanceBy(1_000, emptySet()))
@@ -98,12 +113,15 @@ class SurfaceAnimatorTest {
     }
 
     @Test fun talkRequiresAdvancingTextAndExplicitStartSuppressesThatAdvance() {
-        val animator = animator("""
+        val animator =
+            animator(
+                """
             animation0.interval,talk
             animation0.pattern0,overlay,1001,0,0,0
             animation1.interval,never
             animation1.pattern0,overlay,1002,0,0,0
-        """.trimIndent())
+                """.trimIndent()
+            )
         animator.setSurface(0, 0)
         animator.advanceBy(0, emptySet())
         assertNull(animator.advanceBy(500, emptySet()))
@@ -115,14 +133,17 @@ class SurfaceAnimatorTest {
     }
 
     @Test fun missingExplicitIdDoesNothingAndAlternativeSelectsTarget() {
-        val animator = animator("""
+        val animator =
+            animator(
+                """
             animation0.interval,never
             animation0.pattern0,alternativestart,(1,2)
             animation1.interval,never
             animation1.pattern0,overlay,1001,0,0,0
             animation2.interval,never
             animation2.pattern0,overlay,1002,0,0,0
-        """.trimIndent()) { it - 1 }
+                """.trimIndent()
+            ) { it - 1 }
         animator.setSurface(0, 0)
         animator.advanceBy(0, emptySet())
         animator.startExplicit(0, 9)
@@ -141,10 +162,13 @@ class SurfaceAnimatorTest {
 
     @Test fun failedSometimesRollsDoNotStartUntilSuccessAndRunningTrackIsNotRestarted() {
         val rolls = ArrayDeque(listOf(1L, 1L, 1L, 0L, 0L))
-        val animator = animator("""
+        val animator =
+            animator(
+                """
             animation0.interval,sometimes
             animation0.pattern0,overlay,1001,5000,0,0
-        """.trimIndent()) { rolls.removeFirst() }
+                """.trimIndent()
+            ) { rolls.removeFirst() }
         animator.setSurface(0, 0)
         animator.advanceBy(0, emptySet())
         repeat(3) { assertNull(animator.advanceBy(1_000, emptySet())) }
@@ -156,14 +180,20 @@ class SurfaceAnimatorTest {
 
     @Test fun zeroWaitRequiresOneTickAndAlternativeCycleStaysBounded() {
         var draws = 0
-        val animator = animator("""
+        val animator =
+            animator(
+                """
             animation0.interval,never
             animation0.pattern0,alternativestart,(1)
             animation1.interval,never
             animation1.pattern0,alternativestart,(0)
             animation2.interval,never
             animation2.pattern0,overlay,1002,0,0,0
-        """.trimIndent()) { draws++; 0 }
+                """.trimIndent()
+            ) {
+                draws++
+                0
+            }
         animator.setSurface(0, 0)
         animator.advanceBy(0, emptySet())
         animator.startExplicit(0, 0)
@@ -176,26 +206,34 @@ class SurfaceAnimatorTest {
     }
 
     @Test fun automaticStartsWaitUntilTickAfterRollOrTalkThreshold() {
-        val animator = animator("""
+        val animator =
+            animator(
+                """
             animation0.interval,sometimes
             animation0.pattern0,overlay,1001,0,0,0
             animation1.interval,talk
             animation1.pattern0,overlay,1002,0,0,0
-        """.trimIndent()) { 0 }
+                """.trimIndent()
+            ) { 0 }
         animator.setSurface(0, 0)
         animator.advanceBy(0, emptySet())
         repeat(19) { assertNull(animator.advanceBy(50, emptySet())) }
         assertNull(animator.advanceBy(50, setOf(0)))
-        assertEquals(listOf(1001, 1002),
-            animator.advanceBy(50, emptySet())?.get(0)?.layers?.map { it.surfaceId })
+        assertEquals(
+            listOf(1001, 1002),
+            animator.advanceBy(50, emptySet())?.get(0)?.layers?.map { it.surfaceId }
+        )
     }
 
     @Test fun shortTalkBurstsAfterIdleUseFiveHundredMillisecondThrottle() {
-        val animator = animator("""
+        val animator =
+            animator(
+                """
             animation0.interval,talk
             animation0.pattern0,overlay,1001,0,0,0
             animation0.pattern1,overlay,-1,0,0,0
-        """.trimIndent())
+                """.trimIndent()
+            )
         animator.setSurface(0, 0)
         animator.advanceBy(0, emptySet())
         repeat(10) { assertNull(animator.advanceBy(50, emptySet())) }
@@ -208,7 +246,9 @@ class SurfaceAnimatorTest {
     }
 
     @Test fun alternativeCycleCannotRestartSourceBeforeItsNextImage() {
-        val animator = animator("""
+        val animator =
+            animator(
+                """
             animation0.interval,never
             animation0.pattern0,alternativestart,(1)
             animation0.pattern1,overlay,1001,0,0,0
@@ -216,7 +256,8 @@ class SurfaceAnimatorTest {
             animation1.pattern0,alternativestart,(0)
             animation2.interval,never
             animation2.pattern0,alternativestart,(1)
-        """.trimIndent())
+                """.trimIndent()
+            )
         animator.setSurface(0, 0)
         animator.advanceBy(0, emptySet())
         animator.startExplicit(0, 0)
@@ -227,14 +268,17 @@ class SurfaceAnimatorTest {
 
     @Test fun delayedAlternativeCanRestartFormerAncestorOnLaterTick() {
         for (explicit in listOf(false, true)) {
-            val animator = animator("""
+            val animator =
+                animator(
+                    """
                 animation0.interval,runonce
                 animation0.pattern0,alternativestart,(1)
                 animation0.pattern1,overlay,1001,0,0,0
                 animation1.interval,never
                 animation1.pattern0,overlay,-1,500,0,0
                 animation1.pattern1,alternativestart,(0)
-            """.trimIndent())
+                    """.trimIndent()
+                )
             animator.setSurface(0, 0)
             animator.advanceBy(0, emptySet())
             if (explicit) animator.startExplicit(0, 0)

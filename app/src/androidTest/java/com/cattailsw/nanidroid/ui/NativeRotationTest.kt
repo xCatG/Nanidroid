@@ -12,8 +12,8 @@ import com.cattailsw.nanidroid.engine.NativeShioriHost
 import com.cattailsw.nanidroid.engine.ShioriEvent
 import com.cattailsw.nanidroid.runtime.StageState
 import java.io.File
-import java.security.MessageDigest
 import java.nio.charset.Charset
+import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -34,16 +34,21 @@ class NativeRotationTest {
     private fun runtimeSwitchAndBack(kind: String) = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val args = InstrumentationRegistry.getArguments()
-        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
-            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) }
+        )
         require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
             "Provide all nonblank host arguments: fixtureId, runId"
         }
         val id = args.getString("fixtureId")
         require(id!!.matches(Regex("[A-Za-z0-9_-]{1,100}"))) { "Invalid fixtureId" }
         require(args.getString("runId")!!.matches(Regex("[0-9a-f]{32}"))) { "Invalid runId" }
-        val save = if (kind == "lobo") File(context.filesDir, "ghost/$id/ghost/master/profile/dict-savedata.txt")
-            else File(context.filesDir, "ghost/$id/ghost/master/yaya_variable.cfg")
+        val save = if (kind == "lobo") {
+            File(context.filesDir, "ghost/$id/ghost/master/profile/dict-savedata.txt")
+        } else {
+            File(context.filesDir, "ghost/$id/ghost/master/yaya_variable.cfg")
+        }
         val initialHash = baselineHash(save)
         assertTrue(context.getSharedPreferences("last_ghost", 0).edit().putString("last_ghost", id).commit())
         val runtime = (context.applicationContext as NanidroidApplication).runtime
@@ -54,16 +59,21 @@ class NativeRotationTest {
             when (kind) {
                 "lobo" -> {
                     host.request(first, ShioriEvent("OnAssignTalkRate", listOf("60")))
-                    assertTrue(host.request(first, ShioriEvent("OnSakuraMenu")).value.orEmpty()
-                        .contains("Talkrate: 1 minute"))
+                    assertTrue(
+                        host.request(first, ShioriEvent("OnSakuraMenu")).value.orEmpty()
+                            .contains("Talkrate: 1 minute")
+                    )
                 }
                 "yaya" -> {
                     waitUntil(30_000, { "YAYA boot event missing: ${host.observationForTest()}" }) {
                         host.observationForTest().events.any { it == "OnFirstBoot" || it == "OnBoot" }
                     }
-                    assertEquals(1, host.observationForTest().events.count {
-                        it == "OnFirstBoot" || it == "OnBoot"
-                    })
+                    assertEquals(
+                        1,
+                        host.observationForTest().events.count {
+                            it == "OnFirstBoot" || it == "OnBoot"
+                        }
+                    )
                     assertEquals("USER", host.request(first, ShioriEvent("On_username")).value)
                     host.request(first, ShioriEvent("OnNameTeach", listOf("")))
                     assertEquals("User", host.request(first, ShioriEvent("On_username")).value)
@@ -72,8 +82,11 @@ class NativeRotationTest {
             runtime.selectGhost("nanidroid")
             waitUntil(15_000) { (runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId == "nanidroid" }
             runtime.confirmSwitch()
-            waitUntil(45_000) { runtime.activeNativeLeaseForTest() == null &&
-                runtime.state.value is StageState.Ready && host.observationForTest().unloads == 1 }
+            waitUntil(45_000) {
+                runtime.activeNativeLeaseForTest() == null &&
+                    runtime.state.value is StageState.Ready &&
+                    host.observationForTest().unloads == 1
+            }
             val switchHash = changedHash(save, kind, initialHash)
             runtime.selectGhost(id!!)
             waitUntil(15_000) { (runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId == id }
@@ -81,9 +94,23 @@ class NativeRotationTest {
             waitUntil(45_000) { runtime.activeNativeLeaseForTest() != null }
             val second = requireNotNull(runtime.activeNativeLeaseForTest())
             assertNotSame(first, second)
-            val restored = if (kind == "lobo") host.request(second, ShioriEvent("OnSakuraMenu")).value.orEmpty()
-                else host.request(second, ShioriEvent("On_username")).value.orEmpty()
-            assertTrue("$kind not restored: $restored", restored.contains(if (kind == "lobo") "Talkrate: 1 minute" else "User"))
+            val restored = if (kind == "lobo") {
+                host.request(second, ShioriEvent("OnSakuraMenu")).value.orEmpty()
+            } else {
+                host.request(second, ShioriEvent("On_username")).value.orEmpty()
+            }
+            assertTrue(
+                "$kind not restored: $restored",
+                restored.contains(
+                    if (kind ==
+                        "lobo"
+                    ) {
+                        "Talkrate: 1 minute"
+                    } else {
+                        "User"
+                    }
+                )
+            )
             runtime.close()
             waitUntil(45_000) { runtime.state.value is StageState.Finished }
             val backHash = changedHash(save, kind, initialHash)
@@ -92,15 +119,19 @@ class NativeRotationTest {
             assertEquals(2, observation.loads)
             assertEquals(2, observation.unloads)
             assertEquals(2, observation.events.count { event -> event == "OnDestroy" })
-            println("PERSIST RUNTIME $kind $observation initial=$initialHash switch=$switchHash back=$backHash save=${save.absolutePath}")
+            println(
+                "PERSIST RUNTIME $kind $observation initial=$initialHash switch=$switchHash back=$backHash save=${save.absolutePath}"
+            )
         }
     }
 
     private fun freshRead(kind: String) = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val args = InstrumentationRegistry.getArguments()
-        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
-            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) }
+        )
         require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
             "Provide all nonblank host arguments: fixtureId, runId"
         }
@@ -113,25 +144,39 @@ class NativeRotationTest {
         assertEquals(save.absolutePath, marker["file"])
         assertEquals(marker["backHash"], changedHash(save, kind, marker["initialHash"].takeUnless { it == "absent" }))
         val host = NativeShioriHost.process
-        val nativeKind = if (kind == "lobo") com.cattailsw.nanidroid.engine.NativeKind.KAWARI
-            else com.cattailsw.nanidroid.engine.NativeKind.YAYA
+        val nativeKind = if (kind == "lobo") {
+            com.cattailsw.nanidroid.engine.NativeKind.KAWARI
+        } else {
+            com.cattailsw.nanidroid.engine.NativeKind.YAYA
+        }
         val result = host.load(nativeKind, master, if (kind == "lobo") "shiori.dll" else "yaya.dll")
         assertTrue(result is com.cattailsw.nanidroid.engine.NativeLoadResult.Loaded)
         val lease = (result as com.cattailsw.nanidroid.engine.NativeLoadResult.Loaded).lease
         try {
-            val restored = if (kind == "lobo") host.request(lease, ShioriEvent("OnSakuraMenu")).value.orEmpty()
-                else host.request(lease, ShioriEvent("On_username")).value.orEmpty()
-            assertTrue("$kind fresh process restore: $restored", restored.contains(
-                if (kind == "lobo") "Talkrate: 1 minute" else "User"))
+            val restored = if (kind == "lobo") {
+                host.request(lease, ShioriEvent("OnSakuraMenu")).value.orEmpty()
+            } else {
+                host.request(lease, ShioriEvent("On_username")).value.orEmpty()
+            }
+            assertTrue(
+                "$kind fresh process restore: $restored",
+                restored.contains(
+                    if (kind == "lobo") "Talkrate: 1 minute" else "User"
+                )
+            )
             println("PERSIST RUNTIME FRESH_READ $kind hash=${sha(save)} $restored")
-        } finally { host.shutdown(lease) }
+        } finally {
+            host.shutdown(lease)
+        }
     }
 
     @Test fun twoelfRuntimeSwitchBackAndCloseWritesFlag() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val args = InstrumentationRegistry.getArguments()
-        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
-            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) }
+        )
         require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
             "Provide all nonblank host arguments: fixtureId, runId"
         }
@@ -147,8 +192,10 @@ class NativeRotationTest {
             waitUntil(30_000) { runtime.activeNativeLeaseForTest() != null }
             val first = requireNotNull(runtime.activeNativeLeaseForTest())
             host.request(first, ShioriEvent("見切れOFF"))
-            assertTrue(host.request(first, ShioriEvent("見切れ重なり消滅表示"))
-                .value.orEmpty().contains("見切れ：現在 OFF"))
+            assertTrue(
+                host.request(first, ShioriEvent("見切れ重なり消滅表示"))
+                    .value.orEmpty().contains("見切れ：現在 OFF")
+            )
             runtime.selectGhost("nanidroid")
             waitUntil(15_000) { (runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId == "nanidroid" }
             runtime.confirmSwitch()
@@ -160,8 +207,11 @@ class NativeRotationTest {
                     "frame=${ready?.frame} " +
                     "lease=${runtime.activeNativeLeaseForTest()} availability=${host.availability.value} " +
                     "host=${host.observationForTest()} activity=${scenario.state}"
-            }) { runtime.activeNativeLeaseForTest() == null &&
-                runtime.state.value is StageState.Ready && host.observationForTest().unloads == 1 }
+            }) {
+                runtime.activeNativeLeaseForTest() == null &&
+                    runtime.state.value is StageState.Ready &&
+                    host.observationForTest().unloads == 1
+            }
             val switchHash = changedHash(saved, "satori", initialHash)
             val afterSwitch = host.observationForTest()
             assertEquals(1, afterSwitch.loads)
@@ -173,8 +223,10 @@ class NativeRotationTest {
             waitUntil(45_000) { runtime.activeNativeLeaseForTest() != null }
             val second = requireNotNull(runtime.activeNativeLeaseForTest())
             assertNotSame(first, second)
-            assertTrue(host.request(second, ShioriEvent("見切れ重なり消滅表示"))
-                .value.orEmpty().contains("見切れ：現在 OFF"))
+            assertTrue(
+                host.request(second, ShioriEvent("見切れ重なり消滅表示"))
+                    .value.orEmpty().contains("見切れ：現在 OFF")
+            )
             runtime.close()
             waitUntil(45_000) { runtime.state.value is StageState.Finished }
             val backHash = changedHash(saved, "satori", initialHash)
@@ -183,15 +235,19 @@ class NativeRotationTest {
             assertEquals(2, afterBack.loads)
             assertEquals(2, afterBack.unloads)
             assertEquals(2, afterBack.events.count { event -> event == "OnDestroy" })
-            println("PERSIST RUNTIME SWITCH_BACK_CLOSE $afterBack initial=$initialHash switch=$switchHash back=$backHash save=${saved.absolutePath}")
+            println(
+                "PERSIST RUNTIME SWITCH_BACK_CLOSE $afterBack initial=$initialHash switch=$switchHash back=$backHash save=${saved.absolutePath}"
+            )
         }
     }
 
     @Test fun twoelfReadsAfterRuntimeBackInFreshProcess() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val args = InstrumentationRegistry.getArguments()
-        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
-            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) }
+        )
         require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
             "Provide all nonblank host arguments: fixtureId, runId"
         }
@@ -202,7 +258,16 @@ class NativeRotationTest {
         val save = File(master, "satori_savedata.txt")
         val marker = readSaveMarker("satori")
         assertEquals(save.absolutePath, marker["file"])
-        assertEquals(marker["backHash"], changedHash(save, "satori", marker["initialHash"].takeUnless { it == "absent" }))
+        assertEquals(
+            marker["backHash"],
+            changedHash(
+                save,
+                "satori",
+                marker["initialHash"].takeUnless {
+                    it == "absent"
+                }
+            )
+        )
         val host = NativeShioriHost.process
         val result = host.load(com.cattailsw.nanidroid.engine.NativeKind.SATORI, master, "satori.dll")
         assertTrue(result is com.cattailsw.nanidroid.engine.NativeLoadResult.Loaded)
@@ -211,15 +276,19 @@ class NativeRotationTest {
             val restored = host.request(lease, ShioriEvent("見切れ重なり消滅表示"))
             assertTrue(restored.value.orEmpty().contains("見切れ：現在 OFF"))
             println("PERSIST RUNTIME FRESH_READ satori hash=${sha(save)} ${restored.value}")
-        } finally { host.shutdown(lease) }
+        } finally {
+            host.shutdown(lease)
+        }
     }
 
     @Test fun twoelfKeepsFlagAndLeaseAcrossRecreationAndDisplayRotation() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val args = InstrumentationRegistry.getArguments()
-        org.junit.Assume.assumeTrue("Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
-            listOf("fixtureId", "runId").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run tools/test-native-persistence.ps1; required arguments: fixtureId, runId",
+            listOf("fixtureId", "runId").any { args.containsKey(it) }
+        )
         require(listOf("fixtureId", "runId").all { !args.getString(it).isNullOrBlank() }) {
             "Provide all nonblank host arguments: fixtureId, runId"
         }
@@ -232,8 +301,10 @@ class NativeRotationTest {
         val runtime = (context.applicationContext as NanidroidApplication).runtime
         val host = NativeShioriHost.process
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            waitUntil { (runtime.state.value as? StageState.Ready)?.ghostName?.isNotEmpty() == true &&
-                runtime.activeNativeLeaseForTest() != null }
+            waitUntil {
+                (runtime.state.value as? StageState.Ready)?.ghostName?.isNotEmpty() == true &&
+                    runtime.activeNativeLeaseForTest() != null
+            }
             val lease = requireNotNull(runtime.activeNativeLeaseForTest())
             val baseline = host.request(lease, ShioriEvent("見切れ重なり消滅表示"))
             val change = host.request(lease, ShioriEvent("見切れOFF"))
@@ -289,11 +360,18 @@ class NativeRotationTest {
         assertTrue("$phase lost prior events: before=$before after=$after", after.size >= before.size)
         assertEquals("$phase changed prior event order", before, after.take(before.size))
         val added = after.drop(before.size)
-        assertTrue("$phase added lifecycle events: $added", added.none {
-            it == "OnInitialize" || it == "OnFirstBoot" || it == "OnBoot" ||
-                it == "OnClose" || it == "OnGhostChanging" ||
-                it == "OnGhostChanged" || it == "OnDestroy"
-        })
+        assertTrue(
+            "$phase added lifecycle events: $added",
+            added.none {
+                it == "OnInitialize" ||
+                    it == "OnFirstBoot" ||
+                    it == "OnBoot" ||
+                    it == "OnClose" ||
+                    it == "OnGhostChanging" ||
+                    it == "OnGhostChanged" ||
+                    it == "OnDestroy"
+            }
+        )
     }
 
     private fun baselineHash(save: File): String? = save.takeIf(File::isFile)?.let(::sha).also {
@@ -320,15 +398,21 @@ class NativeRotationTest {
 
     private fun writeSaveMarker(kind: String, save: File, initial: String?, switched: String, back: String) {
         val runId = requireNotNull(InstrumentationRegistry.getArguments().getString("runId"))
-        val marker = File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir,
-            "native-persistence-$runId-$kind.saved")
-        marker.writeText("runId=$runId\nkind=$kind\nfile=${save.absolutePath}\ninitialHash=${initial ?: "absent"}\nswitchHash=$switched\nbackHash=$back\n")
+        val marker = File(
+            InstrumentationRegistry.getInstrumentation().targetContext.filesDir,
+            "native-persistence-$runId-$kind.saved"
+        )
+        marker.writeText(
+            "runId=$runId\nkind=$kind\nfile=${save.absolutePath}\ninitialHash=${initial ?: "absent"}\nswitchHash=$switched\nbackHash=$back\n"
+        )
     }
 
     private fun readSaveMarker(kind: String): Map<String, String> {
         val runId = requireNotNull(InstrumentationRegistry.getArguments().getString("runId"))
-        val marker = File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir,
-            "native-persistence-$runId-$kind.saved")
+        val marker = File(
+            InstrumentationRegistry.getInstrumentation().targetContext.filesDir,
+            "native-persistence-$runId-$kind.saved"
+        )
         assertTrue("Missing save marker from runtime Back: $marker", marker.isFile)
         val fields = marker.readLines().associate { it.substringBefore('=') to it.substringAfter('=') }
         assertEquals(runId, fields["runId"])
@@ -347,14 +431,16 @@ class NativeRotationTest {
     private fun waitUntil(
         timeoutMillis: Long = 15_000,
         timeoutDetails: (() -> String)? = null,
-        predicate: () -> Boolean,
+        predicate: () -> Boolean
     ) {
         val deadline = SystemClock.elapsedRealtime() + timeoutMillis
         while (SystemClock.elapsedRealtime() < deadline) {
             if (predicate()) return
             Thread.sleep(100)
         }
-        fail("Timed out waiting for native Activity state or physical orientation: " +
-            (timeoutDetails?.invoke() ?: "no phase details"))
+        fail(
+            "Timed out waiting for native Activity state or physical orientation: " +
+                (timeoutDetails?.invoke() ?: "no phase details")
+        )
     }
 }

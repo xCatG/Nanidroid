@@ -2,16 +2,16 @@ package com.cattailsw.nanidroid.runtime
 
 import com.cattailsw.nanidroid.data.BootStateStore
 import com.cattailsw.nanidroid.data.LastGhostStore
-import com.cattailsw.nanidroid.engine.ShioriEngine
-import com.cattailsw.nanidroid.engine.ShioriEvent
-import com.cattailsw.nanidroid.engine.ShioriReply
 import com.cattailsw.nanidroid.engine.NativeAvailability
 import com.cattailsw.nanidroid.engine.NativeKind
 import com.cattailsw.nanidroid.engine.NativeLease
 import com.cattailsw.nanidroid.engine.NativeLoadResult
-import com.cattailsw.nanidroid.engine.NativeTransportException
 import com.cattailsw.nanidroid.engine.NativeShutdownResult
+import com.cattailsw.nanidroid.engine.NativeTransportException
 import com.cattailsw.nanidroid.engine.NativeUnloadResult
+import com.cattailsw.nanidroid.engine.ShioriEngine
+import com.cattailsw.nanidroid.engine.ShioriEvent
+import com.cattailsw.nanidroid.engine.ShioriReply
 import com.cattailsw.nanidroid.ghost.BundledGhost
 import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
 import java.io.File
@@ -20,10 +20,10 @@ import java.util.logging.LogRecord
 import java.util.logging.Logger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -62,7 +62,9 @@ class GhostImportEventsTest {
         val messages = mutableListOf<String>()
         val logger = Logger.getLogger(GhostRuntime::class.java.name)
         val handler = object : Handler() {
-            override fun publish(record: LogRecord) { messages += record.message }
+            override fun publish(record: LogRecord) {
+                messages += record.message
+            }
             override fun flush() = Unit
             override fun close() = Unit
         }
@@ -76,7 +78,9 @@ class GhostImportEventsTest {
             runCurrent()
             assertEquals(1, events.count { it.id == "OnInstallBegin" })
             assertTrue(messages.any { it.contains("OnInstallBegin") && it.contains("400") })
-        } finally { logger.removeHandler(handler) }
+        } finally {
+            logger.removeHandler(handler)
+        }
     }
 
     @Test fun nativeUnavailableIsAnExplicitPromptDispositionAndRunningBlocksManualSelection() = runTest {
@@ -95,17 +99,20 @@ class GhostImportEventsTest {
                 error("Unexpected native load")
             override suspend fun request(lease: NativeLease, event: ShioriEvent): ShioriReply =
                 error("Unexpected native request")
-            override suspend fun unload(lease: NativeLease): NativeUnloadResult =
-                error("Unexpected native unload")
-            override suspend fun shutdown(lease: NativeLease, notifyDestroy: Boolean,
-                                          timeoutMillis: Long): NativeShutdownResult =
-                error("Unexpected native shutdown")
+            override suspend fun unload(lease: NativeLease): NativeUnloadResult = error("Unexpected native unload")
+            override suspend fun shutdown(
+                lease: NativeLease,
+                notifyDestroy: Boolean,
+                timeoutMillis: Long
+            ): NativeShutdownResult = error("Unexpected native shutdown")
         }
         val runtime = GhostRuntime(
             loadGhost = { BundledGhost("nanidroid", "Nanidroid", "", "", emptyMap(), "") },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent) = ShioriReply(204)
-            } },
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent) = ShioriReply(204)
+                }
+            },
             bootState = object : BootStateStore {
                 override suspend fun recordActivation(directoryId: String) = false
                 override suspend fun consumeOnboarding() = false
@@ -114,11 +121,14 @@ class GhostImportEventsTest {
             installedGhosts = InstalledGhostRepository(root),
             nativeHost = port,
             ioDispatcher = StandardTestDispatcher(testScheduler),
-            elapsedRealtime = { testScheduler.currentTime },
+            elapsedRealtime = { testScheduler.currentTime }
         )
         runtime.start("ja")
-        assertEquals(listOf("visitor"), (runtime.state.value as StageState.Ready)
-            .installedGhosts.map { it.directoryId })
+        assertEquals(
+            listOf("visitor"),
+            (runtime.state.value as StageState.Ready)
+                .installedGhosts.map { it.directoryId }
+        )
         assertTrue(runtime.offerImportedGhost("native") is ImportPromptResult.Unavailable)
         runtime.setImportRunning(true)
         runtime.selectGhost("visitor")
@@ -138,12 +148,18 @@ class GhostImportEventsTest {
         renamed.resolve("ghost/master/X.dll").writeText("yaya.dll")
         renamed.resolve("ghost/master/X.txt").writeText("")
         runtime.refreshInstalledChoices()
-        assertEquals(listOf("visitor"), (runtime.state.value as StageState.Ready)
-            .installedGhosts.map { it.directoryId })
+        assertEquals(
+            listOf("visitor"),
+            (runtime.state.value as StageState.Ready)
+                .installedGhosts.map { it.directoryId }
+        )
         renamed.resolve("ghost/master/X.txt").delete()
         runtime.refreshInstalledChoices()
-        assertEquals(listOf("renamed", "visitor"), (runtime.state.value as StageState.Ready)
-            .installedGhosts.map { it.directoryId })
+        assertEquals(
+            listOf("renamed", "visitor"),
+            (runtime.state.value as StageState.Ready)
+                .installedGhosts.map { it.directoryId }
+        )
     }
 
     @Test fun quarantinedInstallEventRecoversAfterPauseAndDoesNotRetryNativeOwnership() = runTest {
@@ -173,8 +189,11 @@ class GhostImportEventsTest {
             }
             override suspend fun unload(lease: NativeLease): NativeUnloadResult =
                 error("Quarantined lease must not be unloaded")
-            override suspend fun shutdown(lease: NativeLease, notifyDestroy: Boolean,
-                                          timeoutMillis: Long): NativeShutdownResult {
+            override suspend fun shutdown(
+                lease: NativeLease,
+                notifyDestroy: Boolean,
+                timeoutMillis: Long
+            ): NativeShutdownResult {
                 nativeShutdowns++
                 error("Quarantined lease must not be shut down")
             }
@@ -182,12 +201,14 @@ class GhostImportEventsTest {
         val builtInEvents = mutableListOf<String>()
         val runtime = GhostRuntime(
             loadGhost = { BundledGhost("nanidroid", "Nanidroid", "", "", emptyMap(), "") },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply {
-                    builtInEvents += event.id
-                    return ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply {
+                        builtInEvents += event.id
+                        return ShioriReply(204)
+                    }
                 }
-            } },
+            },
             bootState = object : BootStateStore {
                 override suspend fun recordActivation(directoryId: String) = false
                 override suspend fun consumeOnboarding() = false
@@ -200,7 +221,7 @@ class GhostImportEventsTest {
             },
             nativeHost = port,
             ioDispatcher = StandardTestDispatcher(testScheduler),
-            elapsedRealtime = { testScheduler.currentTime },
+            elapsedRealtime = { testScheduler.currentTime }
         )
         runtime.start("ja")
         assertEquals("Native", (runtime.state.value as StageState.Ready).ghostName)
@@ -232,22 +253,26 @@ class GhostImportEventsTest {
         assertEquals(0, nativeShutdowns)
     }
 
-    private fun TestScope.runtime(events: MutableList<ShioriEvent>, gate: CompletableDeferred<Unit>,
-                                  replyFor: (ShioriEvent) -> ShioriReply = { ShioriReply(204) }) =
-        GhostRuntime(
-            loadGhost = { BundledGhost("nanidroid", "Nanidroid", "", "", emptyMap(), "") },
-            engineFactory = { object : ShioriEngine {
+    private fun TestScope.runtime(
+        events: MutableList<ShioriEvent>,
+        gate: CompletableDeferred<Unit>,
+        replyFor: (ShioriEvent) -> ShioriReply = { ShioriReply(204) }
+    ) = GhostRuntime(
+        loadGhost = { BundledGhost("nanidroid", "Nanidroid", "", "", emptyMap(), "") },
+        engineFactory = {
+            object : ShioriEngine {
                 override suspend fun request(event: ShioriEvent): ShioriReply {
                     events += event
                     if (event.id == "OnInstallBegin") gate.await()
                     return replyFor(event)
                 }
-            } },
-            bootState = object : BootStateStore {
-                override suspend fun recordActivation(directoryId: String) = false
-                override suspend fun consumeOnboarding() = false
-            },
-            scope = backgroundScope,
-            elapsedRealtime = { testScheduler.currentTime },
-        )
+            }
+        },
+        bootState = object : BootStateStore {
+            override suspend fun recordActivation(directoryId: String) = false
+            override suspend fun consumeOnboarding() = false
+        },
+        scope = backgroundScope,
+        elapsedRealtime = { testScheduler.currentTime }
+    )
 }

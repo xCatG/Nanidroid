@@ -1,12 +1,12 @@
 package com.cattailsw.nanidroid.ui
 
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -36,7 +36,7 @@ fun BalloonContent(
     choices: List<PresentedChoice>,
     dialogueToken: DialogueToken?,
     onChoose: (InteractionToken) -> Unit,
-    onOpenLink: (DialogueToken, String) -> Unit,
+    onOpenLink: (DialogueToken, String) -> Unit
 ) {
     val scroll = rememberScrollState()
     LaunchedEffect(text, choices) { scroll.scrollTo(scroll.maxValue) }
@@ -45,12 +45,17 @@ fun BalloonContent(
         choices.forEach { choice ->
             val end = choice.textOffset.coerceIn(position, text.length)
             if (end > position) LinkText(text.substring(position, end), dialogueToken, onOpenLink)
-            Box(Modifier.fillMaxWidth().heightIn(min = 48.dp).clipToBounds()
-                .clickable { onChoose(choice.token) }
-                .testTag("choice-${choice.token.itemKey}")) {
-                Text(choice.label, modifier = Modifier.fillMaxWidth().padding(8.dp),
+            Box(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).clipToBounds()
+                    .clickable { onChoose(choice.token) }
+                    .testTag("choice-${choice.token.itemKey}")
+            ) {
+                Text(
+                    choice.label,
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
                     color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodyLarge)
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
             position = end
         }
@@ -59,25 +64,30 @@ fun BalloonContent(
 }
 
 @Composable
-private fun LinkText(text: String, dialogueToken: DialogueToken?,
-    onOpenLink: (DialogueToken, String) -> Unit) {
+private fun LinkText(text: String, dialogueToken: DialogueToken?, onOpenLink: (DialogueToken, String) -> Unit) {
     val openLink by rememberUpdatedState(onOpenLink)
-    val annotated = remember(text, dialogueToken) { buildAnnotatedString {
-        val links = BalloonLinks.find(text)
-        var position = 0
-        links.forEach { link ->
-            append(text.substring(position, link.start))
-            val token = dialogueToken
-            if (token != null) {
-                withLink(LinkAnnotation.Clickable(
-                    tag = link.url,
-                    styles = TextLinkStyles(SpanStyle(color = Color(0xFF1457A3))),
-                    linkInteractionListener = { openLink(token, link.url) },
-                )) { append(text.substring(link.start, link.end)) }
-            } else append(text.substring(link.start, link.end))
-            position = link.end
+    val annotated = remember(text, dialogueToken) {
+        buildAnnotatedString {
+            val links = BalloonLinks.find(text)
+            var position = 0
+            links.forEach { link ->
+                append(text.substring(position, link.start))
+                val token = dialogueToken
+                if (token != null) {
+                    withLink(
+                        LinkAnnotation.Clickable(
+                            tag = link.url,
+                            styles = TextLinkStyles(SpanStyle(color = Color(0xFF1457A3))),
+                            linkInteractionListener = { openLink(token, link.url) }
+                        )
+                    ) { append(text.substring(link.start, link.end)) }
+                } else {
+                    append(text.substring(link.start, link.end))
+                }
+                position = link.end
+            }
+            append(text.substring(position))
         }
-        append(text.substring(position))
-    } }
+    }
     Text(annotated, style = MaterialTheme.typography.bodyLarge, color = Color.Black)
 }

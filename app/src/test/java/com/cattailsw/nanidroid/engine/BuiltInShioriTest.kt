@@ -34,14 +34,19 @@ class BuiltInShioriTest {
         val table = "OnGhostChanging,\\_qGoing to %1\$s\\e\nOnGhostChanged,\\_qCame from %1\$s\\e"
         for (engine in listOf(BuiltInShiori(table), BuiltInShiori.bundled(table, true))) {
             for (name in listOf(
-                "正常な名前\$値", "%selfname|%username|%keroname",
-                "Probe\\![open,developer]", "\\\\![open,developer]", "Trailing\\",
-                "\\0\\c\\s[-1]\\q[Choice,OnOther]\\![open,inputbox,x]\\e", "Line\nTab\t\u0001"
+                "正常な名前\$値",
+                "%selfname|%username|%keroname",
+                "Probe\\![open,developer]",
+                "\\\\![open,developer]",
+                "Trailing\\",
+                "\\0\\c\\s[-1]\\q[Choice,OnOther]\\![open,inputbox,x]\\e",
+                "Line\nTab\t\u0001"
             )) {
                 for ((id, greeting) in listOf("OnGhostChanging" to "Going to ", "OnGhostChanged" to "Came from ")) {
                     val reply = engine.request(ShioriEvent(id, listOf(name)))
                     val script = ScriptPlayer.substituteNames(
-                        reply.value!!, mapOf("selfname" to "Expanded", "username" to "User")
+                        reply.value!!,
+                        mapOf("selfname" to "Expanded", "username" to "User")
                     )
                     val frame = ScriptPlayer(script).advanceBy(100_000)
                     assertEquals(greeting + name, frame.sakura.text)
@@ -67,7 +72,8 @@ class BuiltInShioriTest {
     @Test fun descriptorNameMacrosCannotIntroduceScriptOrExpandMacroLookingData() {
         val name = "%keroname\\![open,developer]\\c"
         val serialized = ScriptPlayer.substituteNames(
-            "\\_q%selfname\\e", mapOf("selfname" to name, "keroname" to "Wrong")
+            "\\_q%selfname\\e",
+            mapOf("selfname" to name, "keroname" to "Wrong")
         )
         val frame = ScriptPlayer(serialized).advanceBy(0)
         assertEquals(name, frame.sakura.text)

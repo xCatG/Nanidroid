@@ -5,7 +5,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import java.io.File
 
 class EngineSelectorTest {
     @get:Rule val temp = TemporaryFolder()
@@ -20,7 +19,10 @@ class EngineSelectorTest {
     @Test fun exactDeclarationsAndPrecedenceChooseSupportedEngines() {
         assertEquals(EngineKind.BUILTIN, EngineSelector.select(ghost("Nanidroid", file("yaya.dll"), file("yaya.txt"))))
         assertEquals(EngineKind.SATORI, EngineSelector.select(ghost("satori.dll", file("yaya.dll"), file("yaya.txt"))))
-        assertEquals(EngineKind.KAWARI, EngineSelector.select(ghost("shiori.dll", file("kawarirc.kis"), file("yaya.dll"), file("yaya.txt"))))
+        assertEquals(
+            EngineKind.KAWARI,
+            EngineSelector.select(ghost("shiori.dll", file("kawarirc.kis"), file("yaya.dll"), file("yaya.txt")))
+        )
     }
 
     @Test fun defaultYayaPairIsNative() {
@@ -28,7 +30,10 @@ class EngineSelectorTest {
     }
 
     @Test fun renamedModuleWithMarkerAndMatchingConfigIsNative() {
-        assertEquals(EngineKind.YAYA, EngineSelector.select(ghost("X.dll", file("X.dll", "prefix yaya.dll suffix"), file("X.txt"))))
+        assertEquals(
+            EngineKind.YAYA,
+            EngineSelector.select(ghost("X.dll", file("X.dll", "prefix yaya.dll suffix"), file("X.txt")))
+        )
     }
 
     @Test fun overlappingMarkerIsFound() {
@@ -41,7 +46,10 @@ class EngineSelectorTest {
     }
 
     @Test fun aya5OnlyWithoutMarkerIsUnsupported() {
-        assertEquals(EngineKind.UNSUPPORTED, EngineSelector.select(ghost("aya5.dll", file("aya5.dll"), file("aya5.txt"))))
+        assertEquals(
+            EngineKind.UNSUPPORTED,
+            EngineSelector.select(ghost("aya5.dll", file("aya5.dll"), file("aya5.txt")))
+        )
     }
 
     @Test fun markerModuleWithoutMatchingConfigIsUnsupported() {
@@ -49,7 +57,10 @@ class EngineSelectorTest {
     }
 
     @Test fun unrelatedDllIsUnsupported() {
-        assertEquals(EngineKind.UNSUPPORTED, EngineSelector.select(ghost("other.dll", file("other.dll", "not a YAYA module"), file("other.txt"))))
+        assertEquals(
+            EngineKind.UNSUPPORTED,
+            EngineSelector.select(ghost("other.dll", file("other.dll", "not a YAYA module"), file("other.txt")))
+        )
     }
 
     @Test fun unsafeDeclarationCannotUseDefaultConfig() {
@@ -57,7 +68,12 @@ class EngineSelectorTest {
     }
 
     @Test fun mixedAya5AndYayaPairsKeepNativeYaya() {
-        assertEquals(EngineKind.YAYA, EngineSelector.select(ghost("yaya.dll", file("aya5.dll"), file("aya5.txt"), file("yaya.dll"), file("yaya.txt"))))
+        assertEquals(
+            EngineKind.YAYA,
+            EngineSelector.select(
+                ghost("yaya.dll", file("aya5.dll"), file("aya5.txt"), file("yaya.dll"), file("yaya.txt"))
+            )
+        )
     }
 
     @Test fun unsupportedDeclarationsAreNotInferredFromRandomDlls() {

@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid.ui
 
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -21,20 +24,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.unit.dp
-import android.content.res.Configuration
 import com.cattailsw.nanidroid.runtime.PresentedInput
 import com.cattailsw.nanidroid.runtime.ScriptInput
 
@@ -45,7 +45,7 @@ fun GhostInputDialog(
     onDraftChange: (String) -> Unit,
     onSubmit: (String) -> Unit,
     onCancel: () -> Unit,
-    onBack: () -> Unit = onCancel,
+    onBack: () -> Unit = onCancel
 ) {
     var consumed by remember(input.token) { mutableStateOf(false) }
     fun submit() {
@@ -55,30 +55,49 @@ fun GhostInputDialog(
         }
     }
     fun cancel() {
-        if (!consumed) { consumed = true; onCancel() }
+        if (!consumed) {
+            consumed = true
+            onCancel()
+        }
     }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Dialog(
-        onDismissRequest = { if (!consumed) { consumed = true; onBack() } },
-        properties = DialogProperties(dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+        onDismissRequest = {
+            if (!consumed) {
+                consumed = true
+                onBack()
+            }
+        },
+        properties = DialogProperties(
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
-        BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding(),
-            contentAlignment = Alignment.Center) {
+        BoxWithConstraints(
+            Modifier.fillMaxSize().safeDrawingPadding().imePadding(),
+            contentAlignment = Alignment.Center
+        ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(0.9f).heightIn(max = maxHeight),
                 shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surface,
+                color = MaterialTheme.colorScheme.surface
             ) {
                 if (landscape) {
                     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         InputField(input, draft, onDraftChange, ::submit, Modifier.weight(1f))
-                        TextButton(onClick = { cancel() }, modifier = Modifier.semantics {
-                            contentDescription = "Input Cancel"
-                        }) { Text("Cancel") }
-                        TextButton(onClick = { submit() }, modifier = Modifier.semantics {
-                            contentDescription = "Input OK"
-                        }) { Text("OK") }
+                        TextButton(
+                            onClick = { cancel() },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Input Cancel"
+                            }
+                        ) { Text("Cancel") }
+                        TextButton(
+                            onClick = { submit() },
+                            modifier = Modifier.semantics {
+                                contentDescription = "Input OK"
+                            }
+                        ) { Text("OK") }
                     }
                 } else {
                     Column(Modifier.padding(16.dp)) {
@@ -87,12 +106,18 @@ fun GhostInputDialog(
                             InputField(input, draft, onDraftChange, ::submit, Modifier.fillMaxWidth())
                         }
                         Row(Modifier.align(Alignment.End)) {
-                            TextButton(onClick = { cancel() }, modifier = Modifier.semantics {
-                                contentDescription = "Input Cancel"
-                            }) { Text("Cancel") }
-                            TextButton(onClick = { submit() }, modifier = Modifier.semantics {
-                                contentDescription = "Input OK"
-                            }) { Text("OK") }
+                            TextButton(
+                                onClick = { cancel() },
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Input Cancel"
+                                }
+                            ) { Text("Cancel") }
+                            TextButton(
+                                onClick = { submit() },
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Input OK"
+                                }
+                            ) { Text("OK") }
                         }
                     }
                 }
@@ -102,8 +127,13 @@ fun GhostInputDialog(
 }
 
 @Composable
-private fun InputField(input: PresentedInput, draft: String, onDraftChange: (String) -> Unit,
-    onSubmit: () -> Unit, modifier: Modifier) {
+private fun InputField(
+    input: PresentedInput,
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    modifier: Modifier
+) {
     val focused = remember(input.token) { java.util.concurrent.atomic.AtomicBoolean(false) }
     OutlinedTextField(
         value = draft,
@@ -116,6 +146,6 @@ private fun InputField(input: PresentedInput, draft: String, onDraftChange: (Str
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { onSubmit() }),
-        label = { Text(input.boxId) },
+        label = { Text(input.boxId) }
     )
 }

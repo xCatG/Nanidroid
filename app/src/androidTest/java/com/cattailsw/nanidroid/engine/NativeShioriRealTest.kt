@@ -1,8 +1,8 @@
 package com.cattailsw.nanidroid.engine
 
+import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import android.os.SystemClock
 import com.cattailsw.nanidroid.data.BootStateStore
 import com.cattailsw.nanidroid.data.LastGhostStore
 import com.cattailsw.nanidroid.ghost.BundledGhostRepository
@@ -13,11 +13,11 @@ import com.cattailsw.nanidroid.shiori.Kawari
 import com.cattailsw.nanidroid.shiori.SatoriShiori
 import com.cattailsw.nanidroid.shiori.YayaShiori
 import java.io.File
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -27,7 +27,9 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class NativeShioriRealTest {
     @Test fun satori() = exercise(NativeKind.SATORI, "satori", "satori.dll")
+
     @Test fun kawari() = exercise(NativeKind.KAWARI, "kawari", "shiori.dll")
+
     @Test fun yaya() = exercise(NativeKind.YAYA, "yaya", "yaya.dll")
 
     /** Run after a corpus row installs an unchanged NAR; records dispatch before any correction. */
@@ -35,8 +37,10 @@ class NativeShioriRealTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val args = InstrumentationRegistry.getArguments()
-        org.junit.Assume.assumeTrue("Run host-staged AYA5 corpus diagnostic; required arguments: fixtureId",
-            listOf("fixtureId").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run host-staged AYA5 corpus diagnostic; required arguments: fixtureId",
+            listOf("fixtureId").any { args.containsKey(it) }
+        )
         require(listOf("fixtureId").all { !args.getString(it).isNullOrBlank() }) {
             "Provide all nonblank host arguments: fixtureId"
         }
@@ -47,19 +51,27 @@ class NativeShioriRealTest {
         val master = descriptor.masterPath
         fun pair(stem: String) = "${File(master, "$stem.dll").isFile}/${File(master, "$stem.txt").isFile}"
         val selected = EngineSelector.select(descriptor)
-        println("AYA5_DIAG id=$id declaration=${descriptor.engineDeclaration} aya5DllTxt=${pair("aya5")} yayaDllTxt=${pair("yaya")} selected=$selected")
+        println(
+            "AYA5_DIAG id=$id declaration=${descriptor.engineDeclaration} aya5DllTxt=${pair(
+                "aya5"
+            )} yayaDllTxt=${pair("yaya")} selected=$selected"
+        )
         val host = NativeShioriHost.process
         assertEquals(NativeAvailability.Available, host.availability.value)
         if (selected == EngineKind.YAYA) {
             val load = runBlocking { host.load(NativeKind.YAYA, master, descriptor.engineDeclaration.orEmpty()) }
             println("AYA5_DIAG directLoad=$load availability=${host.availability.value}")
             if (load is NativeLoadResult.Loaded) {
-                println("AYA5_DIAG directUnload=${runBlocking { host.unload(load.lease) }} availability=${host.availability.value}")
+                println(
+                    "AYA5_DIAG directUnload=${runBlocking {
+                        host.unload(load.lease)
+                    }} availability=${host.availability.value}"
+                )
             }
         }
         val bundled = BundledGhostRepository(
             openAsset = { context.assets.open("nanidroid.zip") },
-            ghostRoot = File(context.filesDir, "ghost"),
+            ghostRoot = File(context.filesDir, "ghost")
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         val runtime = GhostRuntime(
@@ -74,7 +86,7 @@ class NativeShioriRealTest {
             lastGhostStore = object : LastGhostStore {
                 override fun read() = id
                 override fun write(directoryId: String) = Unit
-            },
+            }
         )
         try {
             runBlocking { runtime.start("en") }
@@ -85,7 +97,11 @@ class NativeShioriRealTest {
             }
             val state = runtime.state.value
             val ready = state as? StageState.Ready
-            println("AYA5_DIAG runtimeState=${state.javaClass.simpleName} ghost=${ready?.ghostName} error=${ready?.activationError} surfaces=${ready?.surfaces?.size} text=${ready?.frame?.sakura?.text?.take(120)} nativeLease=${runtime.activeNativeLeaseForTest() != null} availability=${host.availability.value}")
+            println(
+                "AYA5_DIAG runtimeState=${state.javaClass.simpleName} ghost=${ready?.ghostName} error=${ready?.activationError} surfaces=${ready?.surfaces?.size} text=${ready?.frame?.sakura?.text?.take(
+                    120
+                )} nativeLease=${runtime.activeNativeLeaseForTest() != null} availability=${host.availability.value}"
+            )
             assertTrue("Runtime not ready: $state", state is StageState.Ready)
             if (selected == EngineKind.UNSUPPORTED) {
                 val message = "This ghost uses a SHIORI Nanidroid does not support yet."
@@ -96,7 +112,9 @@ class NativeShioriRealTest {
                     SystemClock.sleep(50)
                 }
                 val unsupported = runtime.state.value as StageState.Ready
-                println("AYA5_DIAG unsupportedText=${unsupported.frame.sakura.text} ownGhost=${unsupported.ghostName == descriptor.displayName} ownShell=${unsupported.surfaces.isNotEmpty()} nativeLease=${runtime.activeNativeLeaseForTest() != null}")
+                println(
+                    "AYA5_DIAG unsupportedText=${unsupported.frame.sakura.text} ownGhost=${unsupported.ghostName == descriptor.displayName} ownShell=${unsupported.surfaces.isNotEmpty()} nativeLease=${runtime.activeNativeLeaseForTest() != null}"
+                )
                 assertTrue(unsupported.frame.sakura.text.contains(message))
                 assertEquals(descriptor.displayName, unsupported.ghostName)
                 assertTrue(unsupported.surfaces.isNotEmpty())
@@ -104,13 +122,21 @@ class NativeShioriRealTest {
                 runtime.selectGhost("nanidroid")
                 val switchDeadline = SystemClock.elapsedRealtime() + 20_000
                 while ((runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId != "nanidroid" &&
-                    SystemClock.elapsedRealtime() < switchDeadline) SystemClock.sleep(50)
+                    SystemClock.elapsedRealtime() < switchDeadline
+                ) {
+                    SystemClock.sleep(50)
+                }
                 assertEquals("nanidroid", (runtime.state.value as StageState.Ready).switchPrompt?.directoryId)
                 runtime.confirmSwitch()
                 val changedDeadline = SystemClock.elapsedRealtime() + 30_000
                 while ((runtime.state.value as? StageState.Ready)?.ghostName != "Nanidroid" &&
-                    SystemClock.elapsedRealtime() < changedDeadline) SystemClock.sleep(50)
-                println("AYA5_DIAG switchedTo=${(runtime.state.value as? StageState.Ready)?.ghostName} availability=${host.availability.value}")
+                    SystemClock.elapsedRealtime() < changedDeadline
+                ) {
+                    SystemClock.sleep(50)
+                }
+                println(
+                    "AYA5_DIAG switchedTo=${(runtime.state.value as? StageState.Ready)?.ghostName} availability=${host.availability.value}"
+                )
                 assertEquals("Nanidroid", (runtime.state.value as StageState.Ready).ghostName)
             }
         } finally {
@@ -134,9 +160,15 @@ class NativeShioriRealTest {
         val lease = (loaded as NativeLoadResult.Loaded).lease
         try {
             val secondStatus = when (kind) {
-                NativeKind.SATORI -> SatoriShiori().nativeLoad(directory.absolutePath + File.separator, directory.absolutePath)
+                NativeKind.SATORI -> SatoriShiori().nativeLoad(
+                    directory.absolutePath + File.separator,
+                    directory.absolutePath
+                )
                 NativeKind.KAWARI -> Kawari().nativeLoad(directory.absolutePath + File.separator)
-                NativeKind.YAYA -> YayaShiori().nativeLoad(directory.absolutePath + File.separator, directory.absolutePath)
+                NativeKind.YAYA -> YayaShiori().nativeLoad(
+                    directory.absolutePath + File.separator,
+                    directory.absolutePath
+                )
             }
             assertEquals("$kind second native load", -1, secondStatus)
             val reply = host.request(lease, ShioriEvent("OnBoot", listOf("master")))

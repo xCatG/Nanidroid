@@ -20,7 +20,8 @@ internal object CentralDirectoryEntryLimit {
             var directorySize = u32(tail, eocd + 12)
             var directoryOffset = u32(tail, eocd + 16)
             var physicalEnd = eocdOffset
-            val zip64Fields = directorySize == 0xFFFF_FFFFL || directoryOffset == 0xFFFF_FFFFL ||
+            val zip64Fields = directorySize == 0xFFFF_FFFFL ||
+                directoryOffset == 0xFFFF_FFFFL ||
                 u16(tail, eocd + 10) == 0xFFFF
             val hasZip64Locator = eocdOffset >= 20 && read32(file, eocdOffset - 20) == 0x07064b50L
             require(!hasZip64Locator || zip64Fields) { "Unhandled ZIP64 locator" }
@@ -30,15 +31,23 @@ internal object CentralDirectoryEntryLimit {
                     "Missing ZIP64 locator"
                 }
                 val zip64Offset = read64(file, locator + 8)
-                require(zip64Offset >= 0 && zip64Offset <= locator - 56 &&
-                    read32(file, zip64Offset) == 0x06064b50L && read64(file, zip64Offset + 4) >= 44) {
+                require(
+                    zip64Offset >= 0 &&
+                        zip64Offset <= locator - 56 &&
+                        read32(file, zip64Offset) == 0x06064b50L &&
+                        read64(file, zip64Offset + 4) >= 44
+                ) {
                     "Invalid ZIP64 end record"
                 }
                 directorySize = read64(file, zip64Offset + 40)
                 directoryOffset = read64(file, zip64Offset + 48)
                 physicalEnd = zip64Offset
-                require(directorySize >= 0 && directoryOffset >= 0 &&
-                    directoryOffset <= zip64Offset && directorySize <= zip64Offset - directoryOffset) {
+                require(
+                    directorySize >= 0 &&
+                        directoryOffset >= 0 &&
+                        directoryOffset <= zip64Offset &&
+                        directorySize <= zip64Offset - directoryOffset
+                ) {
                     "Invalid ZIP64 directory bounds"
                 }
             } else {

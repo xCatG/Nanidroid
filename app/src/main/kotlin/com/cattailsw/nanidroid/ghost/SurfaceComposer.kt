@@ -14,8 +14,12 @@ data class ComposedSurface(val image: ImageBitmap, val originX: Int, val originY
 object SurfaceComposer {
     private data class Part(val image: ImageBitmap, val method: String, val x: Int, val y: Int)
 
-    suspend fun composeBase(catalog: ShellCatalog, surfaceId: Int, loader: SurfaceImageLoader,
-        numberedBase: ImageBitmap? = null): ComposedSurface? {
+    suspend fun composeBase(
+        catalog: ShellCatalog,
+        surfaceId: Int,
+        loader: SurfaceImageLoader,
+        numberedBase: ImageBitmap? = null
+    ): ComposedSurface? {
         suspend fun loadElement(element: SurfaceElement): ImageBitmap? =
             withContext(Dispatchers.IO) { ShellFiles.resolve(catalog.shellDirectory, element.fileName) }
                 ?.let { load(loader, it) }
@@ -53,17 +57,32 @@ object SurfaceComposer {
             val pixels = IntArray(w * h)
             for (part in parts) {
                 val source = IntArray(part.image.width * part.image.height)
-                part.image.asAndroidBitmap().getPixels(source, 0, part.image.width, 0, 0,
-                    part.image.width, part.image.height)
-                for (y in 0 until part.image.height) for (x in 0 until part.image.width) {
-                    val dst = ((part.y.toLong() - top + y) * w + part.x - left + x).toInt()
-                    val src = source[y * part.image.width + x]
-                    pixels[dst] = if (part.method == "interpolate") sourceOver(src, pixels[dst])
-                    else sourceOver(pixels[dst], src)
+                part.image.asAndroidBitmap().getPixels(
+                    source,
+                    0,
+                    part.image.width,
+                    0,
+                    0,
+                    part.image.width,
+                    part.image.height
+                )
+                for (y in 0 until part.image.height) {
+                    for (x in 0 until part.image.width) {
+                        val dst = ((part.y.toLong() - top + y) * w + part.x - left + x).toInt()
+                        val src = source[y * part.image.width + x]
+                        pixels[dst] = if (part.method == "interpolate") {
+                            sourceOver(src, pixels[dst])
+                        } else {
+                            sourceOver(pixels[dst], src)
+                        }
+                    }
                 }
             }
-            ComposedSurface(Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888).asImageBitmap(),
-                left.toInt(), top.toInt())
+            ComposedSurface(
+                Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888).asImageBitmap(),
+                left.toInt(),
+                top.toInt()
+            )
         }
     }
 
