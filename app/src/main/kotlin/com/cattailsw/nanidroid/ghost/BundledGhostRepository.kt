@@ -3,12 +3,14 @@ package com.cattailsw.nanidroid.ghost
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.logging.Logger
 import java.util.zip.ZipInputStream
 
 class BundledGhostRepository(
@@ -19,7 +21,11 @@ class BundledGhostRepository(
     fun ensureInstalled(): File = synchronized(INSTALL_LOCK) {
         val live = File(ghostRoot, "nanidroid")
         if (Files.exists(live.toPath(), NOFOLLOW_LINKS)) {
-            refreshDictionaries(live)
+            try {
+                refreshDictionaries(live)
+            } catch (failure: IOException) {
+                logger.warning("Dictionary refresh failed; retaining installed content: ${failure.message}")
+            }
             return live
         }
         require(ghostRoot.isDirectory || ghostRoot.mkdirs()) { "Cannot create ghost directory" }
@@ -230,6 +236,7 @@ class BundledGhostRepository(
     }
 
     companion object {
+        private val logger = Logger.getLogger(BundledGhostRepository::class.java.name)
         const val BUNDLED_SHA256 = "7ad4109c5362d3f068b1acf1ab642541b9dd8d2c5d9d95e5e7f2c9bf4eb9f46c"
         private const val CONTENT_LIMIT = 64 * 1024
         private val MANAGED_PATHS = linkedSetOf("ghost/master/en/content.txt",

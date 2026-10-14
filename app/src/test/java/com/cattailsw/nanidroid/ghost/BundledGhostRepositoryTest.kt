@@ -277,14 +277,28 @@ class BundledGhostRepositoryTest {
         for (locale in listOf("en", "ja", "zh-TW")) assertTrue(File(root, "ghost/master/$locale/content.txt").isFile)
         assertFalse(File(root, "version.txt").exists())
     }
-    @Test fun wrongArchiveHashAndIoFailurePropagateWithoutChangingDictionaries() {
+    @Test fun refreshIoFailureKeepsReadableInstalledDictionaryAndCanRetry() {
+        val directory = temporaryFolder.newFolder()
+        val repo = realRepository(directory)
+        val root = repo.ensureInstalled()
+        val en = File(root, "ghost/master/en/content.txt")
+        val current = en.readBytes()
+        en.writeBytes(previous("en"))
+        val before = snapshot(root)
+        val unavailable = BundledGhostRepository({ throw java.io.IOException("asset read failed") }, directory)
+        assertEquals(root, unavailable.ensureInstalled())
+        assertEquals(before, snapshot(root))
+        assertEquals(previous("en").toString(Charsets.UTF_8), unavailable.load(root, "en").content)
+        repo.ensureInstalled()
+        assertArrayEquals(current, en.readBytes())
+    }
+
+    @Test fun wrongArchiveHashPropagatesWithoutChangingDictionaries() {
         val directory = temporaryFolder.newFolder()
         val root = realRepository(directory).ensureInstalled()
         File(root, "ghost/master/en/content.txt").writeBytes(previous("en"))
         val before = snapshot(root)
         assertThrows { BundledGhostRepository({ ByteArrayInputStream(byteArrayOf(1)) }, directory).ensureInstalled() }
-        try { BundledGhostRepository({ throw java.io.IOException("read failed") }, directory).ensureInstalled(); fail() }
-        catch (expected: java.io.IOException) { assertEquals("read failed", expected.message) }
         assertEquals(before, snapshot(root))
     }
     @Test fun interruptedMixedRefreshRetriesAndIgnoresOrphanTemporaryFiles() {
