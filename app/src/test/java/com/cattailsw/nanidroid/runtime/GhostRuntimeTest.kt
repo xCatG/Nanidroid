@@ -1,41 +1,42 @@
 package com.cattailsw.nanidroid.runtime
 
 import com.cattailsw.nanidroid.data.BootStateStore
+import com.cattailsw.nanidroid.engine.NativeAvailability
+import com.cattailsw.nanidroid.engine.NativeKind
+import com.cattailsw.nanidroid.engine.NativeLease
+import com.cattailsw.nanidroid.engine.NativeLoadResult
+import com.cattailsw.nanidroid.engine.NativeShutdownResult
+import com.cattailsw.nanidroid.engine.NativeUnloadResult
 import com.cattailsw.nanidroid.engine.ShioriEngine
 import com.cattailsw.nanidroid.engine.ShioriEvent
 import com.cattailsw.nanidroid.engine.ShioriReply
 import com.cattailsw.nanidroid.ghost.BundledGhost
 import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
-import com.cattailsw.nanidroid.engine.NativeAvailability
-import com.cattailsw.nanidroid.engine.NativeKind
-import com.cattailsw.nanidroid.engine.NativeLease
-import com.cattailsw.nanidroid.engine.NativeLoadResult
-import com.cattailsw.nanidroid.engine.NativeUnloadResult
-import com.cattailsw.nanidroid.engine.NativeShutdownResult
-import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Assert.*
-import org.junit.Test
 import org.junit.Rule
+import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GhostRuntimeTest {
     @get:Rule val folder = TemporaryFolder()
-    private val ghost = BundledGhost("nanidroid", "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura.png"), 10 to File("kero.png")), "")
+    private val ghost =
+        BundledGhost("nanidroid", "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura.png"), 10 to File("kero.png")), "")
 
     @Test fun firstLaunchHasNoRuntimeAuthoredWelcome() = runTest {
         var now = 0L
         val runtime = GhostRuntime(
             loadGhost = { ghost }, engineFactory = { ScriptEngine("") },
             bootState = FakeStore(), scope = backgroundScope,
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { now },
+            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true)
@@ -50,7 +51,7 @@ class GhostRuntimeTest {
         val runtime = GhostRuntime(
             loadGhost = { named }, engineFactory = { ScriptEngine("\\_q%username|%selfname2|%selfname|%keroname\\e") },
             bootState = FakeStore(onboarding = false), scope = backgroundScope,
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { 0L },
+            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { 0L }
         )
         runtime.start("en"); runtime.setResumed(true); runCurrent()
         assertEquals("User|Second|First|Kero", (runtime.state.value as StageState.Ready).frame.sakura.text)
@@ -58,18 +59,20 @@ class GhostRuntimeTest {
 
     @Test fun idleAlwaysAnimationPublishesOnlyWhenDueAndPauseKeepsRemainingWait() = runTest {
         val shell = folder.newFolder("timed-shell")
-        File(shell, "surfaces.txt").writeText("""
+        File(shell, "surfaces.txt").writeText(
+            """
             surface0 {
             animation0.interval,always
             animation0.pattern0,overlay,1001,100,0,0
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
         val timedGhost = ghost.copy(shellDirectory = shell)
         var now = 0L
         val runtime = GhostRuntime(
             loadGhost = { timedGhost }, engineFactory = { ScriptEngine("") },
             bootState = FakeStore(onboarding = false), scope = backgroundScope,
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { now },
+            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true)
@@ -94,13 +97,15 @@ class GhostRuntimeTest {
 
     @Test fun animatedFramesReuseFilteredChoicesAndNativeEligibilityRefreshesThem() = runTest {
         val shell = folder.newFolder("choice-shell")
-        File(shell, "surfaces.txt").writeText("""
+        File(shell, "surfaces.txt").writeText(
+            """
             surface0 {
             animation0.interval,always
             animation0.pattern0,overlay,1001,0,0,0
             animation0.pattern1,overlay,1002,5000,0,0
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
         val root = folder.newFolder("choice-root")
         File(root, "native/ghost/master").mkdirs()
         File(root, "native/shell/master").mkdirs()
@@ -113,8 +118,10 @@ class GhostRuntimeTest {
                 error("No native request expected")
             override suspend fun unload(lease: NativeLease): NativeUnloadResult =
                 error("No native unload expected")
-            override suspend fun shutdown(lease: NativeLease, notifyDestroy: Boolean,
-                timeoutMillis: Long): NativeShutdownResult = error("No native shutdown expected")
+            override suspend fun shutdown(
+                lease: NativeLease, notifyDestroy: Boolean,
+                timeoutMillis: Long
+            ): NativeShutdownResult = error("No native shutdown expected")
         }
         var now = 0L
         val runtime = GhostRuntime(
@@ -122,7 +129,7 @@ class GhostRuntimeTest {
             engineFactory = { ScriptEngine("") }, bootState = FakeStore(onboarding = false),
             scope = backgroundScope, installedGhosts = InstalledGhostRepository(root),
             nativeHost = native, ioDispatcher = StandardTestDispatcher(testScheduler),
-            elapsedRealtime = { now },
+            elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true); runCurrent()
@@ -141,17 +148,19 @@ class GhostRuntimeTest {
 
     @Test fun foreverAnimationDoesNotHoldCloseDialogueOpen() = runTest {
         val shell = folder.newFolder("closing-shell")
-        File(shell, "surfaces.txt").writeText("""
+        File(shell, "surfaces.txt").writeText(
+            """
             surface0 {
             animation0.interval,always
             animation0.pattern0,overlay,1001,0,0,0
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
         val runtime = GhostRuntime(
             loadGhost = { ghost.copy(shellDirectory = shell) },
             engineFactory = { ScriptEngine("") }, bootState = FakeStore(onboarding = false),
             scope = backgroundScope, ioDispatcher = StandardTestDispatcher(testScheduler),
-            elapsedRealtime = { 0L },
+            elapsedRealtime = { 0L }
         )
         runtime.start("en")
         runtime.setResumed(true); runCurrent()
@@ -161,12 +170,14 @@ class GhostRuntimeTest {
 
     @Test fun foreverAnimationDoesNotHoldGhostSwitchOpen() = runTest {
         val shell = folder.newFolder("switching-shell")
-        File(shell, "surfaces.txt").writeText("""
+        File(shell, "surfaces.txt").writeText(
+            """
             surface0 {
             animation0.interval,always
             animation0.pattern0,overlay,1001,0,0,0
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
         val root = folder.newFolder("switching-root")
         File(root, "candidate/ghost/master").mkdirs()
         File(root, "candidate/shell/master").mkdirs()
@@ -176,7 +187,7 @@ class GhostRuntimeTest {
             loadGhost = { ghost.copy(shellDirectory = shell) },
             engineFactory = { ScriptEngine("") }, bootState = FakeStore(onboarding = false),
             scope = backgroundScope, installedGhosts = InstalledGhostRepository(root),
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { 0L },
+            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { 0L }
         )
         runtime.start("en")
         runtime.setResumed(true); runCurrent()
@@ -188,25 +199,29 @@ class GhostRuntimeTest {
 
     @Test fun talkAnimationUsesTextAdvanceEdgeWhenFinalTextMatchesPreviousFrame() = runTest {
         val shell = folder.newFolder("talk-shell")
-        File(shell, "surfaces.txt").writeText("""
+        File(shell, "surfaces.txt").writeText(
+            """
             surface0 {
             animation0.interval,talk
             animation0.pattern0,overlay,1001,0,0,0
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
         var now = 0L
         val events = mutableListOf<String>()
         val script = "\\0" + "A\\c".repeat(10) + "\\e"
         val runtime = GhostRuntime(
             loadGhost = { ghost.copy(shellDirectory = shell) },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply {
-                    events += event.id
-                    return if (event.id == "OnFirstBoot") ShioriReply(200, script) else ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply {
+                        events += event.id
+                        return if (event.id == "OnFirstBoot") ShioriReply(200, script) else ShioriReply(204)
+                    }
                 }
-            } }, bootState = FakeStore(onboarding = false),
+            }, bootState = FakeStore(onboarding = false),
             scope = backgroundScope, ioDispatcher = StandardTestDispatcher(testScheduler),
-            elapsedRealtime = { now },
+            elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true); runCurrent()
@@ -224,24 +239,28 @@ class GhostRuntimeTest {
 
     @Test fun queuedDialogueSurfaceGetsFreshAnimationWaitWhenPreviousDialogueEnds() = runTest {
         val shell = folder.newFolder("queued-surface-shell")
-        File(shell, "surfaces.txt").writeText("""
+        File(shell, "surfaces.txt").writeText(
+            """
             surface1 {
             animation0.interval,runonce
             animation0.pattern0,overlay,1001,500,0,0
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
         var now = 0L
         val runtime = GhostRuntime(
             loadGhost = { ghost.copy(shellDirectory = shell) },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent) = when (event.id) {
-                    "OnFirstBoot" -> ShioriReply(200, "\\0\\e")
-                    "OnInstallBegin" -> ShioriReply(200, "\\0\\s[1]\\e")
-                    else -> ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent) = when (event.id) {
+                        "OnFirstBoot" -> ShioriReply(200, "\\0\\e")
+                        "OnInstallBegin" -> ShioriReply(200, "\\0\\s[1]\\e")
+                        else -> ShioriReply(204)
+                    }
                 }
-            } },
+            },
             bootState = FakeStore(onboarding = false), scope = backgroundScope,
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { now },
+            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.beginImportEvents()!!.emit("OnInstallBegin")
@@ -264,7 +283,7 @@ class GhostRuntimeTest {
             engineFactory = { ScriptEngine("\\0ABCDEFGHIJ\\e") },
             bootState = FakeStore(onboarding = false),
             scope = backgroundScope,
-            elapsedRealtime = { now },
+            elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true)
@@ -281,16 +300,18 @@ class GhostRuntimeTest {
         var now = 0L
         val runtime = GhostRuntime(
             loadGhost = { ghost },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply = when (event.id) {
-                    "OnFirstBoot" -> ShioriReply(200, "\\0Old dialogue\\e")
-                    "OnMouseClick" -> ShioriReply(200, "\\0ABCDEFGHIJ\\e")
-                    else -> ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply = when (event.id) {
+                        "OnFirstBoot" -> ShioriReply(200, "\\0Old dialogue\\e")
+                        "OnMouseClick" -> ShioriReply(200, "\\0ABCDEFGHIJ\\e")
+                        else -> ShioriReply(204)
+                    }
                 }
-            } },
+            },
             bootState = FakeStore(onboarding = false),
             scope = backgroundScope,
-            elapsedRealtime = { now },
+            elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true)
@@ -311,7 +332,7 @@ class GhostRuntimeTest {
             engineFactory = { ScriptEngine("\\0ABCDEFGHIJ\\e") },
             bootState = FakeStore(onboarding = false),
             scope = backgroundScope,
-            elapsedRealtime = { now },
+            elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true)
@@ -338,7 +359,7 @@ class GhostRuntimeTest {
             engineFactory = { ScriptEngine("\\0A\\_w[500]B\\e") },
             bootState = FakeStore(onboarding = false),
             scope = backgroundScope,
-            elapsedRealtime = { now },
+            elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true)
@@ -362,7 +383,7 @@ class GhostRuntimeTest {
             engineFactory = { engines++; RecordingEngine(events) },
             bootState = store,
             scope = backgroundScope,
-            elapsedRealtime = { 0L },
+            elapsedRealtime = { 0L }
         )
         val first = async { runtime.start("en") }
         val second = async { runtime.start("en") }
@@ -383,7 +404,10 @@ class GhostRuntimeTest {
 
     @Test fun pauseFreezesPartialTextAndResumeDoesNotCatchUp() = runTest {
         val events = mutableListOf<String>()
-        val runtime = GhostRuntime({ ghost }, { RecordingEngine(events) }, FakeStore(onboarding = false), backgroundScope) { testScheduler.currentTime }
+        val runtime =
+            GhostRuntime({
+                ghost
+            }, { RecordingEngine(events) }, FakeStore(onboarding = false), backgroundScope) { testScheduler.currentTime }
         runtime.start("en")
         runtime.setResumed(true)
         runCurrent()
@@ -403,7 +427,10 @@ class GhostRuntimeTest {
 
     @Test fun unknownTouchClearsDialogueAndCloseWaitsForReply() = runTest {
         val events = mutableListOf<String>()
-        val runtime = GhostRuntime({ ghost }, { RecordingEngine(events) }, FakeStore(onboarding = false), backgroundScope) { testScheduler.currentTime }
+        val runtime =
+            GhostRuntime({
+                ghost
+            }, { RecordingEngine(events) }, FakeStore(onboarding = false), backgroundScope) { testScheduler.currentTime }
         runtime.start("en")
         runtime.setResumed(true); runCurrent()
         runtime.click(0, 3, 4)
@@ -426,7 +453,7 @@ class GhostRuntimeTest {
             loadGhost = { throw IllegalStateException("asset unreadable") },
             engineFactory = { RecordingEngine(mutableListOf()) },
             bootState = FakeStore(),
-            scope = backgroundScope,
+            scope = backgroundScope
         ) { 0L }
         runtime.start("en")
         assertEquals("asset unreadable", (runtime.state.value as StageState.Error).message)
@@ -436,14 +463,16 @@ class GhostRuntimeTest {
         val calls = mutableListOf<ShioriEvent>()
         val runtime = GhostRuntime(
             loadGhost = { ghost },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply {
-                    calls += event
-                    return ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply {
+                        calls += event
+                        return ShioriReply(204)
+                    }
                 }
-            } },
+            },
             bootState = FakeStore(onboarding = false),
-            scope = backgroundScope,
+            scope = backgroundScope
         ) { 7_200_000L + testScheduler.currentTime }
         runtime.start("en")
         advanceTimeBy(60_000); runCurrent()
@@ -468,14 +497,16 @@ class GhostRuntimeTest {
         val calls = mutableListOf<String>()
         val runtime = GhostRuntime(
             loadGhost = { ghost },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply {
-                    calls += event.id
-                    return ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply {
+                        calls += event.id
+                        return ShioriReply(204)
+                    }
                 }
-            } },
+            },
             bootState = FakeStore(onboarding = false),
-            scope = backgroundScope,
+            scope = backgroundScope
         ) { testScheduler.currentTime }
         runtime.start("en")
         repeat(2) {
@@ -495,15 +526,17 @@ class GhostRuntimeTest {
         val calls = mutableListOf<ShioriEvent>()
         val runtime = GhostRuntime(
             loadGhost = { ghost },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply {
-                    calls += event
-                    return ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply {
+                        calls += event
+                        return ShioriReply(204)
+                    }
                 }
-            } },
+            },
             bootState = FakeStore(onboarding = false),
             scope = backgroundScope,
-            elapsedRealtime = { now },
+            elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true)
@@ -521,15 +554,17 @@ class GhostRuntimeTest {
         var secondReplies = 0
         val runtime = GhostRuntime(
             loadGhost = { ghost },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply = when (event.id) {
-                    "OnSecondChange" -> if (secondReplies++ == 0) ShioriReply(200, "\\0Second\\e") else ShioriReply(204)
-                    "OnMinuteChange" -> minute.await()
-                    else -> ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply = when (event.id) {
+                        "OnSecondChange" -> if (secondReplies++ == 0) ShioriReply(200, "\\0Second\\e") else ShioriReply(204)
+                        "OnMinuteChange" -> minute.await()
+                        else -> ShioriReply(204)
+                    }
                 }
-            } },
+            },
             bootState = FakeStore(onboarding = false), scope = backgroundScope,
-            elapsedRealtime = { now },
+            elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true); runCurrent()
@@ -550,18 +585,20 @@ class GhostRuntimeTest {
         val calls = mutableListOf<String>()
         val runtime = GhostRuntime(
             loadGhost = { ghost },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply {
-                    if (event.id == "OnSecondChange") {
-                        calls += event.id
-                        release.await()
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply {
+                        if (event.id == "OnSecondChange") {
+                            calls += event.id
+                            release.await()
+                        }
+                        return ShioriReply(204)
                     }
-                    return ShioriReply(204)
                 }
-            } },
+            },
             bootState = FakeStore(onboarding = false),
             scope = backgroundScope,
-            elapsedRealtime = { testScheduler.currentTime },
+            elapsedRealtime = { testScheduler.currentTime }
         )
         runtime.start("en")
         runtime.setResumed(true)
@@ -594,7 +631,7 @@ class GhostRuntimeTest {
             },
             bootState = FakeStore(onboarding = false),
             scope = backgroundScope,
-            elapsedRealtime = { testScheduler.currentTime },
+            elapsedRealtime = { testScheduler.currentTime }
         )
         runtime.start("en")
         runtime.setResumed(true)
@@ -619,7 +656,7 @@ class GhostRuntimeTest {
             loadGhost = { loads++; ghost },
             engineFactory = { engines++; RecordingEngine(events) },
             bootState = store,
-            scope = backgroundScope,
+            scope = backgroundScope
         ) { testScheduler.currentTime }
         runtime.start("en")
         runtime.setResumed(true)
@@ -644,7 +681,7 @@ class GhostRuntimeTest {
             loadGhost = { throw IllegalStateException("asset unreadable") },
             engineFactory = { RecordingEngine(mutableListOf()) },
             bootState = FakeStore(),
-            scope = backgroundScope,
+            scope = backgroundScope
         ) { 0L }
         runtime.start("en")
         assertTrue(runtime.state.value is StageState.Error)
@@ -656,14 +693,16 @@ class GhostRuntimeTest {
     @Test fun closeReplyWithoutExplicitEndStillFinishes() = runTest {
         val runtime = GhostRuntime(
             loadGhost = { ghost },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply = when (event.id) {
-                    "OnClose" -> ShioriReply(200, "\\0Bye")
-                    else -> ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply = when (event.id) {
+                        "OnClose" -> ShioriReply(200, "\\0Bye")
+                        else -> ShioriReply(204)
+                    }
                 }
-            } },
+            },
             bootState = FakeStore(onboarding = false),
-            scope = backgroundScope,
+            scope = backgroundScope
         ) { testScheduler.currentTime }
         runtime.start("en")
         runtime.setResumed(true)
@@ -683,7 +722,7 @@ class GhostRuntimeTest {
             loadGhost = { gate.await(); ghost },
             engineFactory = { RecordingEngine(events) },
             bootState = store,
-            scope = backgroundScope,
+            scope = backgroundScope
         ) { 0L }
         val pending = async { runtime.start("en") }
         runCurrent()
@@ -713,7 +752,7 @@ class GhostRuntimeTest {
             engineFactory = { RecordingEngine(events) },
             bootState = store,
             scope = backgroundScope,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         val abandoned = async { runtime.start("en") }
         runCurrent()

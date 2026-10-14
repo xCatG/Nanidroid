@@ -1,8 +1,8 @@
 package com.cattailsw.nanidroid
 
-import android.os.Bundle
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -23,12 +23,12 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.lifecycleScope
 import com.cattailsw.nanidroid.ghost.CachedSurfaceImageLoader
 import com.cattailsw.nanidroid.runtime.StageState
+import com.cattailsw.nanidroid.ui.BalloonLinks
 import com.cattailsw.nanidroid.ui.GhostStage
 import com.cattailsw.nanidroid.ui.NanidroidTheme
-import com.cattailsw.nanidroid.ui.StageViewModel
-import com.cattailsw.nanidroid.ui.BalloonLinks
 import com.cattailsw.nanidroid.ui.Notice
 import com.cattailsw.nanidroid.ui.NoticeCatalog
+import com.cattailsw.nanidroid.ui.StageViewModel
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -39,18 +39,24 @@ class MainActivity : ComponentActivity() {
     private val importHost = Any()
     private val documentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val resolver = application.contentResolver
-        viewModel.submitPickerResult(uri?.let { selected ->
-            { if (selected.scheme != "content") throw IOException("Unsupported document URI")
-              resolver.openInputStream(selected) ?: throw IOException("Unable to read document") }
-        })
+        viewModel.submitPickerResult(
+            uri?.let { selected ->
+                {
+                    if (selected.scheme != "content") throw IOException("Unsupported document URI")
+                    resolver.openInputStream(selected) ?: throw IOException("Unable to read document")
+                }
+            }
+        )
     }
     private val viewModel: StageViewModel by viewModels {
         val app = application as NanidroidApplication
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>, extras: androidx.lifecycle.viewmodel.CreationExtras): T =
-                StageViewModel(app.runtime, app.importCoordinator, extras.createSavedStateHandle(),
-                    app.importAttemptStore) as T
+                StageViewModel(
+                    app.runtime, app.importCoordinator, extras.createSavedStateHandle(),
+                    app.importAttemptStore
+                ) as T
         }
     }
 
@@ -66,19 +72,21 @@ class MainActivity : ComponentActivity() {
             }
         }
         enableEdgeToEdge()
-        lifecycle.addObserver(LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> {
-                    viewModel.setResumed(true)
-                    characterInteractionActive.value = true
+        lifecycle.addObserver(
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_RESUME -> {
+                        viewModel.setResumed(true)
+                        characterInteractionActive.value = true
+                    }
+                    Lifecycle.Event.ON_PAUSE -> {
+                        characterInteractionActive.value = false
+                        viewModel.setResumed(false)
+                    }
+                    else -> Unit
                 }
-                Lifecycle.Event.ON_PAUSE -> {
-                    characterInteractionActive.value = false
-                    viewModel.setResumed(false)
-                }
-                else -> Unit
             }
-        })
+        )
         lifecycleScope.launch { viewModel.start(resources.configuration.locales[0].toLanguageTag()) }
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
@@ -89,7 +97,8 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(state) { if (state is StageState.Finished) finish() }
             LaunchedEffect((state as? StageState.Ready)?.dialogueToken) { linkError = null }
             NanidroidTheme {
-                GhostStage(state = state, imageLoader = imageLoader,
+                GhostStage(
+                    state = state, imageLoader = imageLoader,
                     onClaimHostUiRequest = viewModel::claimHostUiRequest,
                     versionName = installedVersionName,
                     notices = loadedNotices.value,
@@ -120,7 +129,8 @@ class MainActivity : ComponentActivity() {
                             startActivity(Intent(action, uri))
                         }
                     },
-                    linkError = linkError)
+                    linkError = linkError
+                )
             }
         }
     }

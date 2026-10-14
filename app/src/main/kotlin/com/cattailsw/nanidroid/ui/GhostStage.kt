@@ -3,105 +3,105 @@ package com.cattailsw.nanidroid.ui
 import android.content.pm.ApplicationInfo
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
-import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
-import com.cattailsw.nanidroid.R
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.cattailsw.nanidroid.ghost.SurfaceImageLoader
-import com.cattailsw.nanidroid.runtime.HostUiCommand
-import com.cattailsw.nanidroid.ghost.ShellFiles
-import com.cattailsw.nanidroid.ghost.ShellCatalog
-import com.cattailsw.nanidroid.ghost.SurfaceComposer
+import androidx.compose.ui.window.DialogProperties
+import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.ghost.ComposedSurface
+import com.cattailsw.nanidroid.ghost.ShellCatalog
+import com.cattailsw.nanidroid.ghost.ShellFiles
 import com.cattailsw.nanidroid.ghost.SurfaceCollision
-import com.cattailsw.nanidroid.runtime.ImportPromptResult
-import com.cattailsw.nanidroid.runtime.StageState
-import com.cattailsw.nanidroid.runtime.InteractionToken
-import com.cattailsw.nanidroid.runtime.DialogueToken
-import com.cattailsw.nanidroid.runtime.RenderedMoveSource
-import com.cattailsw.nanidroid.runtime.RenderedMoveSnapshot
-import com.cattailsw.nanidroid.runtime.MoveGeometryResolver
-import com.cattailsw.nanidroid.runtime.SpeakerFrame
-import com.cattailsw.nanidroid.runtime.PresentedChoice
+import com.cattailsw.nanidroid.ghost.SurfaceComposer
+import com.cattailsw.nanidroid.ghost.SurfaceImageLoader
 import com.cattailsw.nanidroid.install.ImportOutcome
 import com.cattailsw.nanidroid.install.ImportState
+import com.cattailsw.nanidroid.runtime.DialogueToken
+import com.cattailsw.nanidroid.runtime.HostUiCommand
+import com.cattailsw.nanidroid.runtime.ImportPromptResult
+import com.cattailsw.nanidroid.runtime.InteractionToken
+import com.cattailsw.nanidroid.runtime.MoveGeometryResolver
+import com.cattailsw.nanidroid.runtime.PresentedChoice
+import com.cattailsw.nanidroid.runtime.RenderedMoveSnapshot
+import com.cattailsw.nanidroid.runtime.RenderedMoveSource
+import com.cattailsw.nanidroid.runtime.SpeakerFrame
+import com.cattailsw.nanidroid.runtime.StageState
 import java.io.File
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.math.roundToInt
 
 private sealed interface LoadedImages {
     data object Loading : LoadedImages
@@ -117,7 +117,7 @@ private class CharacterCallbacks(
     val click: CharacterTap,
     val doubleClick: CharacterTap,
     val move: CharacterMove,
-    val moveCancel: (Int) -> Unit,
+    val moveCancel: (Int) -> Unit
 )
 
 private data class CharacterPointerContext(
@@ -125,7 +125,7 @@ private data class CharacterPointerContext(
     val rootOrigin: Offset,
     val surface: AnimatedSurface,
     val source: RenderedMoveSource,
-    val callbacks: CharacterCallbacks,
+    val callbacks: CharacterCallbacks
 )
 
 /** The press whose moves are being sampled; a coordinate change cancels only the sampling. */
@@ -135,11 +135,14 @@ private class ActiveCharacterGesture(private val speaker: Int) {
 
     fun begin(context: CharacterPointerContext) { captured = context }
 
-    fun invalidateIfChanged(rectangle: StageGeometry.SurfaceRectangle, rootOrigin: Offset,
-        surface: AnimatedSurface) {
+    fun invalidateIfChanged(
+        rectangle: StageGeometry.SurfaceRectangle, rootOrigin: Offset,
+        surface: AnimatedSurface
+    ) {
         val first = captured ?: return
         if (first.rectangle != rectangle || first.rootOrigin != rootOrigin ||
-            first.surface.coordinates != surface.coordinates) cancel()
+            first.surface.coordinates != surface.coordinates
+        ) cancel()
     }
 
     fun cancel() {
@@ -151,8 +154,10 @@ private class ActiveCharacterGesture(private val speaker: Int) {
 }
 
 @Composable
-fun GhostStage(state: StageState, imageLoader: SurfaceImageLoader,
-    onCharacterClick: (speaker: Int, x: Int, y: Int) -> Unit) {
+fun GhostStage(
+    state: StageState, imageLoader: SurfaceImageLoader,
+    onCharacterClick: (speaker: Int, x: Int, y: Int) -> Unit
+) {
     GhostStage(state, imageLoader, {}, {}, {}, { _, _, _ -> }, onCharacterClick)
 }
 
@@ -181,16 +186,28 @@ fun GhostStage(
     linkError: String? = null,
     onCharacterMove: (speaker: Int, x: Int, y: Int) -> Unit = { _, _, _ -> },
     onCharacterMoveCancel: (speaker: Int) -> Unit = {},
-    onCharacterClickResolved: ((speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
-        origin: DialogueToken?) -> Unit)? = null,
-    onCharacterDoubleClickResolved: ((speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
-        origin: DialogueToken?) -> Unit)? = null,
-    onCharacterMoveResolved: ((speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
-        source: RenderedMoveSource) -> Unit)? = null,
+    onCharacterClickResolved: (
+        (
+            speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
+            origin: DialogueToken?
+        ) -> Unit
+    )? = null,
+    onCharacterDoubleClickResolved: (
+        (
+            speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
+            origin: DialogueToken?
+        ) -> Unit
+    )? = null,
+    onCharacterMoveResolved: (
+        (
+            speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
+            source: RenderedMoveSource
+        ) -> Unit
+    )? = null,
     interactionActive: Boolean = true,
     versionName: String = "Unknown",
     notices: List<Notice> = emptyList(),
-    onClaimHostUiRequest: (Long) -> HostUiCommand? = { null },
+    onClaimHostUiRequest: (Long) -> HostUiCommand? = { null }
 ) {
     val view = LocalView.current
     val debugBuild = view.context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
@@ -200,7 +217,7 @@ fun GhostStage(
         onCharacterClickResolved ?: { s, x, y, _, _ -> onCharacterClick(s, x, y) },
         onCharacterDoubleClickResolved ?: { s, x, y, _, _ -> onCharacterDoubleClick(s, x, y) },
         onCharacterMoveResolved ?: { s, x, y, _, _ -> onCharacterMove(s, x, y) },
-        onCharacterMoveCancel,
+        onCharacterMoveCancel
     )
     DisposableEffect(view, importState is ImportState.Running) {
         view.keepScreenOn = importState is ImportState.Running
@@ -237,13 +254,19 @@ fun GhostStage(
                 var controlsHeightPx by remember { mutableStateOf(0) }
                 val controlsHeight = with(LocalDensity.current) { controlsHeightPx.toDp() }
                 val toggleControls = { controlsVisible = !controlsVisible }
-                val controlsToggleLabel = stringResource(if (controlsVisible)
-                    R.string.stage_hide_controls else R.string.stage_show_controls)
+                val controlsToggleLabel = stringResource(
+                    if (controlsVisible)
+                        R.string.stage_hide_controls else R.string.stage_show_controls
+                )
                 val boundsLabel = stringResource(R.string.stage_bounds)
-                val boundsToggleLabel = stringResource(if (showTouchBounds)
-                    R.string.stage_hide_bounds else R.string.stage_show_bounds)
-                val boundsStateLabel = stringResource(if (showTouchBounds)
-                    R.string.stage_bounds_on else R.string.stage_bounds_off)
+                val boundsToggleLabel = stringResource(
+                    if (showTouchBounds)
+                        R.string.stage_hide_bounds else R.string.stage_show_bounds
+                )
+                val boundsStateLabel = stringResource(
+                    if (showTouchBounds)
+                        R.string.stage_bounds_on else R.string.stage_bounds_off
+                )
                 val ghostsLabel = stringResource(R.string.stage_ghosts)
                 val aboutLabel = stringResource(R.string.stage_about)
                 val loaded by produceState<LoadedImages>(LoadedImages.Loading, state.surfaces, state.shell, imageLoader) {
@@ -255,12 +278,15 @@ fun GhostStage(
                         LoadedImages.Error(error.message ?: "Unable to load surfaces")
                     }
                 }
-                Box(Modifier.fillMaxSize().testTag("stage-background")
-                    .pointerInput(Unit) { detectTapGestures(onTap = { toggleControls() }) })
+                Box(
+                    Modifier.fillMaxSize().testTag("stage-background")
+                        .pointerInput(Unit) { detectTapGestures(onTap = { toggleControls() }) }
+                )
                 when (val images = loaded) {
                     LoadedImages.Loading -> StageMessage("Loading ghost…")
                     is LoadedImages.Error -> StageMessage(images.message)
-                    is LoadedImages.Ready -> ReadyStage(state, images.images, callbacks,
+                    is LoadedImages.Ready -> ReadyStage(
+                        state, images.images, callbacks,
                         { if (stageInteractionActive) onChoose(it) },
                         { token, url -> if (stageInteractionActive) onOpenLink(token, url) },
                         toggleControls, stageInteractionActive,
@@ -269,42 +295,63 @@ fun GhostStage(
                             .semantics {
                                 contentDescription = controlsToggleLabel
                                 onClick { toggleControls(); true }
-                            }.testTag("stage-controls-toggle"))
+                            }.testTag("stage-controls-toggle")
+                    )
                 }
-                if (controlsVisible) FlowRow(Modifier.align(Alignment.TopEnd).fillMaxWidth()
-                    .onSizeChanged { controlsHeightPx = it.height }.padding(8.dp),
+                if (controlsVisible) FlowRow(
+                    Modifier.align(Alignment.TopEnd).fillMaxWidth()
+                        .onSizeChanged { controlsHeightPx = it.height }.padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (debugBuild) StageControlButton(boundsLabel,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (debugBuild) StageControlButton(
+                        boundsLabel,
                         onClick = { showTouchBounds = !showTouchBounds },
                         modifier = Modifier.semantics {
                             contentDescription = boundsToggleLabel
                             stateDescription = boundsStateLabel
-                        }.testTag("touch-bounds-action"))
-                    StageControlButton(ghostsLabel, onClick = { showGhosts = true },
+                        }.testTag("touch-bounds-action")
+                    )
+                    StageControlButton(
+                        ghostsLabel, onClick = { showGhosts = true },
                         modifier = Modifier.semantics { contentDescription = ghostsLabel }
-                            .testTag("ghosts-action"))
-                    StageControlButton(aboutLabel, onClick = { showAbout = true },
+                            .testTag("ghosts-action")
+                    )
+                    StageControlButton(
+                        aboutLabel, onClick = { showAbout = true },
                         modifier = Modifier.semantics { contentDescription = aboutLabel }
-                            .testTag("about-action"))
+                            .testTag("about-action")
+                    )
                 }
-                Column(Modifier.align(Alignment.TopEnd).padding(top = if (controlsVisible) controlsHeight else 0.dp),
-                    horizontalAlignment = Alignment.End) {
+                Column(
+                    Modifier.align(Alignment.TopEnd).padding(top = if (controlsVisible) controlsHeight else 0.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
                     state.activationError?.let { error ->
-                        Text(error, Modifier.background(Color(0xFFF8F3E8)).padding(8.dp)
-                            .semantics { contentDescription = "Ghost error: $error" }
-                            .testTag("ghost-error"), color = Color.Black)
+                        Text(
+                            error,
+                            Modifier.background(Color(0xFFF8F3E8)).padding(8.dp)
+                                .semantics { contentDescription = "Ghost error: $error" }
+                                .testTag("ghost-error"),
+                            color = Color.Black
+                        )
                     }
                     linkError?.let { error ->
-                        Text(error, Modifier.background(Color(0xFFF8F3E8)).padding(8.dp)
-                            .testTag("link-error"), color = Color.Black)
+                        Text(
+                            error,
+                            Modifier.background(Color(0xFFF8F3E8)).padding(8.dp)
+                                .testTag("link-error"),
+                            color = Color.Black
+                        )
                     }
                 }
                 if (showAbout) AboutDialog(versionName, notices) { showAbout = false }
                 if (debugBuild && showDebugTools) {
-                    DebugToolsDialog(showTouchBounds,
+                    DebugToolsDialog(
+                        showTouchBounds,
                         onShowTouchBoundsChange = { showTouchBounds = it },
-                        onDismiss = { showDebugTools = false })
+                        onDismiss = { showDebugTools = false }
+                    )
                 }
                 if ((showGhosts || importDialogVisible) && state.switchPrompt == null) {
                     AlertDialog(
@@ -320,26 +367,33 @@ fun GhostStage(
                         text = {
                             Column(Modifier.verticalScroll(rememberScrollState())) {
                                 when (importState) {
-                                    is ImportState.Running -> Text("Importing ghost…",
-                                        Modifier.semantics { contentDescription = "Import in progress" })
-                                    is ImportState.Completed -> Text(when (importState.outcome) {
-                                        is ImportOutcome.Installed ->
-                                            (importState.promptResult as? ImportPromptResult.Unavailable)
-                                                ?.let { "Ghost imported. ${it.message}." }
-                                                ?: "Ghost imported. Review the readme before switching."
-                                        is ImportOutcome.Refused -> "Ghost is already installed or cannot be imported."
-                                        is ImportOutcome.Failed -> "Import failed. ${importState.outcome.message}."
-                                        ImportOutcome.Cancelled -> "Import cancelled."
-                                    })
+                                    is ImportState.Running -> Text(
+                                        "Importing ghost…",
+                                        Modifier.semantics { contentDescription = "Import in progress" }
+                                    )
+                                    is ImportState.Completed -> Text(
+                                        when (importState.outcome) {
+                                            is ImportOutcome.Installed ->
+                                                (importState.promptResult as? ImportPromptResult.Unavailable)
+                                                    ?.let { "Ghost imported. ${it.message}." }
+                                                    ?: "Ghost imported. Review the readme before switching."
+                                            is ImportOutcome.Refused -> "Ghost is already installed or cannot be imported."
+                                            is ImportOutcome.Failed -> "Import failed. ${importState.outcome.message}."
+                                            ImportOutcome.Cancelled -> "Import cancelled."
+                                        }
+                                    )
                                     else -> {
                                         if (importInterrupted) Text("Import interrupted. Please try again.")
                                         state.installedGhosts.forEach { ghost ->
-                                            TextButton(onClick = {
-                                                showGhosts = false
-                                                onSelectGhost(ghost.directoryId)
-                                            }, modifier = Modifier.fillMaxWidth().semantics {
-                                                contentDescription = "Select ${ghost.displayName}"
-                                            }.testTag("ghost-${ghost.directoryId}")) {
+                                            TextButton(
+                                                onClick = {
+                                                    showGhosts = false
+                                                    onSelectGhost(ghost.directoryId)
+                                                },
+                                                modifier = Modifier.fillMaxWidth().semantics {
+                                                    contentDescription = "Select ${ghost.displayName}"
+                                                }.testTag("ghost-${ghost.directoryId}")
+                                            ) {
                                                 Text(ghost.displayName)
                                             }
                                         }
@@ -349,9 +403,12 @@ fun GhostStage(
                         },
                         confirmButton = {
                             if (importState is ImportState.Running) {
-                                TextButton(onClick = onCancelImport, modifier = Modifier.semantics {
-                                    contentDescription = "Cancel import"
-                                }) { Text("Cancel") }
+                                TextButton(
+                                    onClick = onCancelImport,
+                                    modifier = Modifier.semantics {
+                                        contentDescription = "Cancel import"
+                                    }
+                                ) { Text("Cancel") }
                             } else {
                                 TextButton(onClick = {
                                     showGhosts = false
@@ -362,11 +419,13 @@ fun GhostStage(
                         },
                         dismissButton = {
                             if (importState == ImportState.Idle) {
-                                TextButton(onClick = { showGhosts = false; onImport() },
+                                TextButton(
+                                    onClick = { showGhosts = false; onImport() },
                                     modifier = Modifier.semantics { contentDescription = "Import .nar" }
-                                        .testTag("import-action")) { Text("Import .nar") }
+                                        .testTag("import-action")
+                                ) { Text("Import .nar") }
                             }
-                        },
+                        }
                     )
                 }
                 state.switchPrompt?.let { prompt ->
@@ -374,45 +433,60 @@ fun GhostStage(
                         onDismissRequest = onDismissSwitch,
                         title = { Text("Switch to ${prompt.displayName}?") },
                         text = {
-                            Text(prompt.readme ?: "Switch to ${prompt.displayName}?",
-                                Modifier.verticalScroll(rememberScrollState()).testTag("ghost-readme"))
+                            Text(
+                                prompt.readme ?: "Switch to ${prompt.displayName}?",
+                                Modifier.verticalScroll(rememberScrollState()).testTag("ghost-readme")
+                            )
                         },
                         confirmButton = {
-                            TextButton(onClick = onConfirmSwitch, modifier = Modifier.semantics {
-                                contentDescription = "Confirm ghost switch"
-                            }) { Text("Switch") }
+                            TextButton(
+                                onClick = onConfirmSwitch,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Confirm ghost switch"
+                                }
+                            ) { Text("Switch") }
                         },
                         dismissButton = {
-                            TextButton(onClick = onDismissSwitch, modifier = Modifier.semantics {
-                                contentDescription = "Cancel ghost switch"
-                            }) { Text("Cancel") }
-                        },
+                            TextButton(
+                                onClick = onDismissSwitch,
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Cancel ghost switch"
+                                }
+                            ) { Text("Cancel") }
+                        }
                     )
                 }
                 state.input?.let { input ->
-                    var draft by rememberSaveable(input.token.sessionId, input.token.dialogueId,
-                        input.token.itemKey) { mutableStateOf("") }
-                    GhostInputDialog(input, draft, onDraftChange = { draft = it },
+                    var draft by rememberSaveable(
+                        input.token.sessionId, input.token.dialogueId,
+                        input.token.itemKey
+                    ) { mutableStateOf("") }
+                    GhostInputDialog(
+                        input, draft, onDraftChange = { draft = it },
                         onSubmit = { onSubmitInput(input.token, it) },
                         onCancel = { onCancelInput(input.token) },
                         onBack = {
                             if (isFarewellInput(input.token)) onClose()
                             else onCancelInput(input.token)
-                        })
+                        }
+                    )
                 }
             }
         }
     }
 }
 
-private suspend fun loadSurfaces(files: Map<Int, File>, shellCatalog: ShellCatalog?,
-    loader: SurfaceImageLoader): Map<Int, ComposedSurface> {
+private suspend fun loadSurfaces(
+    files: Map<Int, File>, shellCatalog: ShellCatalog?,
+    loader: SurfaceImageLoader
+): Map<Int, ComposedSurface> {
     val definitions = shellCatalog?.definitions
     val images = mutableMapOf<Int, ComposedSurface>()
     for ((id, file) in files) {
         if (shellCatalog != null && !withContext(Dispatchers.IO) {
                 ShellFiles.isDirectChild(shellCatalog.shellDirectory, file)
-        }) continue
+            }
+        ) continue
         try {
             val elements = definitions?.definition(id)?.elements.orEmpty()
             if (shellCatalog != null && elements.any { it.id == 0 }) {
@@ -458,13 +532,16 @@ private fun ReadyStage(
     onInertTap: () -> Unit,
     gesturesActive: Boolean,
     showTouchBounds: Boolean,
-    modifier: Modifier,
+    modifier: Modifier
 ) {
     val imageBounds = remember(images) { AnimatedSurface.imageBounds(images) }
+
     @Composable
     fun resolve(frame: SpeakerFrame, speaker: Int) = remember(frame.surfaceId, frame.visual, images) {
-        AnimatedSurface.resolve(frame.surfaceId, frame.visual, images,
-            MoveGeometryResolver.fallbackSurfaceId(speaker), imageBounds)
+        AnimatedSurface.resolve(
+            frame.surfaceId, frame.visual, images,
+            MoveGeometryResolver.fallbackSurfaceId(speaker), imageBounds
+        )
     }
     val sakura = resolve(state.frame.sakura, 0)
     val kero = resolve(state.frame.kero, 1)
@@ -476,8 +553,10 @@ private fun ReadyStage(
     @Composable
     fun source(frame: SpeakerFrame, surface: AnimatedSurface) =
         remember(state.dialogueToken, frame.surfaceId, frame.visual, imageBounds, surface) {
-            RenderedMoveSource(state.dialogueToken, frame.surfaceId, frame.visual,
-                RenderedMoveSnapshot(imageBounds, surface.coordinates))
+            RenderedMoveSource(
+                state.dialogueToken, frame.surfaceId, frame.visual,
+                RenderedMoveSnapshot(imageBounds, surface.coordinates)
+            )
         }
     val sakuraSource = source(state.frame.sakura, sakura)
     val keroSource = source(state.frame.kero, kero)
@@ -499,8 +578,10 @@ private fun ReadyStage(
         val scale = StageGeometry.scaleFor(
             sakura.width, sakura.height, kero.width, kero.height,
             widthPx.roundToInt(), (heightPx - balloonReserve).roundToInt(),
-            StageGeometry.logicalArtCeiling(windowConfiguration.screenWidthDp,
-                windowConfiguration.screenHeightDp, density.density),
+            StageGeometry.logicalArtCeiling(
+                windowConfiguration.screenWidthDp,
+                windowConfiguration.screenHeightDp, density.density
+            )
         )
         val sakuraWidth = with(density) { (sakura.width * scale).toDp() }
         val sakuraHeight = with(density) { (sakura.height * scale).toDp() }
@@ -512,38 +593,50 @@ private fun ReadyStage(
         val keroOffset = keroWidth * (kero.offsetX.toFloat() / kero.width)
 
         if (state.frame.kero.visible) {
-            CharacterSurface(kero, state.keroName, 1, keroWidth, keroHeight, keroSource,
+            CharacterSurface(
+                kero, state.keroName, 1, keroWidth, keroHeight, keroSource,
                 gesturesActive, showTouchBounds,
                 state.shell?.definitions?.definition(kero.collisionSurfaceId)?.collisions.orEmpty(),
-                Modifier.align(Alignment.BottomStart), callbacks)
+                Modifier.align(Alignment.BottomStart), callbacks
+            )
         }
         if (state.frame.sakura.visible) {
-            CharacterSurface(sakura, state.sakuraName, 0, sakuraWidth, sakuraHeight, sakuraSource,
+            CharacterSurface(
+                sakura, state.sakuraName, 0, sakuraWidth, sakuraHeight, sakuraSource,
                 gesturesActive, showTouchBounds,
                 state.shell?.definitions?.definition(sakura.collisionSurfaceId)?.collisions.orEmpty(),
-                Modifier.align(Alignment.BottomEnd), callbacks)
+                Modifier.align(Alignment.BottomEnd), callbacks
+            )
         }
 
         if (kero.height < sakura.height / 2 && minimumBalloonReserve <= with(density) { 96.dp.toPx() }) {
-            Balloon(state.sakuraName, state.frame.sakura.text, state.frame.sakura.balloonVisible,
+            Balloon(
+                state.sakuraName, state.frame.sakura.text, state.frame.sakura.balloonVisible,
                 state.choices[0].orEmpty(), state.dialogueToken, onChoose, onOpenLink, onInertTap,
                 maxWidth - sakuraWidth / 2 + sakuraOffset - 4.dp,
-                Modifier.align(Alignment.TopCenter).fillMaxWidth().height(balloonHeight.coerceAtLeast(0.dp)))
-            Balloon(state.keroName, state.frame.kero.text, state.frame.kero.balloonVisible,
+                Modifier.align(Alignment.TopCenter).fillMaxWidth().height(balloonHeight.coerceAtLeast(0.dp))
+            )
+            Balloon(
+                state.keroName, state.frame.kero.text, state.frame.kero.balloonVisible,
                 state.choices[1].orEmpty(), state.dialogueToken, onChoose, onOpenLink, onInertTap,
                 keroWidth / 2 + keroOffset - 4.dp,
                 Modifier.align(Alignment.BottomStart).padding(bottom = keroHeight)
-                    .width(maxWidth / 2).height((sakuraHeight - keroHeight).coerceAtLeast(0.dp)))
+                    .width(maxWidth / 2).height((sakuraHeight - keroHeight).coerceAtLeast(0.dp))
+            )
         } else {
             Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(balloonHeight.coerceAtLeast(0.dp))) {
-                Balloon(state.keroName, state.frame.kero.text, state.frame.kero.balloonVisible,
+                Balloon(
+                    state.keroName, state.frame.kero.text, state.frame.kero.balloonVisible,
                     state.choices[1].orEmpty(), state.dialogueToken, onChoose, onOpenLink, onInertTap,
                     keroWidth / 2 + keroOffset - 4.dp,
-                    Modifier.weight(1f))
-                Balloon(state.sakuraName, state.frame.sakura.text, state.frame.sakura.balloonVisible,
+                    Modifier.weight(1f)
+                )
+                Balloon(
+                    state.sakuraName, state.frame.sakura.text, state.frame.sakura.balloonVisible,
                     state.choices[0].orEmpty(), state.dialogueToken, onChoose, onOpenLink, onInertTap,
                     (stageWidth - sakuraWidth) / 2 + sakuraOffset - 4.dp,
-                    Modifier.weight(1f))
+                    Modifier.weight(1f)
+                )
             }
         }
     }
@@ -561,7 +654,7 @@ private fun CharacterSurface(
     showTouchBounds: Boolean,
     collisions: List<SurfaceCollision>,
     placement: Modifier,
-    callbacks: CharacterCallbacks,
+    callbacks: CharacterCallbacks
 ) {
     var rectangle by remember(surface.width, surface.height) {
         mutableStateOf(StageGeometry.fittedRectangle(surface.width, surface.height, 0, 0))
@@ -569,7 +662,8 @@ private fun CharacterSurface(
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
     val activeGesture = remember(speaker) { ActiveCharacterGesture(speaker) }
     val currentPointer by rememberUpdatedState(
-        CharacterPointerContext(rectangle, rootOrigin, surface, renderedMoveSource, callbacks))
+        CharacterPointerContext(rectangle, rootOrigin, surface, renderedMoveSource, callbacks)
+    )
     SideEffect { activeGesture.invalidateIfChanged(rectangle, rootOrigin, surface) }
     val layerPaint = remember { Paint() }
     val collisionTextPaint = remember {
@@ -586,11 +680,15 @@ private fun CharacterSurface(
         android.view.ViewConfiguration.get(viewContext).scaledDoubleTapSlop
     }
     Canvas(
-        modifier = placement.offset(x = width * (surface.offsetX.toFloat() / surface.width),
-                y = height * (surface.offsetY.toFloat() / surface.height)).size(width, height)
+        modifier = placement.offset(
+            x = width * (surface.offsetX.toFloat() / surface.width),
+            y = height * (surface.offsetY.toFloat() / surface.height)
+        ).size(width, height)
             .onSizeChanged {
-                val next = StageGeometry.fittedRectangle(surface.width, surface.height,
-                    it.width, it.height)
+                val next = StageGeometry.fittedRectangle(
+                    surface.width, surface.height,
+                    it.width, it.height
+                )
                 activeGesture.invalidateIfChanged(next, rootOrigin, surface)
                 rectangle = next
             }
@@ -605,56 +703,69 @@ private fun CharacterSurface(
                 val slop = viewConfiguration.touchSlop
                 val doubleTimeout = viewConfiguration.doubleTapTimeoutMillis
                 val doubleSlop = platformDoubleTapSlop
+
                 // Gestures that outlive their dialogue are dropped rather than retargeted.
                 fun authored(position: Offset, context: CharacterPointerContext) =
                     if (currentPointer.source.dialogueToken != context.source.dialogueToken) null
-                    else context.rectangle.toAuthored(position.x, position.y,
-                        context.surface.originX, context.surface.originY)
+                    else context.rectangle.toAuthored(
+                        position.x, position.y,
+                        context.surface.originX, context.surface.originY
+                    )
                 fun emitTap(position: Offset, double: Boolean, context: CharacterPointerContext) {
                     val point = authored(position, context) ?: return
                     val tap = if (double) context.callbacks.doubleClick else context.callbacks.click
-                    tap(speaker, point.x, point.y, context.surface.collisionSurfaceId,
-                        context.source.dialogueToken)
+                    tap(
+                        speaker, point.x, point.y, context.surface.collisionSurfaceId,
+                        context.source.dialogueToken
+                    )
                 }
                 fun emitMove(position: Offset, context: CharacterPointerContext) {
                     val point = authored(position, context) ?: return
-                    context.callbacks.move(speaker, point.x, point.y, context.surface.collisionSurfaceId,
-                        context.source)
+                    context.callbacks.move(
+                        speaker, point.x, point.y, context.surface.collisionSurfaceId,
+                        context.source
+                    )
                 }
-                suspend fun AwaitPointerEventScope.track(down: PointerInputChange,
-                    context: CharacterPointerContext): CharacterGesture {
+                suspend fun AwaitPointerEventScope.track(
+                    down: PointerInputChange,
+                    context: CharacterPointerContext
+                ): CharacterGesture {
                     activeGesture.begin(context)
-                    return readCharacterGesture(down, slop,
-                        { position -> position + currentPointer.rootOrigin - context.rootOrigin }) {
+                    return readCharacterGesture(
+                        down, slop,
+                        { position -> position + currentPointer.rootOrigin - context.rootOrigin }
+                    ) {
                         if (activeGesture.tracking) emitMove(it, context)
                     }.also { if (it is CharacterGesture.Cancelled) activeGesture.cancel() else activeGesture.end() }
                 }
-                try { awaitEachGesture {
-                    val firstDown = awaitFirstDown(requireUnconsumed = false)
-                    val firstContext = currentPointer
-                    val first = track(firstDown, firstContext)
-                    // Geometry changes cancel only move sampling; taps keep their down context.
-                    if (first is CharacterGesture.Tap) {
-                        val secondDown = withTimeoutOrNull(doubleTimeout) {
-                            awaitFirstDown(requireUnconsumed = false)
-                        }
-                        if (secondDown == null) emitTap(first.position, false, firstContext)
-                        else {
-                            val secondContext = currentPointer
-                            val second = track(secondDown, secondContext)
-                            val delta = secondDown.position + secondContext.rootOrigin -
-                                (firstDown.position + firstContext.rootOrigin)
-                            val near = delta.x * delta.x + delta.y * delta.y <= doubleSlop * doubleSlop
-                            if (second is CharacterGesture.Tap && near)
-                                emitTap(second.position, true, secondContext)
+                try {
+                    awaitEachGesture {
+                        val firstDown = awaitFirstDown(requireUnconsumed = false)
+                        val firstContext = currentPointer
+                        val first = track(firstDown, firstContext)
+                        // Geometry changes cancel only move sampling; taps keep their down context.
+                        if (first is CharacterGesture.Tap) {
+                            val secondDown = withTimeoutOrNull(doubleTimeout) {
+                                awaitFirstDown(requireUnconsumed = false)
+                            }
+                            if (secondDown == null) emitTap(first.position, false, firstContext)
                             else {
-                                emitTap(first.position, false, firstContext)
-                                if (second is CharacterGesture.Tap)
-                                    emitTap(second.position, false, secondContext)
+                                val secondContext = currentPointer
+                                val second = track(secondDown, secondContext)
+                                val delta = secondDown.position + secondContext.rootOrigin -
+                                    (firstDown.position + firstContext.rootOrigin)
+                                val near = delta.x * delta.x + delta.y * delta.y <= doubleSlop * doubleSlop
+                                if (second is CharacterGesture.Tap && near)
+                                    emitTap(second.position, true, secondContext)
+                                else {
+                                    emitTap(first.position, false, firstContext)
+                                    if (second is CharacterGesture.Tap)
+                                        emitTap(second.position, false, secondContext)
+                                }
                             }
                         }
                     }
-                } } finally {
+                } finally {
                     activeGesture.cancel()
                 }
             }
@@ -662,12 +773,14 @@ private fun CharacterSurface(
                 contentDescription = name
                 onClick {
                     if (!gesturesActive) return@onClick false
-                    callbacks.click(speaker, surface.originX + surface.width / 2,
+                    callbacks.click(
+                        speaker, surface.originX + surface.width / 2,
                         surface.originY + surface.height / 2, surface.collisionSurfaceId,
-                        renderedMoveSource.dialogueToken)
+                        renderedMoveSource.dialogueToken
+                    )
                     true
                 }
-            },
+            }
     ) {
         if (rectangle.width > 0f && rectangle.height > 0f) {
             drawContext.canvas.saveLayer(Rect(0f, 0f, size.width, size.height), layerPaint)
@@ -677,11 +790,15 @@ private fun CharacterSurface(
                 drawImage(
                     image = part.image,
                     srcSize = IntSize(part.image.width, part.image.height),
-                    dstOffset = IntOffset((rectangle.left + (part.x - surface.originX) * scaleX).roundToInt(),
-                        (rectangle.top + (part.y - surface.originY) * scaleY).roundToInt()),
-                    dstSize = IntSize((part.image.width * scaleX).roundToInt(),
-                        (part.image.height * scaleY).roundToInt()),
-                    blendMode = part.blendMode,
+                    dstOffset = IntOffset(
+                        (rectangle.left + (part.x - surface.originX) * scaleX).roundToInt(),
+                        (rectangle.top + (part.y - surface.originY) * scaleY).roundToInt()
+                    ),
+                    dstSize = IntSize(
+                        (part.image.width * scaleX).roundToInt(),
+                        (part.image.height * scaleY).roundToInt()
+                    ),
+                    blendMode = part.blendMode
                 )
             }
             drawContext.canvas.restore()
@@ -695,8 +812,10 @@ private fun CharacterSurface(
                     if (right <= left || bottom <= top) null else {
                         val x = rectangle.left + (left - surface.originX).toFloat() * scaleX
                         val y = rectangle.top + (top - surface.originY).toFloat() * scaleY
-                        collision to Rect(x, y, x + (right - left).toFloat() * scaleX,
-                            y + (bottom - top).toFloat() * scaleY)
+                        collision to Rect(
+                            x, y, x + (right - left).toFloat() * scaleX,
+                            y + (bottom - top).toFloat() * scaleY
+                        )
                     }
                 }
                 val labelBoxes = mutableListOf<Rect>()
@@ -707,12 +826,15 @@ private fun CharacterSurface(
                     if (rectangle.width <= padding * 2 || rectangle.height <= labelHeight) return@forEach
                     val labelWidth = minOf(collisionTextPaint.measureText(label) + padding * 2, rectangle.width)
                     val labelX = bounds.left.coerceIn(rectangle.left, rectangle.left + rectangle.width - labelWidth)
-                    var labelTop = bounds.top.coerceIn(rectangle.top,
-                        rectangle.top + rectangle.height - labelHeight)
+                    var labelTop = bounds.top.coerceIn(
+                        rectangle.top,
+                        rectangle.top + rectangle.height - labelHeight
+                    )
                     var labelBox = Rect(labelX, labelTop, labelX + labelWidth, labelTop + labelHeight)
                     var placementAttempts = 0
                     while (labelBoxes.any { it.overlaps(labelBox) } &&
-                        placementAttempts++ < visibleCollisions.size) {
+                        placementAttempts++ < visibleCollisions.size
+                    ) {
                         labelTop += labelHeight
                         if (labelTop + labelHeight > rectangle.top + rectangle.height)
                             labelTop = rectangle.top
@@ -722,23 +844,31 @@ private fun CharacterSurface(
                     val labelY = labelTop + collisionTextPaint.textSize + padding
                     drawIntoCanvas { canvas ->
                         val native = canvas.nativeCanvas
-                        native.drawRect(labelBox.left, labelBox.top, labelBox.right, labelBox.bottom,
-                            collisionLabelBackground)
+                        native.drawRect(
+                            labelBox.left, labelBox.top, labelBox.right, labelBox.bottom,
+                            collisionLabelBackground
+                        )
                         native.save()
-                        native.clipRect(labelX + padding, labelY - collisionTextPaint.textSize,
-                            labelX + labelWidth - padding, labelY + padding)
+                        native.clipRect(
+                            labelX + padding, labelY - collisionTextPaint.textSize,
+                            labelX + labelWidth - padding, labelY + padding
+                        )
                         native.drawText(label, labelX + padding, labelY, collisionTextPaint)
                         native.restore()
                     }
                 }
                 visibleCollisions.forEach { (_, bounds) ->
-                    drawRect(Color.Cyan, bounds.topLeft, bounds.size,
-                        style = Stroke(width = 2.dp.toPx()))
+                    drawRect(
+                        Color.Cyan, bounds.topLeft, bounds.size,
+                        style = Stroke(width = 2.dp.toPx())
+                    )
                 }
-                drawRect(Color.Magenta,
+                drawRect(
+                    Color.Magenta,
                     topLeft = Offset(rectangle.left, rectangle.top),
                     size = Size(rectangle.width, rectangle.height),
-                    style = Stroke(width = 2.dp.toPx()))
+                    style = Stroke(width = 2.dp.toPx())
+                )
             }
         }
     }
@@ -752,8 +882,8 @@ private fun StageControlButton(label: String, onClick: () -> Unit, modifier: Mod
         shape = RoundedCornerShape(4.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        ),
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
     ) {
         Text(label, textAlign = TextAlign.Center)
     }
@@ -767,7 +897,7 @@ private sealed interface CharacterGesture {
 
 private suspend fun AwaitPointerEventScope.readCharacterGesture(
     down: PointerInputChange, touchSlop: Float,
-    toPressLocal: (Offset) -> Offset, onDrag: (Offset) -> Unit,
+    toPressLocal: (Offset) -> Offset, onDrag: (Offset) -> Unit
 ): CharacterGesture {
     var dragged = false
     while (true) {
@@ -776,7 +906,7 @@ private suspend fun AwaitPointerEventScope.readCharacterGesture(
         if (change.isConsumed) return CharacterGesture.Cancelled
         val position = toPressLocal(change.position)
         if (!change.pressed) return if (dragged) CharacterGesture.Dragged
-            else CharacterGesture.Tap(position)
+        else CharacterGesture.Tap(position)
         val delta = position - down.position
         if (!dragged && delta.x * delta.x + delta.y * delta.y > touchSlop * touchSlop)
             dragged = true
@@ -788,54 +918,58 @@ private suspend fun AwaitPointerEventScope.readCharacterGesture(
 }
 
 @Composable
-private fun Balloon(name: String, text: String, visible: Boolean,
+private fun Balloon(
+    name: String, text: String, visible: Boolean,
     choices: List<PresentedChoice>, dialogueToken: DialogueToken?,
     onChoose: (InteractionToken) -> Unit, onOpenLink: (DialogueToken, String) -> Unit,
     onInertTap: () -> Unit, tailAnchor: Dp,
-    modifier: Modifier) {
+    modifier: Modifier
+) {
     if (!visible) {
         Box(modifier)
         return
     }
     var linkActivated by remember { mutableStateOf(false) }
     val currentInertTap by rememberUpdatedState(onInertTap)
-    Box(modifier.padding(4.dp).drawBehind {
-        val outline = 2.dp.toPx()
-        val radius = minOf(14.dp.toPx(), size.width / 3f, size.height / 3f)
-        val tailDepth = minOf(5.dp.toPx(), size.height / 10f)
-        val tailWidth = minOf(30.dp.toPx(), size.width / 3f)
-        val tailX = tailAnchor.toPx().coerceIn(0f, size.width)
-        val tailLeft = (tailX - tailWidth / 2f).coerceAtLeast(0f)
-        val tailRight = (tailX + tailWidth / 2f).coerceAtMost(size.width)
-        val bottom = size.height - minOf(3.dp.toPx(), size.height / 10f)
-        val frame = Path().apply {
-            moveTo(0f, radius)
-            quadraticTo(0f, 0f, radius, 0f)
-            lineTo(size.width - radius, 0f)
-            quadraticTo(size.width, 0f, size.width, radius)
-            lineTo(size.width, bottom)
-            lineTo(tailRight, bottom)
-            lineTo(tailX, bottom + tailDepth)
-            lineTo(tailLeft, bottom)
-            lineTo(0f, bottom)
-            close()
-        }
-        translate(1.dp.toPx(), 2.dp.toPx()) {
-            drawPath(frame, Color(0x330D0803))
-        }
-        drawPath(frame, Color(0xFFFFF8E9))
-        drawPath(frame, Color(0xFF8B7460), style = Stroke(outline))
-    }.pointerInput(Unit) {
-        awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
-            linkActivated = false
-            if (!down.isConsumed) {
-                val up = waitForUpOrCancellation(pass = PointerEventPass.Final)
-                if (up != null && !up.isConsumed && !linkActivated) currentInertTap()
+    Box(
+        modifier.padding(4.dp).drawBehind {
+            val outline = 2.dp.toPx()
+            val radius = minOf(14.dp.toPx(), size.width / 3f, size.height / 3f)
+            val tailDepth = minOf(5.dp.toPx(), size.height / 10f)
+            val tailWidth = minOf(30.dp.toPx(), size.width / 3f)
+            val tailX = tailAnchor.toPx().coerceIn(0f, size.width)
+            val tailLeft = (tailX - tailWidth / 2f).coerceAtLeast(0f)
+            val tailRight = (tailX + tailWidth / 2f).coerceAtMost(size.width)
+            val bottom = size.height - minOf(3.dp.toPx(), size.height / 10f)
+            val frame = Path().apply {
+                moveTo(0f, radius)
+                quadraticTo(0f, 0f, radius, 0f)
+                lineTo(size.width - radius, 0f)
+                quadraticTo(size.width, 0f, size.width, radius)
+                lineTo(size.width, bottom)
+                lineTo(tailRight, bottom)
+                lineTo(tailX, bottom + tailDepth)
+                lineTo(tailLeft, bottom)
+                lineTo(0f, bottom)
+                close()
+            }
+            translate(1.dp.toPx(), 2.dp.toPx()) {
+                drawPath(frame, Color(0x330D0803))
+            }
+            drawPath(frame, Color(0xFFFFF8E9))
+            drawPath(frame, Color(0xFF8B7460), style = Stroke(outline))
+        }.pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
+                linkActivated = false
+                if (!down.isConsumed) {
+                    val up = waitForUpOrCancellation(pass = PointerEventPass.Final)
+                    if (up != null && !up.isConsumed && !linkActivated) currentInertTap()
+                }
             }
         }
-    }
-        .semantics { contentDescription = "$name dialogue" }.testTag("balloon-$name")) {
+            .semantics { contentDescription = "$name dialogue" }.testTag("balloon-$name")
+    ) {
         BalloonContent(text, choices, dialogueToken, onChoose, { token, url ->
             linkActivated = true
             onOpenLink(token, url)

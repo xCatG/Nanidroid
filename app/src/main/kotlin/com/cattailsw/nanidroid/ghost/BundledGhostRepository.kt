@@ -3,11 +3,11 @@ package com.cattailsw.nanidroid.ghost
 import com.cattailsw.nanidroid.engine.BuiltInShiori
 import java.io.ByteArrayInputStream
 import java.io.File
-import java.io.InputStream
 import java.io.IOException
+import java.io.InputStream
 import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.util.Locale
@@ -17,7 +17,7 @@ import java.util.zip.ZipInputStream
 class BundledGhostRepository(
     private val openAsset: () -> InputStream,
     private val ghostRoot: File,
-    private val expectedSha256: String = BUNDLED_SHA256,
+    private val expectedSha256: String = BUNDLED_SHA256
 ) {
     fun ensureInstalled(): File = synchronized(INSTALL_LOCK) {
         val live = File(ghostRoot, "nanidroid")
@@ -39,8 +39,10 @@ class BundledGhostRepository(
                 while (true) {
                     val entry = zip.nextEntry ?: break
                     val name = entry.name.replace('\\', '/')
-                    require(name.isNotEmpty() && !name.startsWith('/') &&
-                        !name.contains(':') && name.split('/').none { it == ".." || it == "." }) {
+                    require(
+                        name.isNotEmpty() && !name.startsWith('/') &&
+                            !name.contains(':') && name.split('/').none { it == ".." || it == "." }
+                    ) {
                         "Unsafe bundled entry"
                     }
                     val destination = File(staging, name).canonicalFile
@@ -93,7 +95,7 @@ class BundledGhostRepository(
             surfaces = surfaces,
             content = boundedBytes(contentFile).toString(Charsets.UTF_8),
             shellDirectory = shell,
-            sakuraName2 = DescriptorReader.sakuraName2(descriptor),
+            sakuraName2 = DescriptorReader.sakuraName2(descriptor)
         )
     }
 
@@ -131,8 +133,12 @@ class BundledGhostRepository(
 
     /** Checks every fixed path component without following links, before any refresh writes. */
     private fun confined(root: File, relative: String): File {
-        require(Files.readAttributes(ghostRoot.toPath(), BasicFileAttributes::class.java,
-            NOFOLLOW_LINKS).isDirectory) { "Invalid ghost root" }
+        require(
+            Files.readAttributes(
+                ghostRoot.toPath(), BasicFileAttributes::class.java,
+                NOFOLLOW_LINKS
+            ).isDirectory
+        ) { "Invalid ghost root" }
         val base = ghostRoot.canonicalFile.toPath()
         var file = root
         val parts = listOf("") + relative.split('/').filter { it.isNotEmpty() }
@@ -141,8 +147,12 @@ class BundledGhostRepository(
             require(file.canonicalFile.toPath().startsWith(base)) { "Dictionary path escapes root" }
             if (Files.exists(file.toPath(), NOFOLLOW_LINKS)) {
                 val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java, NOFOLLOW_LINKS)
-                require(!attributes.isSymbolicLink && (if (index == parts.lastIndex)
-                    attributes.isRegularFile else attributes.isDirectory)) { "Unsafe dictionary path" }
+                require(
+                    !attributes.isSymbolicLink && (
+                        if (index == parts.lastIndex)
+                            attributes.isRegularFile else attributes.isDirectory
+                        )
+                ) { "Unsafe dictionary path" }
             }
         }
         return file
@@ -178,8 +188,10 @@ class BundledGhostRepository(
                 val entry = zip.nextEntry ?: break
                 if (entry.name in MANAGED_PATHS) {
                     require(entry.name !in replacement) { "Duplicate managed dictionary" }
-                    replacement[entry.name] = ShellFiles.readAtMost(zip, CONTENT_LIMIT,
-                        "Bundled content exceeds 64 KiB")
+                    replacement[entry.name] = ShellFiles.readAtMost(
+                        zip, CONTENT_LIMIT,
+                        "Bundled content exceeds 64 KiB"
+                    )
                 }
                 zip.closeEntry()
             }
@@ -201,8 +213,10 @@ class BundledGhostRepository(
                 val checked = confined(root, path)
                 val current = checked.takeIf { it.exists() }?.let(::hashFile)
                 if (current != before) continue // A newly customized dictionary remains authoritative.
-                Files.move(temporary, checked.toPath(), StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING)
+                Files.move(
+                    temporary, checked.toPath(), StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+                )
             } finally {
                 Files.deleteIfExists(temporary)
             }
@@ -213,17 +227,21 @@ class BundledGhostRepository(
         private val logger = Logger.getLogger(BundledGhostRepository::class.java.name)
         const val BUNDLED_SHA256 = "7ad4109c5362d3f068b1acf1ab642541b9dd8d2c5d9d95e5e7f2c9bf4eb9f46c"
         private const val CONTENT_LIMIT = 64 * 1024
-        private val MANAGED_PATHS = linkedSetOf("ghost/master/en/content.txt",
-            "ghost/master/ja/content.txt", "ghost/master/zh-TW/content.txt")
-        private val ARCHIVE_REQUIRED = setOf("OnFirstBoot", "OnBoot", "OnClose",
+        private val MANAGED_PATHS = linkedSetOf(
+            "ghost/master/en/content.txt",
+            "ghost/master/ja/content.txt", "ghost/master/zh-TW/content.txt"
+        )
+        private val ARCHIVE_REQUIRED = setOf(
+            "OnFirstBoot", "OnBoot", "OnClose",
             "OnGhostChanging", "OnGhostChanged", "OnMouseClick@r3=0", "OnMouseClick@r3=1",
             "OnMouseClick@r3=1@debug", "OnNanidroidHelp", "OnNanidroidIntro",
             "OnNanidroidImportHelp", "OnNanidroidInteractionHelp", "OnNanidroidTools",
             "OnNanidroidTools@debug", "OnNanidroidDismiss", "OnNanidroidOpenGhosts",
-            "OnNanidroidOpenAbout", "OnNanidroidOpenDebug")
+            "OnNanidroidOpenAbout", "OnNanidroidOpenDebug"
+        )
         private val PREVIOUS_HASHES = mapOf(
             "ghost/master/en/content.txt" to "b4621c0532d0027a539aecfadd85448b2167d9671f0f9c78239735b302b67f0c",
-            "ghost/master/ja/content.txt" to "3b1fbeee59cb47e1e015fe41535218ec9a778444be2dc98d145b91df85b36002",
+            "ghost/master/ja/content.txt" to "3b1fbeee59cb47e1e015fe41535218ec9a778444be2dc98d145b91df85b36002"
         )
         private val INSTALL_LOCK = Any()
     }

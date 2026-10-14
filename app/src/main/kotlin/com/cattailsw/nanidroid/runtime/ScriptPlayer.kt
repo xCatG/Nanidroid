@@ -185,14 +185,19 @@ class ScriptPlayer(private val script: String) {
             val parts = choiceId.split('\u0001')
             if (parts.size != 3 || parts[0].isEmpty() || parts[0].startsWith("On") ||
                 !ScriptInput.isAllowed(parts[0]) || parts[1].isEmpty() || !ScriptInput.isAllowed(parts[1]) ||
-                parts[2].isEmpty() || parts[2].any { it !in '0'..'9' }) return
+                parts[2].isEmpty() || parts[2].any { it !in '0'..'9' }
+            ) return
         } else if (choiceId.isEmpty() || !ScriptInput.isAllowed(choiceId)) return
         val references = if (ChoiceItem.isEvent(choiceId)) fields.drop(2) else emptyList()
         if (references.any { !ScriptInput.isAllowed(it) }) return
         val key = nextKey++
-        for (target in targets()) update(target) {
-            it.copy(choices = it.choices + ChoiceItem(key, fields[0], choiceId, it.text.length, references),
-                balloonVisible = true)
+        for (target in targets()) {
+            update(target) {
+                it.copy(
+                    choices = it.choices + ChoiceItem(key, fields[0], choiceId, it.text.length, references),
+                    balloonVisible = true
+                )
+            }
         }
     }
 
@@ -206,7 +211,7 @@ class ScriptPlayer(private val script: String) {
     private fun parseUnderscore(
         animations: MutableList<AnimationRequest>,
         surfaces: MutableList<SurfaceChange>,
-        hostCommands: MutableList<HostUiCommand>,
+        hostCommands: MutableList<HostUiCommand>
     ) {
         if (cursor >= script.length) return
         when (val subtag = script[cursor++]) {
@@ -228,7 +233,8 @@ class ScriptPlayer(private val script: String) {
         var probe = start + 2
         while (probe < maxEnd && script[probe].isTagChar()) probe++
         if (probe == maxEnd && probe < script.length &&
-            (script[probe].isTagChar() || script[probe] == '[')) {
+            (script[probe].isTagChar() || script[probe] == '[')
+        ) {
             if (tag in ARGUMENT_TAGS && script[probe] != '[') return false
             if (tag !in ARGUMENT_TAGS) {
                 cursor = maxEnd
@@ -256,7 +262,7 @@ class ScriptPlayer(private val script: String) {
         argument: String,
         animations: MutableList<AnimationRequest>,
         surfaces: MutableList<SurfaceChange>,
-        hostCommands: MutableList<HostUiCommand>,
+        hostCommands: MutableList<HostUiCommand>
     ) {
         val data = if (tag in "sibw" || tag == '_') SakuraScriptText.decode(argument) else argument
         when (tag) {
@@ -322,6 +328,7 @@ class ScriptPlayer(private val script: String) {
         private const val MAX_SOURCE_CHARS_PER_CALL = 4_096
         private const val ARGUMENTLESS_TAGS = "01huce-456v"
         private const val ARGUMENT_TAGS = "sibnwq!_"
+
         /** Argument tags that also accept a single unbracketed digit. */
         private const val DIGIT_ARGUMENT_TAGS = "siwb"
         private val BOTH_SPEAKERS = listOf(0, 1)

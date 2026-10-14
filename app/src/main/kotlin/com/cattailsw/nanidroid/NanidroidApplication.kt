@@ -10,13 +10,13 @@ import com.cattailsw.nanidroid.engine.NativeShioriHost
 import com.cattailsw.nanidroid.ghost.BundledGhostRepository
 import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
 import com.cattailsw.nanidroid.install.GhostImporter
-import com.cattailsw.nanidroid.install.ImportCoordinator
 import com.cattailsw.nanidroid.install.ImportAttemptStore
+import com.cattailsw.nanidroid.install.ImportCoordinator
 import com.cattailsw.nanidroid.runtime.GhostRuntime
 import com.cattailsw.nanidroid.runtime.HostNativePort
 import java.io.File
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -48,7 +48,7 @@ class NanidroidApplication : Application() {
     val runtime: GhostRuntime by lazy {
         val repository = BundledGhostRepository(
             openAsset = { assets.open("nanidroid.zip") },
-            ghostRoot = File(filesDir, "ghost"),
+            ghostRoot = File(filesDir, "ghost")
         )
         GhostRuntime(
             loadGhost = {
@@ -58,14 +58,16 @@ class NanidroidApplication : Application() {
             },
             engineFactory = { BuiltInShiori(it.content) },
             bundledEngineFactory = {
-                BuiltInShiori.bundled(it.content,
-                    applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
+                BuiltInShiori.bundled(
+                    it.content,
+                    applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+                )
             },
             bootState = PreferencesBootStateStore(getSharedPreferences("boot_state", MODE_PRIVATE)),
             scope = applicationScope,
             installedGhosts = InstalledGhostRepository(File(filesDir, "ghost")),
             lastGhostStore = PreferencesLastGhostStore(getSharedPreferences("last_ghost", MODE_PRIVATE)),
-            nativeHost = HostNativePort(NativeShioriHost.process),
+            nativeHost = HostNativePort(NativeShioriHost.process)
         )
     }
 }

@@ -5,25 +5,24 @@ import com.cattailsw.nanidroid.engine.ShioriEvent
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import java.util.Locale
-import java.nio.file.Files
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.fail
-import org.junit.Assume.assumeNoException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.Assume.assumeNoException
 import org.junit.Rule
+import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import kotlinx.coroutines.test.runTest
 
 class BundledGhostRepositoryTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
@@ -168,11 +167,14 @@ class BundledGhostRepositoryTest {
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     private fun realRepository(root: File) = BundledGhostRepository(
-        { javaClass.getResourceAsStream("/nanidroid.zip")!! }, root)
+        { javaClass.getResourceAsStream("/nanidroid.zip")!! }, root
+    )
     private fun snapshot(root: File) = root.walkTopDown().associate {
         it.relativeTo(root).invariantSeparatorsPath to if (it.isFile) sha256(it.readBytes()) else "directory"
     }
-    private fun previous(locale: String) = javaClass.getResourceAsStream("/previous-bundled-$locale-content.txt")!!.use { it.readBytes() }
+    private fun previous(locale: String) = javaClass.getResourceAsStream("/previous-bundled-$locale-content.txt")!!.use {
+        it.readBytes()
+    }
 
     @Test fun productionAndTestArchiveMatchWithOriginalPngBytesAndPinnedPreviousHashes() {
         val bytes = javaClass.getResourceAsStream("/nanidroid.zip")!!.use { it.readBytes() }
@@ -184,6 +186,7 @@ class BundledGhostRepositoryTest {
         assertEquals("5c1c95e3f0c7de16d279c92d8ea5de01e4a80771bb270226588c8d1bd4316c9f", sha256(File(root, "shell/master/surface0000.png").readBytes()))
         assertEquals("f2358bab6b34ac088ff6db3f73e39b9c7143ad627f7015a6efd49aaae7d56d53", sha256(File(root, "shell/master/surface0010.png").readBytes()))
     }
+
     @Test fun startupLocaleUsesFullScriptAndRegionWithHansPriority() {
         val repo = realRepository(temporaryFolder.newFolder())
         val root = repo.ensureInstalled()
@@ -191,14 +194,17 @@ class BundledGhostRepositoryTest {
         val chinese = repo.load(root, Locale.forLanguageTag("zh-TW")).content
         val english = repo.load(root, "en").content
         assertTrue(chinese.contains("歡迎使用"))
-        for (tag in listOf("zh-Hant", "zh-HK", "zh-MO", "zh-Hant-HK", "zh-Hant-MO"))
+        for (tag in listOf("zh-Hant", "zh-HK", "zh-MO", "zh-Hant-HK", "zh-Hant-MO")) {
             assertEquals(chinese, repo.load(root, Locale.forLanguageTag(tag)).content)
-        for (tag in listOf("zh-Hans", "zh-Hans-TW", "zh-CN", "zh", "fr", "ja"))
+        }
+        for (tag in listOf("zh-Hans", "zh-Hans-TW", "zh-CN", "zh", "fr", "ja")) {
             assertEquals(japanese, repo.load(root, Locale.forLanguageTag(tag)).content)
+        }
         assertEquals(english, repo.load(root, Locale.forLanguageTag("en-GB")).content)
         File(root, "ghost/master/zh-TW/content.txt").delete()
         assertEquals(japanese, repo.load(root, Locale.forLanguageTag("zh-Hant")).content)
     }
+
     @Test fun selectedAndFallbackContentReadsAreBoundedAt64KiB() {
         val repo = realRepository(temporaryFolder.newFolder())
         val root = repo.ensureInstalled()
@@ -212,6 +218,7 @@ class BundledGhostRepositoryTest {
         assertThrows { repo.load(root, "en") }
         assertThrows { repo.load(root, "fr") }
     }
+
     @Test fun previousDictionariesRefreshIdempotentlyAndOnlyManagedBytesChange() {
         val repo = realRepository(temporaryFolder.newFolder())
         val root = repo.ensureInstalled()
@@ -220,8 +227,12 @@ class BundledGhostRepositoryTest {
         File(root, "ghost/master/en/content.txt").writeBytes(previous("en"))
         File(root, "ghost/master/ja/content.txt").writeBytes(previous("ja"))
         val zh = File(root, "ghost/master/zh-TW/content.txt").apply { delete() }
-        for (path in listOf("ghost/master/activation", "ghost/master/state.dat", "ghost/master/custom.dll",
-            "ghost/master/en/.nanidroid-dictionary-user.tmp", "unknown.txt")) File(root, path).writeText("preserve:$path")
+        for (path in listOf(
+            "ghost/master/activation", "ghost/master/state.dat", "ghost/master/custom.dll",
+            "ghost/master/en/.nanidroid-dictionary-user.tmp", "unknown.txt"
+        )) {
+            File(root, path).writeText("preserve:$path")
+        }
         val before = snapshot(root).filterKeys { !it.endsWith("/content.txt") }
         assertEquals(root, repo.ensureInstalled())
         assertArrayEquals(expectedEn, File(root, "ghost/master/en/content.txt").readBytes())
@@ -234,11 +245,14 @@ class BundledGhostRepositoryTest {
         assertEquals(updated, snapshot(root))
         assertEquals(timestamp, File(root, "ghost/master/en/content.txt").lastModified())
     }
+
     @Test fun customizedAllLocalesAndDescriptorDisplayNamesRemainAuthoritative() = runTest {
         val repo = realRepository(temporaryFolder.newFolder())
         val root = repo.ensureInstalled()
-        for (locale in listOf("en", "ja", "zh-TW")) File(root, "ghost/master/$locale/content.txt")
-            .writeText("OnMouseClick@r3=0,\\1My tools\\e")
+        for (locale in listOf("en", "ja", "zh-TW")) {
+            File(root, "ghost/master/$locale/content.txt")
+                .writeText("OnMouseClick@r3=0,\\1My tools\\e")
+        }
         val descriptor = File(root, "ghost/master/descript.txt")
         descriptor.writeText("id,nanidroid\nname,Custom name\nshiori,Nanidroid")
         val before = snapshot(root)
@@ -249,12 +263,14 @@ class BundledGhostRepositoryTest {
         assertEquals(204, engine.request(ShioriEvent("OnFirstBoot")).status)
         assertEquals(204, engine.request(ShioriEvent("OnClose")).status)
     }
+
     @Test fun wrongInstallIdentityAndNativeSameNamedTargetsGetNoWrites() {
         for ((install, descriptor) in listOf(
             "type,shell\ndirectory,nanidroid" to "id,nanidroid\nshiori,Nanidroid",
             "type,ghost\ndirectory,unrelated" to "id,nanidroid\nshiori,Nanidroid",
             "type,ghost\ndirectory,nanidroid" to "id,other\nshiori,Nanidroid",
-            "type,ghost\ndirectory,nanidroid" to "id,nanidroid\nshiori,satori.dll")) {
+            "type,ghost\ndirectory,nanidroid" to "id,nanidroid\nshiori,satori.dll"
+        )) {
             val root = temporaryFolder.newFolder()
             val live = File(root, "nanidroid").apply { mkdirs() }
             File(live, "install.txt").writeText(install)
@@ -266,6 +282,7 @@ class BundledGhostRepositoryTest {
             assertEquals(before, snapshot(live))
         }
     }
+
     @Test fun missingAllDictionariesAreAddedWithoutAnInstallMarker() {
         val repo = realRepository(temporaryFolder.newFolder())
         val root = repo.ensureInstalled()
@@ -277,6 +294,7 @@ class BundledGhostRepositoryTest {
         for (locale in listOf("en", "ja", "zh-TW")) assertTrue(File(root, "ghost/master/$locale/content.txt").isFile)
         assertFalse(File(root, "version.txt").exists())
     }
+
     @Test fun refreshIoFailureKeepsReadableInstalledDictionaryAndCanRetry() {
         val directory = temporaryFolder.newFolder()
         val repo = realRepository(directory)
@@ -301,6 +319,7 @@ class BundledGhostRepositoryTest {
         assertThrows { BundledGhostRepository({ ByteArrayInputStream(byteArrayOf(1)) }, directory).ensureInstalled() }
         assertEquals(before, snapshot(root))
     }
+
     @Test fun interruptedMixedRefreshRetriesAndIgnoresOrphanTemporaryFiles() {
         val repo = realRepository(temporaryFolder.newFolder())
         val root = repo.ensureInstalled()
@@ -316,14 +335,16 @@ class BundledGhostRepositoryTest {
         assertEquals("partial", orphan.readText())
         val before = snapshot(root); repo.ensureInstalled(); assertEquals(before, snapshot(root))
     }
+
     @Test fun managedFileAndEscapedParentLinksAreRejected() {
         val directory = temporaryFolder.newFolder()
         val root = realRepository(directory).ensureInstalled()
         val external = temporaryFolder.newFile().apply { writeText("external") }
         val en = File(root, "ghost/master/en/content.txt")
         en.delete()
-        try { Files.createSymbolicLink(en.toPath(), external.toPath()) }
-        catch (unavailable: Exception) { assumeNoException("Host cannot create symlinks", unavailable) }
+        try {
+            Files.createSymbolicLink(en.toPath(), external.toPath())
+        } catch (unavailable: Exception) { assumeNoException("Host cannot create symlinks", unavailable) }
         assertThrows { realRepository(directory).ensureInstalled() }
         assertEquals("external", external.readText())
         Files.delete(en.toPath())
@@ -331,6 +352,7 @@ class BundledGhostRepositoryTest {
         Files.createSymbolicLink(File(root, "ghost/master/en").toPath(), requireNotNull(external.parentFile).toPath())
         assertThrows { realRepository(directory).ensureInstalled() }
     }
+
     @Test fun regularManagedDirectoryCollisionFailsInsteadOfApparentSuccess() {
         val repo = realRepository(temporaryFolder.newFolder())
         val root = repo.ensureInstalled()
@@ -339,7 +361,8 @@ class BundledGhostRepositoryTest {
         assertTrue(path.isDirectory)
     }
     private fun assertThrows(action: () -> Unit) {
-        try { action(); throw AssertionError("Expected invalid archive/content/path to fail") }
-        catch (_: IllegalArgumentException) { }
+        try {
+            action(); throw AssertionError("Expected invalid archive/content/path to fail")
+        } catch (_: IllegalArgumentException) { }
     }
 }

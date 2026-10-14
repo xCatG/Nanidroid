@@ -14,17 +14,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.R
-import androidx.compose.ui.res.stringResource
 
 @Composable
 fun DebugToolsDialog(
     showTouchBounds: Boolean,
     onShowTouchBoundsChange: (Boolean) -> Unit,
-    onDismiss: () -> Unit,
+    onDismiss: () -> Unit
 ) {
     val title = stringResource(R.string.debug_tools_title)
     val bounds = stringResource(R.string.stage_show_bounds)
@@ -37,14 +37,16 @@ fun DebugToolsDialog(
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(bounds, Modifier.weight(1f).padding(end = 12.dp))
-                    Switch(checked = showTouchBounds, onCheckedChange = onShowTouchBoundsChange,
+                    Switch(
+                        checked = showTouchBounds, onCheckedChange = onShowTouchBoundsChange,
                         modifier = Modifier.semantics { contentDescription = bounds }
-                            .testTag("debug-touch-bounds"))
+                            .testTag("debug-touch-bounds")
+                    )
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss, modifier = Modifier.testTag("debug-tools-close")) { Text(close) }
-        },
+        }
     )
 }

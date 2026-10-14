@@ -56,13 +56,13 @@ class HostUiRequestTest {
     private fun assistant(base: BundledGhost) = BuiltInShiori.bundled(base.content, true)
     private suspend fun TestScope.started(
         fixture: Fixture = fixture(), saved: String? = null, boot: Boot = Boot(onboardingAvailable = false), language: String = "en",
-        engine: ShioriEngine = assistant(fixture.base),
+        engine: ShioriEngine = assistant(fixture.base)
     ): GhostRuntime = GhostRuntime(
         { fixture.base }, { BuiltInShiori(it.content) }, boot,
         backgroundScope, InstalledGhostRepository(fixture.root), Last(saved),
         ioDispatcher = StandardTestDispatcher(testScheduler),
         bundledEngineFactory = { engine },
-        elapsedRealtime = { testScheduler.currentTime },
+        elapsedRealtime = { testScheduler.currentTime }
     ).also { it.start(language); it.setResumed(true); runCurrent() }
 
     private fun menu(event: String = "OnNanidroidOpenGhosts") = ShioriReply(200, "\\_q\\q[Tool,$event]\\e")
@@ -83,13 +83,17 @@ class HostUiRequestTest {
         assertNotNull(runtime.action())
         assertEquals(HostUiCommand.GhostExplorer, runtime.claim(runtime.action()!!.requestId()))
     }
+
     @Test fun importedSwitchNameCannotInjectTrustedDeveloperCommand() = runTest {
-        for (name in listOf("Probe\\![open,developer]", "\\\\![open,developer]",
+        for (name in listOf(
+            "Probe\\![open,developer]", "\\\\![open,developer]",
             "\\0\\c\\s[-1]\\q[Injected,OnOther]\\![open,inputbox,x]\\e",
-            "正常な名前\$値", "%selfname\\![open,developer]", "Trailing\\")) {
+            "正常な名前\$値", "%selfname\\![open,developer]", "Trailing\\"
+        )) {
             val fixture = fixture().apply { imported() }
             File(fixture.root, "lookalike/ghost/master/descript.txt").writeText(
-                "charset,UTF-8\nname,$name\nsakura.name,Foreign\nkero.name,Companion\nshiori,Nanidroid")
+                "charset,UTF-8\nname,$name\nsakura.name,Foreign\nkero.name,Companion\nshiori,Nanidroid"
+            )
             val runtime = started(fixture, boot = Boot(true))
             runtime.selectGhost("lookalike"); runCurrent(); runtime.confirmSwitch(); runCurrent()
             advanceTimeBy(10_000); runCurrent()
@@ -111,17 +115,22 @@ class HostUiRequestTest {
         selectTool(runtime)
         assertNotNull(runtime.action())
     }
+
     @Test fun importedBuiltinUsesFullLocaleAndPreservesAuthoredLanguageDirectories() = runTest {
         val fixture = fixture().apply { imported() }
-        for ((directory, text) in listOf("ja" to "Japanese", "zh-TW" to "Traditional",
-            "en" to "English", "fr" to "French")) {
+        for ((directory, text) in listOf(
+            "ja" to "Japanese", "zh-TW" to "Traditional",
+            "en" to "English", "fr" to "French"
+        )) {
             val content = File(fixture.root, "lookalike/ghost/master/$directory/content.txt")
             content.parentFile!!.mkdirs()
             content.writeText("OnFirstBoot,\\_q$text\\e")
         }
-        for ((tag, expected) in listOf("zh-Hant-TW" to "Traditional", "zh-HK" to "Traditional",
+        for ((tag, expected) in listOf(
+            "zh-Hant-TW" to "Traditional", "zh-HK" to "Traditional",
             "zh-MO" to "Traditional", "zh-Hans-TW" to "Japanese", "en-GB" to "English",
-            "fr-FR" to "French")) {
+            "fr-FR" to "French"
+        )) {
             val runtime = started(fixture, saved = "lookalike", language = tag)
             assertEquals(expected, runtime.ready.frame.sakura.text)
         }
@@ -137,10 +146,12 @@ class HostUiRequestTest {
     }
 
     @Test fun periodicHostRequestsRemainBoundedWhileConsumerIsBlocked() = runTest {
-        val runtime = started(engine = engine {
-            if (it.id == "OnSecondChange") ShioriReply(200, "\\![open,configurationdialog,about]\\e")
-            else ShioriReply(204)
-        })
+        val runtime = started(
+            engine = engine {
+                if (it.id == "OnSecondChange") ShioriReply(200, "\\![open,configurationdialog,about]\\e")
+                else ShioriReply(204)
+            }
+        )
         advanceTimeBy(70_000); runCurrent()
         val requests = mutableListOf<HostUiRequest>()
         while (runtime.action() != null) {
@@ -169,6 +180,7 @@ class HostUiRequestTest {
         choose(runtime)
         assertEquals(HostUiCommand.GhostExplorer, runtime.claim(runtime.action()!!.id))
     }
+
     @Test fun claimIsSingleUse() = runTest {
         val runtime = started()
         selectTool(runtime)
@@ -180,6 +192,7 @@ class HostUiRequestTest {
         assertNull(runtime.claim(id))
         assertNull(runtime.action())
     }
+
     @Test fun pauseInvalidatesPendingAction() = runTest {
         val runtime = started()
         selectTool(runtime)
@@ -194,11 +207,15 @@ class HostUiRequestTest {
     }
     private suspend fun TestScope.assertPausedReply(resumeBeforeReply: Boolean) {
         val gate = CompletableDeferred<Unit>()
-        val runtime = started(engine = engine { event -> when (event.id) {
-            "OnFirstBoot", "OnMouseClick" -> menu()
-            "OnNanidroidOpenGhosts" -> { gate.await(); ShioriReply(200, "\\_qOrdinary dialogue\\![open,ghostexplorer]\\e") }
-            else -> ShioriReply(204)
-        } })
+        val runtime = started(
+            engine = engine { event ->
+                when (event.id) {
+                    "OnFirstBoot", "OnMouseClick" -> menu()
+                    "OnNanidroidOpenGhosts" -> { gate.await(); ShioriReply(200, "\\_qOrdinary dialogue\\![open,ghostexplorer]\\e") }
+                    else -> ShioriReply(204)
+                }
+            }
+        )
         choose(runtime)
         runtime.setResumed(false); runCurrent()
         if (resumeBeforeReply) { runtime.setResumed(true); runCurrent() }
@@ -211,8 +228,11 @@ class HostUiRequestTest {
         choose(runtime)
         assertEquals(HostUiCommand.GhostExplorer, runtime.claim(runtime.action()!!.id))
     }
+
     @Test fun replyDuringPauseIsRejected() = runTest { assertPausedReply(false) }
+
     @Test fun replyAfterPauseResumeIsRejected() = runTest { assertPausedReply(true) }
+
     @Test fun bootTouchImportAndClockRepliesCanOpenCommonTools() = runTest {
         val runtime = started(engine = engine { ShioriReply(200, "\\![open,ghostexplorer]\\e") })
         assertNull(runtime.action()) // Startup requested while paused.
@@ -224,33 +244,46 @@ class HostUiRequestTest {
         advanceTimeBy(1_100); runCurrent()
         assertEquals(HostUiCommand.GhostExplorer, runtime.claim(runtime.action()!!.id))
     }
+
     @Test fun closeAndFarewellCannotOpenTools() = runTest {
-        val runtime = started(engine = engine { when (it.id) {
-            "OnClose" -> menu().copy(value = menu().value + "\\![open,ghostexplorer]")
-            "OnNanidroidOpenGhosts" -> ShioriReply(200, "\\_qBye\\![open,ghostexplorer]\\e")
-            else -> ShioriReply(204)
-        } })
+        val runtime = started(
+            engine = engine {
+                when (it.id) {
+                    "OnClose" -> menu().copy(value = menu().value + "\\![open,ghostexplorer]")
+                    "OnNanidroidOpenGhosts" -> ShioriReply(200, "\\_qBye\\![open,ghostexplorer]\\e")
+                    else -> ShioriReply(204)
+                }
+            }
+        )
         runtime.close(); runCurrent(); assertNull(runtime.action())
         choose(runtime); assertNull(runtime.action())
     }
+
     @Test fun delayedReplyAfterSwitchOrReplacementDiscarded() = runTest {
         for (switch in listOf(false, true)) {
             val fixture = fixture().apply { imported() }
             val gate = CompletableDeferred<Unit>()
-            val runtime = started(fixture, engine = engine { when (it.id) {
-                "OnFirstBoot" -> menu()
-                "OnNanidroidOpenGhosts" -> { gate.await(); ShioriReply(200, "\\_qLate\\![open,ghostexplorer]\\e") }
-                "OnMouseClick" -> ShioriReply(200, "\\_qNew\\e")
-                else -> ShioriReply(204)
-            } })
+            val runtime = started(
+                fixture,
+                engine = engine {
+                    when (it.id) {
+                        "OnFirstBoot" -> menu()
+                        "OnNanidroidOpenGhosts" -> { gate.await(); ShioriReply(200, "\\_qLate\\![open,ghostexplorer]\\e") }
+                        "OnMouseClick" -> ShioriReply(200, "\\_qNew\\e")
+                        else -> ShioriReply(204)
+                    }
+                }
+            )
             choose(runtime)
-            if (switch) { runtime.selectGhost("lookalike"); runCurrent(); runtime.confirmSwitch(); runCurrent() }
-            else { runtime.click(0, 0, 0); runCurrent() }
+            if (switch) {
+                runtime.selectGhost("lookalike"); runCurrent(); runtime.confirmSwitch(); runCurrent()
+            } else { runtime.click(0, 0, 0); runCurrent() }
             gate.complete(Unit); runCurrent()
             assertNull(runtime.action())
             assertFalse(runtime.ready.frame.sakura.text.contains("Late"))
         }
     }
+
     @Test fun pendingActionClearedByReplacementSwitchAndClose() = runTest {
         for (operation in listOf("replace", "switch", "close")) {
             val fixture = fixture().apply { imported() }
@@ -268,6 +301,7 @@ class HostUiRequestTest {
             assertNull((runtime.state.value as? StageState.Ready)?.let { runtime.action() })
         }
     }
+
     @Test fun consumedChoiceCannotRepeatAndNewRequestHasNewId() = runTest {
         val runtime = started()
         runtime.click(1, 0, 0); runCurrent(); advanceTimeBy(10_000); runCurrent()
@@ -286,8 +320,10 @@ class HostUiRequestTest {
         val runtime = started(fixture, saved, boot, language)
         val frames = mutableListOf<String>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            runtime.state.collect { state -> if (state is StageState.Ready)
-                frames += state.frame.sakura.text + state.frame.kero.text }
+            runtime.state.collect { state ->
+                if (state is StageState.Ready)
+                    frames += state.frame.sakura.text + state.frame.kero.text
+            }
         }
         advanceTimeBy(20_000); runCurrent()
         val text = runtime.ready.frame.sakura.text + runtime.ready.frame.kero.text
@@ -299,12 +335,15 @@ class HostUiRequestTest {
         assertFalse(boot.onboarding)
         assertEquals(setOf("nanidroid"), boot.activations)
     }
+
     @Test fun freshEnglishInstallHasOneWelcome() = runTest {
         welcome("en", "nanidroid", "Welcome to Nanidroid!", "Tap me for an introduction and help with using the app.")
     }
+
     @Test fun freshFallbackInstallHasOneJapaneseWelcome() = runTest {
         welcome("fr", null, "Nanidroidへようこそ！", "アプリの紹介や使い方を案内します。")
     }
+
     @Test fun existingActivatedInstallGetsReminder() = runTest {
         val boot = Boot(true)
         val runtime = started(saved = "nanidroid", boot = boot)
@@ -313,6 +352,7 @@ class HostUiRequestTest {
         assertFalse(runtime.ready.frame.sakura.text.contains("Welcome to Nanidroid"))
         assertEquals(0, boot.consumed)
     }
+
     @Test fun existingInstalledDefaultFilesUntouched() = runTest {
         val fixture = fixture()
         fun snapshot() = fixture.root.walkTopDown().filter { it.isFile }.associate {
@@ -331,13 +371,17 @@ class HostUiRequestTest {
         val original = fixture()
         val other = Fixture(folder.newFolder(), original.repository, original.base).apply { imported("nanidroid") }
         var trustedLoads = 0
-        val forged = engine { if (it.id == "OnFirstBoot") menu()
-            else ShioriReply(200, "\\![open,developer]\\e") }
-        val runtime = GhostRuntime({ original.base }, { forged }, Boot(onboardingAvailable = false),
+        val forged = engine {
+            if (it.id == "OnFirstBoot") menu()
+            else ShioriReply(200, "\\![open,developer]\\e")
+        }
+        val runtime = GhostRuntime(
+            { original.base }, { forged }, Boot(onboardingAvailable = false),
             backgroundScope, InstalledGhostRepository(other.root), Last("nanidroid"),
             ioDispatcher = StandardTestDispatcher(testScheduler),
             bundledEngineFactory = { trustedLoads++; assistant(it) },
-            elapsedRealtime = { testScheduler.currentTime })
+            elapsedRealtime = { testScheduler.currentTime }
+        )
         runtime.start("en"); runtime.setResumed(true); runCurrent()
         choose(runtime)
         assertEquals(0, trustedLoads)
@@ -346,12 +390,16 @@ class HostUiRequestTest {
 
     @Test fun importedFakeEngineCannotOpenDeveloperTools() = runTest {
         val fixture = fixture().apply { imported() }
-        val forged = engine { if (it.id == "OnFirstBoot") menu()
-            else ShioriReply(200, "\\![open,developer]\\e") }
-        val runtime = GhostRuntime({ fixture.base }, { forged }, Boot(onboardingAvailable = false),
+        val forged = engine {
+            if (it.id == "OnFirstBoot") menu()
+            else ShioriReply(200, "\\![open,developer]\\e")
+        }
+        val runtime = GhostRuntime(
+            { fixture.base }, { forged }, Boot(onboardingAvailable = false),
             backgroundScope, InstalledGhostRepository(fixture.root), Last("lookalike"),
             ioDispatcher = StandardTestDispatcher(testScheduler),
-            bundledEngineFactory = { assistant(it) }, elapsedRealtime = { testScheduler.currentTime })
+            bundledEngineFactory = { assistant(it) }, elapsedRealtime = { testScheduler.currentTime }
+        )
         runtime.start("en"); runtime.setResumed(true); runCurrent()
         choose(runtime)
         assertNull(runtime.action())
@@ -365,12 +413,16 @@ class HostUiRequestTest {
 
     @Test fun delayedReplyAfterCloseIsDiscarded() = runTest {
         val gate = CompletableDeferred<Unit>()
-        val runtime = started(engine = engine { when (it.id) {
-            "OnFirstBoot" -> menu()
-            "OnNanidroidOpenGhosts" -> { gate.await(); ShioriReply(200, "\\![open,ghostexplorer]\\e") }
-            "OnClose" -> ShioriReply(200, "\\_qBye\\e")
-            else -> ShioriReply(204)
-        } })
+        val runtime = started(
+            engine = engine {
+                when (it.id) {
+                    "OnFirstBoot" -> menu()
+                    "OnNanidroidOpenGhosts" -> { gate.await(); ShioriReply(200, "\\![open,ghostexplorer]\\e") }
+                    "OnClose" -> ShioriReply(200, "\\_qBye\\e")
+                    else -> ShioriReply(204)
+                }
+            }
+        )
         choose(runtime)
         runtime.close(); runCurrent()
         gate.complete(Unit); runCurrent()
@@ -381,18 +433,25 @@ class HostUiRequestTest {
     @Test fun allThreeExactToolEventsAreClaimable() = runTest {
         for (action in HostUiCommand.entries) {
             val runtime = started()
-            selectTool(runtime, when (action) {
-                HostUiCommand.GhostExplorer -> "Ghosts"
-                HostUiCommand.About -> "About and licenses"
-                HostUiCommand.Developer -> "Debug tools"
-            })
+            selectTool(
+                runtime,
+                when (action) {
+                    HostUiCommand.GhostExplorer -> "Ghosts"
+                    HostUiCommand.About -> "About and licenses"
+                    HostUiCommand.Developer -> "Debug tools"
+                }
+            )
             assertEquals(action, runtime.claim(runtime.action()!!.id))
         }
     }
 
     @Test fun failedTypedReplyCannotOpenTools() = runTest {
-        val runtime = started(engine = engine { if (it.id == "OnFirstBoot") menu()
-            else ShioriReply(500, "\\![open,ghostexplorer]\\e") })
+        val runtime = started(
+            engine = engine {
+                if (it.id == "OnFirstBoot") menu()
+                else ShioriReply(500, "\\![open,ghostexplorer]\\e")
+            }
+        )
         choose(runtime)
         assertNull(runtime.action())
     }
@@ -400,9 +459,11 @@ class HostUiRequestTest {
     @Test fun ordinaryBundledFactoryUsesOnlyArchiveWelcome() = runTest {
         val fixture = fixture()
         val boot = Boot()
-        val runtime = GhostRuntime({ fixture.base }, { BuiltInShiori(it.content) }, boot,
+        val runtime = GhostRuntime(
+            { fixture.base }, { BuiltInShiori(it.content) }, boot,
             backgroundScope, InstalledGhostRepository(fixture.root), Last("nanidroid"),
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { testScheduler.currentTime })
+            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { testScheduler.currentTime }
+        )
         runtime.start("en"); runtime.setResumed(true); runCurrent()
         assertEquals(1, boot.consumed)
         advanceTimeBy(20_000); runCurrent()
@@ -412,11 +473,15 @@ class HostUiRequestTest {
 
     private suspend fun TestScope.pointerScript(script: String, trustedDebug: Boolean = false): GhostRuntime {
         val fixture = fixture()
-        return started(fixture, engine = if (trustedDebug)
-            BuiltInShiori.bundled("OnMouseClick,$script", true) else engine {
+        return started(
+            fixture,
+            engine = if (trustedDebug)
+                BuiltInShiori.bundled("OnMouseClick,$script", true) else engine {
                 if (it.id == "OnMouseClick") ShioriReply(200, script) else ShioriReply(204)
-            }).also { it.click(0, 0, 0); runCurrent() }
+            }
+        ).also { it.click(0, 0, 0); runCurrent() }
     }
+
     @Test fun commandAfterWaitPublishesWithUnchangedFrame() = runTest {
         val runtime = pointerScript("\\_qSame\\_w[100]\\![open,ghostexplorer]\\_w[1000]\\e")
         val before = runtime.ready
@@ -428,13 +493,16 @@ class HostUiRequestTest {
         assertEquals(HostUiCommand.GhostExplorer, runtime.claim(runtime.action()!!.id))
         assertEquals(emptyList<HostUiCommand>(), runtime.ready.frame.hostCommands)
     }
+
     @Test fun deniedBatchCreatesNoRequest() = runTest {
         val runtime = pointerScript("\\_qBefore\\![open,developer]\\![open,developer]After\\e")
         assertNull(runtime.action())
         assertEquals("BeforeAfter", runtime.ready.frame.sakura.text)
     }
+
     @Test fun orderedRepeatedCommandsHaveIndependentIdsAndClaims() = runTest {
-        val runtime = pointerScript("\\![open,ghostexplorer]\\![open,configurationdialog,about]\\![open,ghostexplorer]\\e")
+        val runtime =
+            pointerScript("\\![open,ghostexplorer]\\![open,configurationdialog,about]\\![open,ghostexplorer]\\e")
         val first = runtime.action()!!
         assertNull(runtime.claim(first.id + 1))
         assertEquals(HostUiCommand.GhostExplorer, StageViewModel(runtime).claimHostUiRequest(first.id))
@@ -447,12 +515,17 @@ class HostUiRequestTest {
         assertEquals(HostUiCommand.GhostExplorer, runtime.claim(third.id))
         assertNull(runtime.action())
     }
+
     @Test fun endingFrameCommandSurvivesNextQueuedScript() = runTest {
-        val runtime = started(engine = engine { when (it.id) {
-            "OnMouseClick" -> ShioriReply(200, "\\_w[100]\\![open,ghostexplorer]\\e")
-            "OnImport" -> ShioriReply(200, "\\_qNext script\\_w[5000]\\e")
-            else -> ShioriReply(204)
-        } })
+        val runtime = started(
+            engine = engine {
+                when (it.id) {
+                    "OnMouseClick" -> ShioriReply(200, "\\_w[100]\\![open,ghostexplorer]\\e")
+                    "OnImport" -> ShioriReply(200, "\\_qNext script\\_w[5000]\\e")
+                    else -> ShioriReply(204)
+                }
+            }
+        )
         runtime.click(0, 0, 0); runCurrent()
         val token = runtime.ready.dialogueToken
         runtime.beginImportEvents()!!.emit("OnImport"); runCurrent()
@@ -462,11 +535,13 @@ class HostUiRequestTest {
         assertEquals("Next script", runtime.ready.frame.sakura.text)
         assertEquals(HostUiCommand.GhostExplorer, runtime.claim(runtime.action()!!.id))
     }
+
     @Test fun releaseAndFakeDefaultDenyDeveloperButKeepSurroundingText() = runTest {
         val fixture = fixture()
         for (candidate in listOf<ShioriEngine>(
             BuiltInShiori.bundled("OnMouseClick,\\_qBefore\\![open,developer]After\\e", false),
-            engine { if (it.id == "OnMouseClick") ShioriReply(200, "\\_qBefore\\![open,developer]After\\e") else ShioriReply(204) })) {
+            engine { if (it.id == "OnMouseClick") ShioriReply(200, "\\_qBefore\\![open,developer]After\\e") else ShioriReply(204) }
+        )) {
             val runtime = started(fixture, engine = candidate)
             runtime.click(0, 0, 0); runCurrent()
             assertNull(runtime.action())
@@ -475,12 +550,17 @@ class HostUiRequestTest {
         val debug = pointerScript("\\![open,developer]\\e", trustedDebug = true)
         assertEquals(HostUiCommand.Developer, debug.claim(debug.action()!!.id))
     }
+
     @Test fun queuedAndWaitingScriptsFromBeforePauseCannotOpenDialogsAfterResume() = runTest {
-        val runtime = started(engine = engine { when (it.id) {
-            "OnMouseClick" -> ShioriReply(200, "\\_qOld text\\_w[200]\\![open,ghostexplorer]\\e")
-            "OnImport" -> ShioriReply(200, "\\_qQueued text\\![open,configurationdialog,about]\\e")
-            else -> ShioriReply(204)
-        } })
+        val runtime = started(
+            engine = engine {
+                when (it.id) {
+                    "OnMouseClick" -> ShioriReply(200, "\\_qOld text\\_w[200]\\![open,ghostexplorer]\\e")
+                    "OnImport" -> ShioriReply(200, "\\_qQueued text\\![open,configurationdialog,about]\\e")
+                    else -> ShioriReply(204)
+                }
+            }
+        )
         runtime.click(0, 0, 0); runCurrent()
         runtime.beginImportEvents()!!.emit("OnImport"); runCurrent()
         runtime.setResumed(false); runCurrent()
@@ -491,13 +571,17 @@ class HostUiRequestTest {
         runtime.click(0, 0, 0); runCurrent(); advanceTimeBy(250); runCurrent()
         assertEquals(HostUiCommand.GhostExplorer, runtime.claim(runtime.action()!!.id))
     }
+
     @Test fun importReplyEpochTransportDeniesOldAndPausedRequests() = runTest {
         for (requestPaused in listOf(false, true)) {
             val gate = CompletableDeferred<Unit>()
-            val runtime = started(engine = engine {
-                if (it.id == "OnImport") { gate.await(); ShioriReply(200, "\\_qValid text\\![open,ghostexplorer]\\e") }
-                else ShioriReply(204)
-            })
+            val runtime = started(
+                engine = engine {
+                    if (it.id == "OnImport") {
+                        gate.await(); ShioriReply(200, "\\_qValid text\\![open,ghostexplorer]\\e")
+                    } else ShioriReply(204)
+                }
+            )
             val sink = runtime.beginImportEvents()!!
             if (requestPaused) { runtime.setResumed(false); runCurrent() }
             sink.emit("OnImport"); runCurrent()
@@ -510,13 +594,18 @@ class HostUiRequestTest {
             assertEquals(HostUiCommand.GhostExplorer, runtime.claim(runtime.action()!!.id))
         }
     }
+
     @Test fun requestsInitiatedWhilePausedKeepTextWithoutHostDelivery() = runTest {
         val gate = CompletableDeferred<Unit>()
-        val runtime = started(engine = engine { when (it.id) {
-            "OnFirstBoot" -> menu("OnAnswer")
-            "OnAnswer" -> { gate.await(); ShioriReply(200, "\\_qAnswer\\![open,ghostexplorer]\\e") }
-            else -> ShioriReply(204)
-        } })
+        val runtime = started(
+            engine = engine {
+                when (it.id) {
+                    "OnFirstBoot" -> menu("OnAnswer")
+                    "OnAnswer" -> { gate.await(); ShioriReply(200, "\\_qAnswer\\![open,ghostexplorer]\\e") }
+                    else -> ShioriReply(204)
+                }
+            }
+        )
         runtime.setResumed(false); runCurrent()
         choose(runtime)
         runtime.setResumed(true); runCurrent()
@@ -524,28 +613,41 @@ class HostUiRequestTest {
         assertEquals("Answer", runtime.ready.frame.sakura.text)
         assertNull(runtime.action())
     }
+
     @Test fun importReplyAfterExplicitReplacementKeepsTextWithoutHostDelivery() = runTest {
         val gate = CompletableDeferred<Unit>()
-        val runtime = started(engine = engine { when (it.id) {
-            "OnImport" -> { gate.await(); ShioriReply(200, "\\_qImport text\\![open,ghostexplorer]\\e") }
-            "OnMouseClick" -> ShioriReply(200, "\\_qReplacement\\e")
-            else -> ShioriReply(204)
-        } })
+        val runtime = started(
+            engine = engine {
+                when (it.id) {
+                    "OnImport" -> { gate.await(); ShioriReply(200, "\\_qImport text\\![open,ghostexplorer]\\e") }
+                    "OnMouseClick" -> ShioriReply(200, "\\_qReplacement\\e")
+                    else -> ShioriReply(204)
+                }
+            }
+        )
         runtime.beginImportEvents()!!.emit("OnImport"); runCurrent()
         runtime.click(0, 0, 0); runCurrent()
         gate.complete(Unit); runCurrent(); advanceTimeBy(2_100); runCurrent()
         assertEquals("Import text", runtime.ready.frame.sakura.text)
         assertNull(runtime.action())
     }
+
     @Test fun delayedInputAndSurfaceRepliesCarryRequestEpoch() = runTest {
         for (id in listOf("OnUserInput", "OnSurfaceChange")) {
             val gate = CompletableDeferred<Unit>()
-            val runtime = started(engine = engine { when (it.id) {
-                "OnMouseClick" -> ShioriReply(200, if (id == "OnUserInput")
-                    "\\![open,inputbox,answer]\\e" else "\\s1\\_w[1000]\\e")
-                id -> { gate.await(); ShioriReply(200, "\\_qReply\\![open,ghostexplorer]\\e") }
-                else -> ShioriReply(204)
-            } })
+            val runtime = started(
+                engine = engine {
+                    when (it.id) {
+                        "OnMouseClick" -> ShioriReply(
+                            200,
+                            if (id == "OnUserInput")
+                                "\\![open,inputbox,answer]\\e" else "\\s1\\_w[1000]\\e"
+                        )
+                        id -> { gate.await(); ShioriReply(200, "\\_qReply\\![open,ghostexplorer]\\e") }
+                        else -> ShioriReply(204)
+                    }
+                }
+            )
             runtime.click(0, 0, 0); runCurrent()
             if (id == "OnUserInput") { runtime.submitInput(runtime.ready.input!!.token, "test"); runCurrent() }
             runtime.setResumed(false); runCurrent(); runtime.setResumed(true); runCurrent()
@@ -554,6 +656,7 @@ class HostUiRequestTest {
             assertEquals("Reply", runtime.ready.frame.sakura.text)
         }
     }
+
     @Test fun newSessionIdsCannotConsumeAnotherSessionsRequests() = runTest {
         val fixture = fixture().apply { imported() }
         val runtime = started(fixture)
@@ -567,6 +670,7 @@ class HostUiRequestTest {
         assertNull(runtime.claim(old.id))
         assertEquals(HostUiCommand.GhostExplorer, runtime.claim(current.id))
     }
+
     @Test fun nativeSessionCanOpenCommonCommandsAndCannotOpenDeveloper() = runTest {
         val fixture = fixture().apply { imported("native") }
         File(fixture.root, "native/ghost/master/descript.txt").writeText("name,Native\nshiori,satori.dll")
@@ -577,14 +681,18 @@ class HostUiRequestTest {
                 return NativeLoadResult.Loaded(NativeLease(20))
             }
             override suspend fun request(lease: NativeLease, event: ShioriEvent) =
-                if (event.id == "OnMouseClick") ShioriReply(200,
-                    "\\_qBefore\\![open,developer]After\\![open,ghostexplorer]\\![open,configurationdialog,about]\\e") else ShioriReply(204)
+                if (event.id == "OnMouseClick") ShioriReply(
+                    200,
+                    "\\_qBefore\\![open,developer]After\\![open,ghostexplorer]\\![open,configurationdialog,about]\\e"
+                ) else ShioriReply(204)
             override suspend fun unload(lease: NativeLease) = NativeUnloadResult.Unloaded
             override suspend fun shutdown(lease: NativeLease, notifyDestroy: Boolean, timeoutMillis: Long) = NativeShutdownResult.Completed
         }
-        val runtime = GhostRuntime({ fixture.base }, { BuiltInShiori(it.content) }, Boot(), backgroundScope,
+        val runtime = GhostRuntime(
+            { fixture.base }, { BuiltInShiori(it.content) }, Boot(), backgroundScope,
             InstalledGhostRepository(fixture.root), Last("native"), port,
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { testScheduler.currentTime })
+            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { testScheduler.currentTime }
+        )
         runtime.start("en"); runtime.setResumed(true); runCurrent()
         runtime.click(0, 0, 0); runCurrent()
         assertEquals("BeforeAfter", runtime.ready.frame.sakura.text)

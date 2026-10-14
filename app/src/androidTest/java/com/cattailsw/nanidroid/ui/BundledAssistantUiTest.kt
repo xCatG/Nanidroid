@@ -1,31 +1,33 @@
 package com.cattailsw.nanidroid.ui
 
-import android.view.KeyEvent
 import android.app.Activity
 import android.app.Application
-import android.os.Bundle
-import android.graphics.Bitmap
-import android.system.Os
 import android.content.ContextWrapper
-import android.content.pm.ApplicationInfo
 import android.content.pm.ActivityInfo
+import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.os.Bundle
+import android.os.LocaleList
+import android.system.Os
+import android.view.KeyEvent
 import android.view.View
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.collectAsState
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.test.captureToImage
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -33,28 +35,26 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.click
+import androidx.lifecycle.lifecycleScope
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.lifecycle.lifecycleScope
 import com.cattailsw.nanidroid.MainActivity
 import com.cattailsw.nanidroid.NanidroidApplication
 import com.cattailsw.nanidroid.R
-import android.os.LocaleList
 import com.cattailsw.nanidroid.data.BootStateStore
 import com.cattailsw.nanidroid.engine.BuiltInShiori
-import com.cattailsw.nanidroid.runtime.HostUiCommand
 import com.cattailsw.nanidroid.engine.ShioriEvent
 import com.cattailsw.nanidroid.ghost.BundledGhostRepository
-import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
 import com.cattailsw.nanidroid.ghost.CachedSurfaceImageLoader
+import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
 import com.cattailsw.nanidroid.runtime.GhostRuntime
-import com.cattailsw.nanidroid.runtime.StageState
+import com.cattailsw.nanidroid.runtime.HostUiCommand
 import com.cattailsw.nanidroid.runtime.HostUiRequest
 import com.cattailsw.nanidroid.runtime.ScriptPlayer
-import java.io.File
+import com.cattailsw.nanidroid.runtime.StageState
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.io.InputStream
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
@@ -152,8 +152,10 @@ class BundledAssistantUiTest {
                 actualView = LocalView.current
                 CompositionLocalProvider(LocalView provides (policyView.value ?: actualView)) {
                     NanidroidTheme {
-                        GhostStage(stage.value, CachedSurfaceImageLoader(), {}, {}, {},
-                            onClaimHostUiRequest = { HostUiCommand.Developer })
+                        GhostStage(
+                            stage.value, CachedSurfaceImageLoader(), {}, {}, {},
+                            onClaimHostUiRequest = { HostUiCommand.Developer }
+                        )
                     }
                 }
             }
@@ -216,8 +218,10 @@ class BundledAssistantUiTest {
         }
         compose.waitUntil(10_000) {
             var rotated = false
-            scenario.onActivity { rotated = it !== original &&
-                it.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE }
+            scenario.onActivity {
+                rotated = it !== original &&
+                    it.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            }
             rotated
         }
         waitForStage()
@@ -234,17 +238,21 @@ class BundledAssistantUiTest {
         scenario.onActivity { activity ->
             activity.setContent {
                 NanidroidTheme {
-                    GhostStage(runtime.state.collectAsState().value, CachedSurfaceImageLoader(), {}, {}, {},
+                    GhostStage(
+                        runtime.state.collectAsState().value, CachedSurfaceImageLoader(), {}, {}, {},
                         interactionActive = active.value,
-                        onClaimHostUiRequest = runtime::claimHostUiRequest)
+                        onClaimHostUiRequest = runtime::claimHostUiRequest
+                    )
                 }
             }
             runtime.click(1, 0, 0)
         }
         compose.waitUntil(10_000) { ready(runtime).choices[1].orEmpty().any { it.label == "About and licenses" } }
         scenario.onActivity { runtime.choose(ready(runtime).choices[1]!!.single { it.label == "About and licenses" }.token) }
-        compose.waitUntil(5_000) { ready(runtime).hostUiRequest != null ||
-            compose.onAllNodes(hasTestTag("about-dialog")).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) {
+            ready(runtime).hostUiRequest != null ||
+                compose.onAllNodes(hasTestTag("about-dialog")).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.waitForIdle()
         compose.onNodeWithTag("about-dialog").assertDoesNotExist()
         assertTrue("Inactive UI consumed the action", ready(runtime).hostUiRequest != null)
@@ -284,6 +292,7 @@ class BundledAssistantUiTest {
         compose.onNodeWithTag("ghosts-action").performClick()
         compose.onNodeWithContentDescription("Close Ghosts").assertIsDisplayed()
     }
+
     @Test fun importedSwitchNameStaysLiteralOnTrustedDefaultReturn() =
         withAssistant(foreignName = "Probe\\![open,developer]") { scenario, runtime ->
             val name = "Probe\\![open,developer]"
@@ -359,11 +368,15 @@ class BundledAssistantUiTest {
         localizedMenus("en-US", "What is Nanidroid?", "Ghosts", "Debug tools", "Show touch bounds", "Close")
     }
 
-    @Test fun japaneseStartupMenusAndDebugResources() = localizedMenus("ja-JP",
-        "Nanidroidとは？", "ゴースト管理", "デバッグツール", "タッチ範囲を表示", "閉じる")
+    @Test fun japaneseStartupMenusAndDebugResources() = localizedMenus(
+        "ja-JP",
+        "Nanidroidとは？", "ゴースト管理", "デバッグツール", "タッチ範囲を表示", "閉じる"
+    )
 
-    @Test fun traditionalChineseStartupMenusAndDebugResources() = localizedMenus("zh-TW",
-        "Nanidroid 是什麼？", "幽靈管理", "開發人員工具", "顯示觸控範圍", "關閉")
+    @Test fun traditionalChineseStartupMenusAndDebugResources() = localizedMenus(
+        "zh-TW",
+        "Nanidroid 是什麼？", "幽靈管理", "開發人員工具", "顯示觸控範圍", "關閉"
+    )
 
     @Test fun androidManagedFileAndParentSymlinksAreRejected() {
         val app = ApplicationProvider.getApplicationContext<NanidroidApplication>()
@@ -391,8 +404,10 @@ class BundledAssistantUiTest {
         } finally { root.deleteRecursively() }
     }
 
-    private fun localizedMenus(tag: String, help: String, ghosts: String, debug: String,
-        bounds: String, close: String) = withAssistant(localeTag = tag) { _, runtime ->
+    private fun localizedMenus(
+        tag: String, help: String, ghosts: String, debug: String,
+        bounds: String, close: String
+    ) = withAssistant(localeTag = tag) { _, runtime ->
         compose.onNodeWithTag("sakura").performTouchInput { click() }
         choice(help)
         capture("$tag-help", runtime)
@@ -486,16 +501,20 @@ class BundledAssistantUiTest {
     private fun magentaBorderPixels(): Int {
         val pixels = compose.onNodeWithTag("sakura").captureToImage().toPixelMap()
         var count = 0
-        for (y in 0 until pixels.height) for (x in 0 until pixels.width) {
-            val pixel = pixels[x, y]
-            if (pixel.red > 0.95f && pixel.blue > 0.95f && pixel.green < 0.05f) count++
+        for (y in 0 until pixels.height) {
+            for (x in 0 until pixels.width) {
+                val pixel = pixels[x, y]
+                if (pixel.red > 0.95f && pixel.blue > 0.95f && pixel.green < 0.05f) count++
+            }
         }
         return count
     }
 
-    private fun withAssistant(debugEnabled: Boolean = true, localeTag: String = "en-US", foreignName: String = "Other",
+    private fun withAssistant(
+        debugEnabled: Boolean = true, localeTag: String = "en-US", foreignName: String = "Other",
         openArchive: (NanidroidApplication) -> InputStream = { it.assets.open("nanidroid.zip") },
-        block: (ActivityScenario<MainActivity>, GhostRuntime) -> Unit) {
+        block: (ActivityScenario<MainActivity>, GhostRuntime) -> Unit
+    ) {
         val app = ApplicationProvider.getApplicationContext<NanidroidApplication>()
         val previousLocale = Locale.getDefault()
         val previousLocaleList = LocaleList.getDefault()
@@ -515,9 +534,12 @@ class BundledAssistantUiTest {
                 val resources = activity.resources
                 localizedActivityResources += resources
                 @Suppress("DEPRECATION")
-                resources.updateConfiguration(Configuration(resources.configuration).apply {
-                    setLocales(LocaleList(locale))
-                }, resources.displayMetrics)
+                resources.updateConfiguration(
+                    Configuration(resources.configuration).apply {
+                        setLocales(LocaleList(locale))
+                    },
+                    resources.displayMetrics
+                )
             }
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
             override fun onActivityStarted(activity: Activity) = Unit
@@ -532,33 +554,43 @@ class BundledAssistantUiTest {
             LocaleList.setDefault(LocaleList(locale))
             app.registerActivityLifecycleCallbacks(localeCallbacks)
             @Suppress("DEPRECATION")
-            app.resources.updateConfiguration(Configuration(previousConfiguration).apply {
-                setLocales(LocaleList(locale))
-            }, app.resources.displayMetrics)
+            app.resources.updateConfiguration(
+                Configuration(previousConfiguration).apply {
+                    setLocales(LocaleList(locale))
+                },
+                app.resources.displayMetrics
+            )
             check(root.mkdir()) { "Cannot create owned assistant fixture directory" }
             rootCreated = true
             val repository = BundledGhostRepository({ openArchive(app) }, root)
             val installed = repository.ensureInstalled()
             File(installed, "ghost/master/en/content.txt").appendText(
                 "\nOnUiBatch,\\![open,ghostexplorer]\\![open,configurationdialog,about]\\e\n" +
-                "OnUiRepeat,\\![open,configurationdialog,about]\\![open,configurationdialog,about]\\e\n" +
-                "OnUiInput,\\![open,configurationdialog,about]\\![open,inputbox,answer]\\e\n")
+                    "OnUiRepeat,\\![open,configurationdialog,about]\\![open,configurationdialog,about]\\e\n" +
+                    "OnUiInput,\\![open,configurationdialog,about]\\![open,inputbox,answer]\\e\n"
+            )
             val base = repository.load(installed, locale)
             val master = File(root, "other/ghost/master").apply { mkdirs() }
             File(master, "descript.txt").writeText("name,$foreignName\nsakura.name,Other guide\nkero.name,Other companion\nshiori,Nanidroid")
             File(master, "en").mkdirs()
-            File(master, "en/content.txt").writeText("OnFirstBoot,\\_q\\0Other ghost\\e\nOnBoot,\\_q\\0Other ghost\\e\n" +
-                "OnUiOrdinary,\\![open,ghostexplorer]\\![open,configurationdialog,about]\\![open,developer]\\e\n")
+            File(master, "en/content.txt").writeText(
+                "OnFirstBoot,\\_q\\0Other ghost\\e\nOnBoot,\\_q\\0Other ghost\\e\n" +
+                    "OnUiOrdinary,\\![open,ghostexplorer]\\![open,configurationdialog,about]\\![open,developer]\\e\n"
+            )
             val shell = File(root, "other/shell/master").apply { mkdirs() }
             base.surfaces.forEach { (id, image) -> image.copyTo(File(shell, "surface$id.png")) }
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { fixtureScope = it }
-            val runtime = GhostRuntime({ base }, { BuiltInShiori(it.content) }, object : BootStateStore {
-                override suspend fun recordActivation(directoryId: String) = false
-                override suspend fun consumeOnboarding() = false
-            }, scope, installedGhosts = InstalledGhostRepository(root),
+            val runtime = GhostRuntime(
+                { base }, { BuiltInShiori(it.content) },
+                object : BootStateStore {
+                    override suspend fun recordActivation(directoryId: String) = false
+                    override suspend fun consumeOnboarding() = false
+                },
+                scope, installedGhosts = InstalledGhostRepository(root),
                 bundledEngineFactory = { BuiltInShiori.bundled(it.content, debugEnabled) },
                 // Advance the real script player promptly; assets, routes and dialogue tokens remain real.
-                elapsedRealtime = { android.os.SystemClock.elapsedRealtime() * 20 })
+                elapsedRealtime = { android.os.SystemClock.elapsedRealtime() * 20 }
+            )
             runtimeField.set(app, lazy { runtime })
             runtimeReplaced = true
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -576,9 +608,12 @@ class BundledAssistantUiTest {
                 // Activity Resources can be reused on the next launch after this Activity closes.
                 localizedActivityResources.forEach { resources ->
                     @Suppress("DEPRECATION")
-                    resources.updateConfiguration(Configuration(resources.configuration).apply {
-                        setLocales(previousConfiguration.locales)
-                    }, resources.displayMetrics)
+                    resources.updateConfiguration(
+                        Configuration(resources.configuration).apply {
+                            setLocales(previousConfiguration.locales)
+                        },
+                        resources.displayMetrics
+                    )
                 }
                 LocaleList.setDefault(previousLocaleList)
                 Locale.setDefault(previousLocale)

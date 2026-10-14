@@ -1,8 +1,8 @@
 package com.cattailsw.nanidroid.runtime
 
 import com.cattailsw.nanidroid.ghost.GhostDescriptor
-import java.io.File
 import com.cattailsw.nanidroid.ghost.ShellCatalog
+import java.io.File
 
 sealed interface StageState {
     data object Loading : StageState
@@ -19,7 +19,7 @@ sealed interface StageState {
         val choices: Map<Int, List<PresentedChoice>> = emptyMap(),
         val input: PresentedInput? = null,
         val dialogueToken: DialogueToken? = null,
-        val hostUiRequest: HostUiRequest? = null,
+        val hostUiRequest: HostUiRequest? = null
     ) : StageState
     data class Error(val message: String) : StageState
     data object Finished : StageState
