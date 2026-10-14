@@ -2,6 +2,7 @@ plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
+  alias(libs.plugins.ktlint)
 }
 
 android {
@@ -90,4 +91,9 @@ dependencies {
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.espresso.core)
 
+}
+
+ktlint {
+  // Existing violations are grandfathered; only new ones fail. Regenerate with ktlintGenerateBaseline.
+  baseline.set(file("config/ktlint/baseline.xml"))
 }
