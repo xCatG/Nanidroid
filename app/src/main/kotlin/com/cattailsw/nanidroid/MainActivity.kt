@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
                 else -> Unit
             }
         })
-        lifecycleScope.launch { viewModel.start(resources.configuration.locales[0].language) }
+        lifecycleScope.launch { viewModel.start(resources.configuration.locales[0].toLanguageTag()) }
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
             val importState by viewModel.importState.collectAsStateWithLifecycle()

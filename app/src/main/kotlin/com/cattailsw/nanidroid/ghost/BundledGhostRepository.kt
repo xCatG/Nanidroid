@@ -74,13 +74,7 @@ class BundledGhostRepository(
         val install = DescriptorReader.read(File(root, "install.txt").readBytes())
         require(install["type"] == "ghost" && install["directory"] == "nanidroid")
         val descriptor = DescriptorReader.read(File(root, "ghost/master/descript.txt").readBytes())
-        val selected = when {
-            locale.script.equals("Hans", true) -> "ja"
-            locale.language == "en" -> "en"
-            locale.language == "zh" && (locale.script.equals("Hant", true) ||
-                locale.country in setOf("TW", "HK", "MO")) -> "zh-TW"
-            else -> "ja"
-        }
+        val selected = BuiltInDictionaryLocale.bundledFolder(locale)
         val requestedContent = File(root, "ghost/master/$selected/content.txt")
         val contentFile = requestedContent.takeIf { it.isFile }
             ?: File(root, "ghost/master/ja/content.txt")

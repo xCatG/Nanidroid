@@ -111,6 +111,49 @@ class HostUiRequestTest {
         selectTool(runtime)
         assertNotNull(runtime.action())
     }
+    @Test fun importedBuiltinUsesFullLocaleAndPreservesAuthoredLanguageDirectories() = runTest {
+        for ((tag, expected) in listOf("zh-Hant-TW" to "Traditional", "zh-HK" to "Traditional",
+            "zh-MO" to "Traditional", "zh-Hans-TW" to "Japanese", "en-GB" to "English",
+            "fr-FR" to "French")) {
+            val fixture = fixture().apply { imported() }
+            for ((directory, text) in listOf("ja" to "Japanese", "zh-TW" to "Traditional",
+                "en" to "English", "fr" to "French")) {
+                val content = File(fixture.root, "lookalike/ghost/master/$directory/content.txt")
+                content.parentFile!!.mkdirs()
+                content.writeText("OnFirstBoot,\\_q$text\\e")
+            }
+            val runtime = started(fixture, saved = "lookalike", language = tag)
+            assertEquals(expected, runtime.ready.frame.sakura.text)
+        }
+    }
+
+    @Test fun periodicHostRequestsRemainBoundedWhileConsumerIsBlocked() = runTest {
+        val runtime = started(engine = engine {
+            if (it.id == "OnSecondChange") ShioriReply(200, "\\![open,configurationdialog,about]\\e")
+            else ShioriReply(204)
+        })
+        advanceTimeBy(70_000); runCurrent()
+        val requests = mutableListOf<HostUiRequest>()
+        while (runtime.action() != null) {
+            requests += runtime.action()!!
+            assertEquals(HostUiCommand.About, runtime.claim(requests.last().id))
+        }
+        assertEquals(32, requests.size)
+        assertEquals(requests.size, requests.map { it.id }.distinct().size)
+        advanceTimeBy(1_000); runCurrent()
+        assertTrue(runtime.action()!!.id > requests.last().id)
+    }
+
+    @Test fun oneScriptCannotFloodHostFifoOrLoseRetainedOrderAndText() = runTest {
+        val commands = "\\![open,ghostexplorer]\\![open,configurationdialog,about]"
+        val runtime = pointerScript("\\_qBefore${commands.repeat(100)}After\\e")
+        advanceTimeBy(1_000); runCurrent()
+        assertEquals("BeforeAfter", runtime.ready.frame.sakura.text)
+        val retained = mutableListOf<HostUiCommand?>()
+        while (runtime.action() != null) retained += runtime.claim(runtime.action()!!.id)
+        assertEquals(List(32) { if (it % 2 == 0) HostUiCommand.GhostExplorer else HostUiCommand.About }, retained)
+    }
+
     @Test fun importedBuiltinCanOpenCommonTools() = runTest {
         val fixture = fixture().apply { imported() }
         val runtime = started(fixture, saved = "lookalike")

@@ -17,6 +17,7 @@ import com.cattailsw.nanidroid.engine.ShioriMethod
 import com.cattailsw.nanidroid.engine.ShioriReply
 import com.cattailsw.nanidroid.engine.UnsupportedShiori
 import com.cattailsw.nanidroid.ghost.BundledGhost
+import com.cattailsw.nanidroid.ghost.BuiltInDictionaryLocale
 import com.cattailsw.nanidroid.ghost.GhostDescriptor
 import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
 import com.cattailsw.nanidroid.ghost.NativeProfileDirectory
@@ -26,6 +27,7 @@ import com.cattailsw.nanidroid.ghost.SurfaceCollisionHitTest
 import kotlin.random.Random
 import java.io.File
 import java.nio.charset.Charset
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -749,7 +751,7 @@ class GhostRuntime(
             val target = requireNotNull(target)
             try {
                 val content = withContext(ioDispatcher) {
-                    val locale = language.takeIf { it.matches(Regex("[A-Za-z]{2,8}")) } ?: "ja"
+                    val locale = BuiltInDictionaryLocale.importedFolder(Locale.forLanguageTag(language))
                     val requested = File(target.masterPath, "$locale/content.txt")
                     val file = requested.takeIf { it.isFile } ?: File(target.masterPath, "ja/content.txt")
                     file.readText(Charsets.UTF_8)
@@ -1147,9 +1149,11 @@ class GhostRuntime(
         val prior = session.frame
         val headBefore = session.hostRequests.firstOrNull()?.request
         if (session.playerDeliveryEpoch == actionDeliveryEpoch) {
-            playback.hostCommands.filter { commandAllowed(session, it) }.forEach { command ->
-                session.hostRequests.addLast(PendingHostRequest(HostUiRequest(++nextActionId, command),
-                    session.replacementGeneration, actionDeliveryEpoch))
+            for (command in playback.hostCommands) {
+                if (session.hostRequests.size < MAX_PENDING_HOST_REQUESTS && commandAllowed(session, command)) {
+                    session.hostRequests.addLast(PendingHostRequest(HostUiRequest(++nextActionId, command),
+                        session.replacementGeneration, actionDeliveryEpoch))
+                }
             }
         }
         session.frame = playback.copy(
@@ -1348,6 +1352,8 @@ class GhostRuntime(
     )
 
     private companion object {
+        // Retain the reached FIFO prefix; excess requests cannot trap the UI in an unbounded backlog.
+        const val MAX_PENDING_HOST_REQUESTS = 32
         val NATIVE_KINDS = setOf(EngineKind.SATORI, EngineKind.KAWARI, EngineKind.YAYA)
         val EMPTY_FRAME = PlaybackFrame(
             SpeakerFrame(0, true, "", false), SpeakerFrame(10, true, "", false), true
