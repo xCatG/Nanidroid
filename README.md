@@ -6,6 +6,31 @@ includes the bundled Nanidroid ghost, document-picker NAR import, ghost selectio
 retained Satori/Kawari/YAYA engines, supported SakuraScript dialogue and
 interactions, surfaces/animations, and offline About/license notices.
 
+The bundled archive owns the characters' dialogue, tap mapping and menu choices,
+while retaining the original artwork. Tap 郭嘉榆 for an introduction and help with importing,
+switching, touch and dialogue controls. Tap ドロイド君 for Ghosts, About and licenses,
+and app tools. The first boot explains both roles; later boots give a short
+reminder. Dialogue uses English for `en`, Traditional Chinese for Chinese Hant
+or TW/HK/MO locales, and Japanese otherwise; explicit Hans uses Japanese.
+The dialogue locale is selected at application process startup. Device language
+changes apply to dialogue after restarting the app process. Android dialog labels
+use normal resource selection. Imported ghosts keep their own interactions.
+
+Existing built-in installs refresh only recognized previous shipped dictionaries
+and add missing English, Japanese and Traditional Chinese tables. Customized
+dictionaries, activation markers, saved state and unknown files are preserved.
+Customized old tables may lack newer interactions; the installed content remains
+authoritative. Ghosts and About SakuraScript commands are available to any active
+ghost; developer commands require the verified default ghost and debug policy.
+Host dialog requests are delivered once, in script order, when the stage is active
+and its current modal has closed. Replacing the dialogue or changing the ghost
+invalidates pending requests from the old dialogue.
+
+Debug builds also offer a small Debug tools dialog with the existing Show touch
+bounds toggle and Close button. Both entry and execution require the installed
+application's debuggable flag. Event injection, arbitrary script execution,
+request logs and native diagnostics are outside this initial panel.
+
 The [approved baseline](docs/superpowers/specs/2026-09-22-nanidroid-baseline-spec.md)
 and [design](docs/superpowers/specs/2026-09-22-blind-recreation-design.md) record the
 replacement's supported subset. The replacement phase is complete; this checkout
@@ -33,6 +58,8 @@ release-readiness claim. [Testing guidance](docs/testing.md) identifies fixture
 requirements and historical results. Use disposable emulators with explicit
 serials for focused flows; do not treat fixture skips as passes. For each change,
 run relevant validation and record current evidence separately from historical results.
+The [default ghost design](docs/superpowers/specs/2026-10-11-built-in-shiori-cleanup-design.md) and [acceptance record](docs/testing/2026-10-11-built-in-shiori-cleanup.md) describe archive-owned dialogue, host commands, verification and device evidence. Device language changes still require a process restart
+to reload built-in dialogue; this cleanup does not add live dialogue translation.
 
 ## Data and accepted design decisions
 
@@ -74,6 +101,6 @@ upload-key and release CI setup are the author's separate release work.
 Nanidroid and its bundled ghost are attributed to CatTail Software LLC; the
 original project is [xCatG/Nanidroid](https://github.com/xCatG/Nanidroid).
 The replacement integration retained the target `LICENSE.txt` verbatim, all 297
-pinned native files and their embedded notices, the unchanged bundled archive,
+pinned native files and their embedded notices, the bundled artwork and readme,
 and 19 offline notice assets. [Notice inventory](docs/testing/notice-inventory.md) records their
 provenance. This inventory is not a legal-compliance determination.

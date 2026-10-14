@@ -2,6 +2,150 @@
   "schemaVersion": 1,
   "methods": [
     {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "importedSwitchNameStaysLiteralOnTrustedDefaultReturn",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Debug APK; invocation-owned installed foreign descriptor carrying a developer tag; real bundled engine/runtime/MainActivity return to already activated default",
+      "reason": "Foreign switch name stays literal and cannot open Developer under receiving default privilege; authored developer choice still works"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "ghostsThenAboutPresentsAfterDismissal",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "repeatedHostCommandPresentsTwice",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "hostRequestWaitsForExistingInputModal",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "ordinaryGhostOpensCommonDialogsAndRejectsDeveloper",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "englishStartupMenusAndDebugResources",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "japaneseStartupMenusAndDebugResources",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "traditionalChineseStartupMenusAndDebugResources",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "androidManagedFileAndParentSymlinksAreRejected",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",
+      "reason": "Archive-owned host commands, locale resources, or Android repository preservation regression"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "inactiveStageDoesNotClaimUntilActive",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled archive with authored dictionaries and Android debug dialog resources; invocation-owned real runtime cache fixture and activity composition; no private fixtures",
+      "reason": "Inactive UI retains a real pending action until interaction is active, then claims it once"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "sakuraTapShowsHelpAndTopicNavigation",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled archive with authored dictionaries and Android debug dialog resources; invocation-owned cache fixture, real MainActivity/runtime, no private fixtures",
+      "reason": "Rendered assistant help routing and topic navigation"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "droidChoicesOpenGhostsAndAbout",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled archive with authored dictionaries and Android debug dialog resources; invocation-owned cache fixture, real MainActivity/runtime, no private fixtures",
+      "reason": "Rendered tools choice through runtime claim to existing dialogs"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "debugDialogSharesBoundsToggle",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Debug APK; Bundled archive with authored dictionaries and Android debug dialog resources; invocation-owned cache fixture, no private fixtures",
+      "reason": "Debug panel and existing Bounds control share toggle state"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "releasePolicyRejectsDebug",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Debug APK; invocation-owned runtime fixture and LocalView context with FLAG_DEBUGGABLE cleared; modeled non-debug policy, not release APK verification",
+      "reason": "Release-policy menu omits developer choice; authored command remains ordinary script and UI rejects developer delivery; enabled bounds are absent under modeled non-debug flag"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "oneSelectionOpensOnceAcrossRecomposition",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled archive with authored dictionaries and Android debug dialog resources; invocation-owned cache fixture, real MainActivity/runtime, no private fixtures",
+      "reason": "Single-use action delivery and blocked character interaction behind modal"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "rotationDoesNotReplayConsumedAction",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Bundled archive with authored dictionaries and Android debug dialog resources; invocation-owned cache fixture, real MainActivity orientation recreation, no private fixtures",
+      "reason": "Consumed actions and unsaved dialogs do not replay after Activity recreation"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "modalBackDismissesWithoutClosingStage",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Debug APK; Bundled archive with authored dictionaries and Android debug dialog resources; invocation-owned cache fixture, real MainActivity Back handling, no private fixtures",
+      "reason": "Back dismisses Ghosts, About and Debug tools before stage shutdown"
+    },
+    {
+      "class": "com.cattailsw.nanidroid.ui.BundledAssistantUiTest",
+      "method": "switchDismissesOldTools",
+      "suite": "self-contained",
+      "requiredArguments": [],
+      "prerequisite": "Debug APK; invocation-owned bundled and synthetic installed ghost cache fixtures; real runtime session switch, no private fixtures",
+      "reason": "Session change dismisses old assistant tools; imported ghost stage controls remain available"
+    },
+    {
       "class": "com.cattailsw.nanidroid.StartupRecoveryTest",
       "method": "failedRecoveryDoesNotPreventReadingPublishedGhost",
       "suite": "self-contained",
@@ -19,7 +163,7 @@
     },
     {
       "class": "com.cattailsw.nanidroid.WalkingSkeletonInstrumentationTest",
-      "method": "bundledKeroTapDispatchesOnceWithSurfaceCoordinatesAndNoReply",
+      "method": "bundledKeroTapDispatchesOnceWithSurfaceCoordinatesAndToolsReply",
       "suite": "self-contained",
       "requiredArguments": [],
       "prerequisite": "Bundled or invocation-owned synthetic data; no private fixture arguments",

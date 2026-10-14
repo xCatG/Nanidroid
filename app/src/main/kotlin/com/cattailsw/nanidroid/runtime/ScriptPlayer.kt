@@ -10,6 +10,7 @@ class ScriptPlayer(private val script: String) {
     private var endPause = -1L
     private var pendingNewline = false
     private var skippingArgument = false
+    private var argumentEscapePending = false
     private var skippingTagName = false
     private var deferredTag: Char? = null
     private var deferredSubtag: Char? = null
@@ -32,6 +33,7 @@ class ScriptPlayer(private val script: String) {
         val advanced = mutableSetOf<Int>()
         val animations = mutableListOf<AnimationRequest>()
         val surfaces = mutableListOf<SurfaceChange>()
+        val hostCommands = mutableListOf<HostUiCommand>()
         var budget = MAX_SOURCE_CHARS_PER_CALL
         while (!ended && input == null && budget > 0) {
             if (skippingTagName) {
@@ -53,7 +55,10 @@ class ScriptPlayer(private val script: String) {
             if (skippingArgument) {
                 val start = cursor
                 val limit = minOf(script.length.toLong(), cursor.toLong() + budget).toInt()
-                while (cursor < limit && script[cursor] != ']') cursor++
+                val scanStart = cursor + if (argumentEscapePending) 1 else 0
+                val end = argumentEnd(scanStart, limit)
+                cursor = minOf(end, limit)
+                argumentEscapePending = end > limit
                 if (cursor < limit) {
                     val argument = if (deferredTag != null)
                         script.substring(deferredArgumentStart, cursor) else null
@@ -61,7 +66,7 @@ class ScriptPlayer(private val script: String) {
                     skippingArgument = false
                     val tag = deferredTag
                     if (argument != null && tag != null)
-                        applyTag(tag, deferredSubtag, argument, animations, surfaces)
+                        applyTag(tag, deferredSubtag, argument, animations, surfaces, hostCommands)
                     deferredTag = null
                 } else if (cursor >= script.length) {
                     skippingArgument = false
@@ -100,6 +105,14 @@ class ScriptPlayer(private val script: String) {
             }
             val start = cursor
             if (budget < 2) break
+            if (SakuraScriptText.isEscape(script, cursor)) {
+                if (!quick && elapsed < 50) break
+                if (!quick) elapsed -= 50
+                append(script[cursor + 1], advanced)
+                cursor += 2
+                budget -= 2
+                continue
+            }
             if (skipOversizedCommand(budget)) {
                 budget = 0
                 break
@@ -114,17 +127,17 @@ class ScriptPlayer(private val script: String) {
             else when (tag) {
                 '0', 'h' -> selectSpeaker(0)
                 '1', 'u' -> selectSpeaker(1)
-                in DIGIT_ARGUMENT_TAGS -> applyTag(tag, null, argumentOrDigit(), animations, surfaces)
-                'n', 'q', '!' -> applyTag(tag, null, bracketArgument(), animations, surfaces)
+                in DIGIT_ARGUMENT_TAGS -> applyTag(tag, null, argumentOrDigit(), animations, surfaces, hostCommands)
+                'n', 'q', '!' -> applyTag(tag, null, bracketArgument(), animations, surfaces, hostCommands)
                 'c' -> clearCurrent()
                 'e' -> endPause = 1_000
-                '_' -> parseUnderscore(animations, surfaces)
+                '_' -> parseUnderscore(animations, surfaces, hostCommands)
                 '-', '4', '5', '6', 'v' -> Unit
                 else -> consumeUnknownTail()
             }
             budget -= cursor - start
         }
-        return PlaybackFrame(sakura, kero, ended, advanced, input, animations, surfaces)
+        return PlaybackFrame(sakura, kero, ended, advanced, input, animations, surfaces, hostCommands)
     }
 
     private inline fun update(target: Int = speaker, change: (SpeakerFrame) -> SpeakerFrame) {
@@ -164,7 +177,7 @@ class ScriptPlayer(private val script: String) {
     private fun clearCurrent() = hideBalloon(clearText = true)
 
     private fun parseChoice(raw: String) {
-        val fields = raw.split(',')
+        val fields = SakuraScriptText.fields(raw)
         if (fields.size < 2 || fields[0].isEmpty()) return
         val choiceId = fields[1]
         if ('\u0001' in choiceId) {
@@ -172,30 +185,39 @@ class ScriptPlayer(private val script: String) {
             val parts = choiceId.split('\u0001')
             if (parts.size != 3 || parts[0].isEmpty() || parts[0].startsWith("On") ||
                 !ScriptInput.isAllowed(parts[0]) || parts[1].isEmpty() || !ScriptInput.isAllowed(parts[1]) ||
-                parts[2].isEmpty() || parts[2].any { it !in '0'..'9' }) return
+                parts[2].isEmpty() || parts[2].any { it !in '0'..'9' }
+            ) return
         } else if (choiceId.isEmpty() || !ScriptInput.isAllowed(choiceId)) return
         val references = if (ChoiceItem.isEvent(choiceId)) fields.drop(2) else emptyList()
         if (references.any { !ScriptInput.isAllowed(it) }) return
         val key = nextKey++
-        for (target in targets()) update(target) {
-            it.copy(choices = it.choices + ChoiceItem(key, fields[0], choiceId, it.text.length, references),
-                balloonVisible = true)
+        for (target in targets()) {
+            update(target) {
+                it.copy(
+                    choices = it.choices + ChoiceItem(key, fields[0], choiceId, it.text.length, references),
+                    balloonVisible = true
+                )
+            }
         }
     }
 
     private fun parseInput(raw: String) {
-        val fields = raw.split(',', limit = 4)
+        val fields = SakuraScriptText.fields(raw, limit = 4)
         if (fields.size < 3 || fields[0] != "open" || fields[1] != "inputbox" || fields[2].isBlank()) return
         input = InputRequest(nextKey++, fields[2])
         elapsed = 0
     }
 
-    private fun parseUnderscore(animations: MutableList<AnimationRequest>, surfaces: MutableList<SurfaceChange>) {
+    private fun parseUnderscore(
+        animations: MutableList<AnimationRequest>,
+        surfaces: MutableList<SurfaceChange>,
+        hostCommands: MutableList<HostUiCommand>
+    ) {
         if (cursor >= script.length) return
         when (val subtag = script[cursor++]) {
             'q' -> quick = !quick
             's' -> sync = !sync
-            'w', 'b' -> applyTag('_', subtag, bracketArgument(), animations, surfaces)
+            'w', 'b' -> applyTag('_', subtag, bracketArgument(), animations, surfaces, hostCommands)
             'n', 'V' -> Unit
             else -> consumeUnknownTail()
         }
@@ -211,7 +233,8 @@ class ScriptPlayer(private val script: String) {
         var probe = start + 2
         while (probe < maxEnd && script[probe].isTagChar()) probe++
         if (probe == maxEnd && probe < script.length &&
-            (script[probe].isTagChar() || script[probe] == '[')) {
+            (script[probe].isTagChar() || script[probe] == '[')
+        ) {
             if (tag in ARGUMENT_TAGS && script[probe] != '[') return false
             if (tag !in ARGUMENT_TAGS) {
                 cursor = maxEnd
@@ -221,11 +244,11 @@ class ScriptPlayer(private val script: String) {
         }
         if (script.getOrNull(probe) != '[' && tag in ARGUMENT_TAGS) return false
         if (script.getOrNull(probe) != '[') return probe - start > budget
-        var close = probe + 1
-        while (close < maxEnd && script[close] != ']') close++
+        val close = argumentEnd(probe + 1, maxEnd)
         if (close < maxEnd) return close + 1 - start > budget
         cursor = minOf(script.length.toLong(), start.toLong() + budget).toInt()
         skippingArgument = true
+        argumentEscapePending = close > maxEnd
         deferredTag = if (probe == start + 2 || tag == '_' && probe == start + 3) tag else null
         deferredSubtag = if (tag == '_') script.getOrNull(start + 2) else null
         deferredArgumentStart = probe + 1
@@ -239,18 +262,29 @@ class ScriptPlayer(private val script: String) {
         argument: String,
         animations: MutableList<AnimationRequest>,
         surfaces: MutableList<SurfaceChange>,
+        hostCommands: MutableList<HostUiCommand>
     ) {
+        val data = if (tag in "sibw" || tag == '_') SakuraScriptText.decode(argument) else argument
         when (tag) {
-            's' -> parseSurface(argument, surfaces)
-            'i' -> argument.toIntOrNull()?.let { animations += AnimationRequest(speaker, it) }
-            'b' -> parseBalloon(argument)
+            's' -> parseSurface(data, surfaces)
+            'i' -> data.toIntOrNull()?.let { animations += AnimationRequest(speaker, it) }
+            'b' -> parseBalloon(data)
             'n' -> pendingNewline = true
-            'w' -> waitRemaining = saturatingMultiply(argument.toLongOrNull()?.coerceAtLeast(0) ?: 0, 50)
+            'w' -> waitRemaining = saturatingMultiply(data.toLongOrNull()?.coerceAtLeast(0) ?: 0, 50)
             'q' -> parseChoice(argument)
-            '!' -> parseInput(argument)
+            '!' -> {
+                parseInput(argument)
+                // Match encoded structure exactly; decoded metadata cannot become a host command.
+                // Host requests also require a complete closing delimiter.
+                if (script.getOrNull(cursor - 1) == ']') when (argument) {
+                    "open,ghostexplorer" -> hostCommands += HostUiCommand.GhostExplorer
+                    "open,configurationdialog,about" -> hostCommands += HostUiCommand.About
+                    "open,developer" -> hostCommands += HostUiCommand.Developer
+                }
+            }
             '_' -> when (subtag) {
-                'w' -> waitRemaining = argument.toLongOrNull()?.coerceAtLeast(0) ?: 0
-                'b' -> parseBalloon(argument)
+                'w' -> waitRemaining = data.toLongOrNull()?.coerceAtLeast(0) ?: 0
+                'b' -> parseBalloon(data)
             }
         }
     }
@@ -276,16 +310,25 @@ class ScriptPlayer(private val script: String) {
     private fun bracketArgument(): String {
         if (cursor >= script.length || script[cursor] != '[') return ""
         val start = ++cursor
-        while (cursor < script.length && script[cursor] != ']') cursor++
+        cursor = argumentEnd(cursor, script.length)
         val result = script.substring(start, cursor)
         if (cursor < script.length) cursor++
         return result
+    }
+
+    private fun argumentEnd(start: Int, limit: Int): Int {
+        var index = start
+        while (index < limit && script[index] != ']') {
+            index += if (SakuraScriptText.isEscape(script, index)) 2 else 1
+        }
+        return index
     }
 
     companion object {
         private const val MAX_SOURCE_CHARS_PER_CALL = 4_096
         private const val ARGUMENTLESS_TAGS = "01huce-456v"
         private const val ARGUMENT_TAGS = "sibnwq!_"
+
         /** Argument tags that also accept a single unbracketed digit. */
         private const val DIGIT_ARGUMENT_TAGS = "siwb"
         private val BOTH_SPEAKERS = listOf(0, 1)
@@ -294,9 +337,14 @@ class ScriptPlayer(private val script: String) {
         fun substituteNames(script: String, names: Map<String, String>): String = buildString {
             var index = 0
             while (index < script.length) {
+                if (SakuraScriptText.isEscape(script, index)) {
+                    append(script, index, index + 2)
+                    index += 2
+                    continue
+                }
                 val macro = MACROS.firstOrNull { script.startsWith(it, index) }
                 if (macro != null) {
-                    append(names[macro.substring(1)] ?: macro)
+                    append(names[macro.substring(1)]?.let(SakuraScriptText::escape) ?: macro)
                     index += macro.length
                 } else append(script[index++])
             }

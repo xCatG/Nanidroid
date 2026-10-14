@@ -9,10 +9,10 @@ import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.click
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
@@ -48,7 +48,7 @@ import org.junit.runner.RunWith
 class WalkingSkeletonInstrumentationTest {
     @get:Rule val compose = createEmptyComposeRule()
 
-    @Test fun bundledKeroTapDispatchesOnceWithSurfaceCoordinatesAndNoReply() = withStage { scenario ->
+    @Test fun bundledKeroTapDispatchesOnceWithSurfaceCoordinatesAndToolsReply() = withStage { scenario ->
         scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
         awaitOrientation(scenario, Configuration.ORIENTATION_PORTRAIT)
         scenario.onActivity { probe(it).releaseLoading() }
@@ -66,10 +66,17 @@ class WalkingSkeletonInstrumentationTest {
             val p = probe(it)
             assertEquals(1, p.eventCount("OnMouseClick"))
             assertEquals(listOf("117", "100", "0", "1", "", "0", "touch"), p.mouseClick().first.references)
-            assertEquals(204, p.mouseClick().second)
-            val frame = (p.runtime.state.value as StageState.Ready).frame
-            assertEquals("", frame.sakura.text + frame.kero.text)
-            assertTrue(!frame.sakura.balloonVisible && !frame.kero.balloonVisible)
+            assertEquals(200, p.mouseClick().second)
+        }
+        await(scenario) { state ->
+            state is StageState.Ready && state.choices.values.flatten().map { it.label }
+                .containsAll(listOf("Ghosts", "About and licenses", "Dismiss"))
+        }
+        scenario.onActivity {
+            val p = probe(it)
+            assertEquals(1, p.eventCount("OnMouseClick"))
+            val ready = p.runtime.state.value as StageState.Ready
+            assertTrue(ready.frame.sakura.balloonVisible || ready.frame.kero.balloonVisible)
         }
     }
 
@@ -153,13 +160,17 @@ class WalkingSkeletonInstrumentationTest {
         }
         compose.waitForIdle()
         scenario.onActivity { activity ->
-            assertEquals("Activity orientation changed after settling", orientation,
-                activity.resources.configuration.orientation)
+            assertEquals(
+                "Activity orientation changed after settling", orientation,
+                activity.resources.configuration.orientation
+            )
             assertEquals(Lifecycle.State.RESUMED, activity.lifecycle.currentState)
             assertTrue("Settled Activity lost input focus", activity.hasWindowFocus())
-            println("WALKING_STAGE_ORIENTATION elapsedRealtime=${SystemClock.elapsedRealtime()} " +
-                "orientation=$orientation lifecycle=${activity.lifecycle.currentState} " +
-                "window=${activity.window.decorView.width}x${activity.window.decorView.height}")
+            println(
+                "WALKING_STAGE_ORIENTATION elapsedRealtime=${SystemClock.elapsedRealtime()} " +
+                    "orientation=$orientation lifecycle=${activity.lifecycle.currentState} " +
+                    "window=${activity.window.decorView.width}x${activity.window.decorView.height}"
+            )
         }
     }
 
@@ -196,13 +207,15 @@ private class TestStageCallbacks : Application.ActivityLifecycleCallbacks {
     override fun onActivityCreated(activity: Activity, state: Bundle?) {
         if (activity !is ComponentActivity) return
         val probe = ViewModelProvider(activity)[RuntimeProbe::class.java]
-        activity.lifecycle.addObserver(LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_RESUME -> probe.runtime.setResumed(true)
-                Lifecycle.Event.ON_PAUSE -> probe.runtime.setResumed(false)
-                else -> Unit
+        activity.lifecycle.addObserver(
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_RESUME -> probe.runtime.setResumed(true)
+                    Lifecycle.Event.ON_PAUSE -> probe.runtime.setResumed(false)
+                    else -> Unit
+                }
             }
-        })
+        )
         activity.lifecycleScope.launch { probe.runtime.start("en") }
         activity.setContent {
             val state by probe.runtime.state.collectAsStateWithLifecycle()
@@ -228,7 +241,7 @@ class RuntimeProbe : ViewModel() {
             withContext(Dispatchers.IO) {
                 val repository = BundledGhostRepository(
                     openAsset = { context.assets.open("nanidroid.zip") },
-                    ghostRoot = File(context.filesDir, "ghost"),
+                    ghostRoot = File(context.filesDir, "ghost")
                 )
                 repository.load(repository.ensureInstalled(), "en")
             }
@@ -236,14 +249,15 @@ class RuntimeProbe : ViewModel() {
         engineFactory = { ghost ->
             val engine = BuiltInShiori(ghost.content)
             object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent) = engine.request(event).also { replies += event to it.status }
+                override suspend fun request(event: ShioriEvent) =
+                    engine.request(event).also { replies += event to it.status }
             }
         },
         bootState = object : BootStateStore {
             override suspend fun recordActivation(directoryId: String) = true
             override suspend fun consumeOnboarding() = false
         },
-        scope = viewModelScope,
+        scope = viewModelScope
     )
     fun releaseLoading() { loadGate.complete(Unit) }
     fun eventCount(id: String) = replies.count { it.first.id == id }

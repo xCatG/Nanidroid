@@ -1,21 +1,24 @@
 package com.cattailsw.nanidroid.ghost
 
 import java.io.File
+import java.io.InputStream
 import java.nio.file.Files
 
 /** Shell-directory confinement shared by surface, layer, and definition loading. */
 object ShellFiles {
     /** Reads [file], failing with [message] once more than [limit] bytes arrive. */
-    fun readAtMost(file: File, limit: Int, message: String): ByteArray {
+    fun readAtMost(file: File, limit: Int, message: String): ByteArray =
+        file.inputStream().use { readAtMost(it, limit, message) }
+
+    /** The caller owns [input], so this also supports one entry of an open ZIP stream. */
+    fun readAtMost(input: InputStream, limit: Int, message: String): ByteArray {
         val output = java.io.ByteArrayOutputStream()
-        file.inputStream().use { input ->
-            val buffer = ByteArray(minOf(8192, limit + 1))
-            while (true) {
-                val count = input.read(buffer, 0, minOf(buffer.size, limit - output.size() + 1))
-                if (count < 0) break
-                require(output.size() <= limit - count) { message }
-                output.write(buffer, 0, count)
-            }
+        val buffer = ByteArray(minOf(8192, limit + 1))
+        while (true) {
+            val count = input.read(buffer, 0, minOf(buffer.size, limit - output.size() + 1))
+            if (count < 0) break
+            require(output.size() <= limit - count) { message }
+            output.write(buffer, 0, count)
         }
         return output.toByteArray()
     }

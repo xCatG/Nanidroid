@@ -4,6 +4,123 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ScriptPlayerTest {
+    @Test fun hostTargetsParseExactly() {
+        val targets = listOf(
+            "open,ghostexplorer" to HostUiCommand.GhostExplorer,
+            "open,configurationdialog,about" to HostUiCommand.About,
+            "open,developer" to HostUiCommand.Developer
+        )
+        for ((target, command) in targets) {
+            val player = ScriptPlayer("\\_qBefore\\![$target]After\\e")
+            val frame = player.advanceBy(0)
+            assertEquals(listOf(command), frame.hostCommands)
+            assertEquals("BeforeAfter", frame.sakura.text)
+            assertNull(frame.input)
+            assertTrue(player.advanceBy(0).hostCommands.isEmpty())
+        }
+    }
+
+    @Test fun unknownHostTargetsAreIgnored() {
+        val targets = listOf(
+            "open", "open,unknown", "open,configurationdialog", "open,configurationdialog,other",
+            "Open,ghostexplorer", "open,GhostExplorer", "open, ghostexplorer", "open,developer ",
+            "open,ghostexplorer,extra", "open,configurationdialog,about,extra", "open,developer,",
+            "open,developer," + "x".repeat(9_000)
+        )
+        for (target in targets) {
+            val player = ScriptPlayer("\\_qBefore\\![$target]After\\e")
+            repeat(3) { assertTrue(player.advanceBy(0).hostCommands.isEmpty()) }
+            assertEquals("BeforeAfter", player.advanceBy(0).sakura.text)
+        }
+        for (target in listOf(
+            "open,ghostexplorer", "open,configurationdialog,about", "open,developer",
+            "open,developer," + "x".repeat(9_000)
+        )) {
+            val player = ScriptPlayer("\\_qBefore\\![$target")
+            repeat(3) { assertTrue(player.advanceBy(0).hostCommands.isEmpty()) }
+            assertEquals("Before", player.advanceBy(0).sakura.text)
+        }
+    }
+
+    @Test fun hostCommandsRespectWaitsAndInput() {
+        val player = ScriptPlayer(
+            "\\_qA\\_w[100]\\![open,ghostexplorer]" +
+                "B\\w2\\![open,inputbox,box]\\![open,configurationdialog,about]C\\e"
+        )
+        val start = player.advanceBy(0)
+        assertEquals("A", start.sakura.text)
+        assertTrue(start.hostCommands.isEmpty())
+        assertTrue(player.advanceBy(99).hostCommands.isEmpty())
+        val afterWait = player.advanceBy(1)
+        assertEquals(listOf(HostUiCommand.GhostExplorer), afterWait.hostCommands)
+        assertEquals("AB", afterWait.sakura.text)
+        assertNull(afterWait.input)
+        assertTrue(player.advanceBy(99).hostCommands.isEmpty())
+        val pending = player.advanceBy(1)
+        assertEquals("box", pending.input?.boxId)
+        assertTrue(pending.hostCommands.isEmpty())
+        val blocked = player.advanceBy(10_000)
+        assertTrue(blocked.hostCommands.isEmpty())
+        assertEquals("AB", blocked.sakura.text)
+        assertTrue(player.resolveInput(pending.input!!.key))
+        val resumed = player.advanceBy(0)
+        assertEquals(listOf(HostUiCommand.About), resumed.hostCommands)
+        assertEquals("ABC", resumed.sakura.text)
+        assertTrue(player.advanceBy(0).hostCommands.isEmpty())
+    }
+
+    @Test fun hostCommandAcrossBudgetEmitsOnce() {
+        val player = ScriptPlayer("\\_q" + "A".repeat(4_081) + "\\![open,developer]Z\\e")
+        val first = player.advanceBy(0)
+        assertEquals("A".repeat(4_081), first.sakura.text)
+        assertTrue(first.hostCommands.isEmpty())
+        val second = player.advanceBy(0)
+        assertEquals(listOf(HostUiCommand.Developer), second.hostCommands)
+        assertEquals("A".repeat(4_081) + "Z", second.sakura.text)
+        assertTrue(player.advanceBy(0).hostCommands.isEmpty())
+    }
+
+    @Test fun hostCommandsPreserveDuplicatesAndOrder() {
+        val player = ScriptPlayer(
+            "\\![open,ghostexplorer]\\![open,developer]" +
+                "\\![open,ghostexplorer]\\![open,configurationdialog,about]\\e"
+        )
+        assertEquals(
+            listOf(
+                HostUiCommand.GhostExplorer, HostUiCommand.Developer,
+                HostUiCommand.GhostExplorer, HostUiCommand.About
+            ),
+            player.advanceBy(0).hostCommands
+        )
+        assertTrue(player.advanceBy(0).hostCommands.isEmpty())
+    }
+
+    @Test fun hostCommandsDoNotChangeInputBehavior() {
+        val player = ScriptPlayer(
+            "\\_qA\\q[First,first]\\![open,developer]" +
+                "\\![open,inputbox, name ,ignored,extra]B\\![open,ghostexplorer]\\q[Last,last]\\e"
+        )
+        val pending = player.advanceBy(0)
+        assertEquals(listOf(HostUiCommand.Developer), pending.hostCommands)
+        assertEquals("A", pending.sakura.text)
+        assertEquals(1L, pending.sakura.choices.single().key)
+        assertEquals(InputRequest(2L, " name "), pending.input)
+        assertFalse(player.resolveInput(3L))
+        val blocked = player.advanceBy(10_000)
+        assertEquals(pending.input, blocked.input)
+        assertTrue(blocked.hostCommands.isEmpty())
+        assertTrue(player.resolveInput(2L))
+        assertFalse(player.resolveInput(2L))
+        val resumed = player.advanceBy(0)
+        assertEquals("AB", resumed.sakura.text)
+        assertEquals(listOf(HostUiCommand.GhostExplorer), resumed.hostCommands)
+        assertEquals(listOf(1L, 3L), resumed.sakura.choices.map { it.key })
+        assertFalse(player.advanceBy(999).ended)
+        val ended = player.advanceBy(1)
+        assertTrue(ended.ended)
+        assertTrue(ended.hostCommands.isEmpty())
+    }
+
     @Test fun textAdvanceEdgeSurvivesClearAndDoesNotReplay() {
         val player = ScriptPlayer("\\0A\\c\\e")
         val initial = player.advanceBy(0)
@@ -14,6 +131,7 @@ class ScriptPlayerTest {
         assertEquals(setOf(0), advanced.textAdvanceSpeakers)
         assertTrue(player.advanceBy(50).textAdvanceSpeakers.isEmpty())
     }
+
     @Test fun implicitEndWaitsAfterLastCharacterAndHidesBalloons() {
         val player = ScriptPlayer("\\0Hi")
         assertEquals("Hi", player.advanceBy(100).sakura.text)
@@ -36,6 +154,7 @@ class ScriptPlayerTest {
         assertTrue(interaction.advanceBy(999).sakura.balloonVisible)
         assertTrue(interaction.advanceBy(1).ended)
     }
+
     @Test fun bootScriptRevealsTextThenEnds() {
         val player = ScriptPlayer("\\0\\s0Hi\\e")
         val start = player.advanceBy(0)
@@ -141,7 +260,8 @@ class ScriptPlayerTest {
     }
 
     @Test fun unknownAndIgnoredTagsConsumePayloadAndKeepAdjacentText() {
-        val player = ScriptPlayer("\\_q\\-\\4\\5\\6\\v\\_n\\_V\\_l[x]\\_a[y]\\_v[z]\\foo[secret]A\\b[-1]B\\_b[0]C\\n[half]D\\e")
+        val player =
+            ScriptPlayer("\\_q\\-\\4\\5\\6\\v\\_n\\_V\\_l[x]\\_a[y]\\_v[z]\\foo[secret]A\\b[-1]B\\_b[0]C\\n[half]D\\e")
         val frame = player.advanceBy(0)
         assertEquals("ABC\nD", frame.sakura.text)
         assertTrue(frame.sakura.balloonVisible)
@@ -176,8 +296,10 @@ class ScriptPlayerTest {
     @Test fun digitBalloonTagCrossingBudgetBoundaryIsDeferredLikeDigitSurfaceTag() {
         // The first call stops with two characters left, so a three-character \b2 must
         // wait for the next call and count against its budget instead of overrunning.
-        val player = ScriptPlayer("\\_q" + "\\4".repeat(2_045) + "A\\b2" +
-            "\\4".repeat(2_046) + "\\s2Z")
+        val player = ScriptPlayer(
+            "\\_q" + "\\4".repeat(2_045) + "A\\b2" +
+                "\\4".repeat(2_046) + "\\s2Z"
+        )
         assertEquals("A", player.advanceBy(0).sakura.text)
         val second = player.advanceBy(0)
         assertEquals(0, second.sakura.surfaceId)
@@ -188,9 +310,113 @@ class ScriptPlayerTest {
     }
 
     @Test fun literalNameSubstitutionUsesLongestMacroWithoutRescan() {
-        assertEquals("$\\%keroname|Second|First|Kero|%other",
-            ScriptPlayer.substituteNames("%username|%selfname2|%selfname|%keroname|%other",
-                mapOf("username" to "$\\%keroname", "selfname" to "First", "selfname2" to "Second", "keroname" to "Kero")))
+        assertEquals(
+            "$\\\\\\%keroname|Second|First|Kero|%other",
+            ScriptPlayer.substituteNames(
+                "%username|%selfname2|%selfname|%keroname|%other",
+                mapOf(
+                    "username" to "$\\%keroname", "selfname" to "First", "selfname2" to "Second", "keroname" to "Kero"
+                )
+            )
+        )
+    }
+
+    @Test fun escapedLiteralCharactersKeepNormalTextTiming() {
+        val player = ScriptPlayer("\\\\\\%")
+        assertEquals("", player.advanceBy(0).sakura.text)
+        assertEquals("\\", player.advanceBy(50).sakura.text)
+        assertEquals("\\%", player.advanceBy(50).sakura.text)
+    }
+
+    @Test fun substitutedChoiceAndInputMetadataRetainOriginalData() {
+        for (name in listOf("100%", "Path\\Name", "Data],Comma\\![open,developer]%selfname")) {
+            val script = ScriptPlayer.substituteNames(
+                "\\q[Talk to %selfname,OnTalk,%selfname]\\![open,inputbox,%selfname]\\e",
+                mapOf("selfname" to name)
+            )
+            val frame = ScriptPlayer(script).advanceBy(0)
+            val choice = frame.sakura.choices.single()
+            assertEquals("Talk to $name", choice.label)
+            assertEquals(listOf(name), choice.event.references)
+            assertEquals(name, frame.input!!.boxId)
+            assertEquals(emptyList<HostUiCommand>(), frame.hostCommands)
+        }
+    }
+
+    @Test fun substitutedChoiceIdsAndSatoriPayloadRetainNativeMetadata() {
+        for (id in listOf("talk100%\\path", "OnTalk100%\\path", "話題\u0001ID100%\\path\u000112")) {
+            val frame = ScriptPlayer(
+                ScriptPlayer.substituteNames(
+                    "\\q[%selfname,%selfname]", mapOf("selfname" to id)
+                )
+            ).advanceBy(0)
+            val choice = frame.sakura.choices.single()
+            assertEquals(id, choice.label)
+            assertEquals(id, choice.choiceId)
+            if (id.startsWith("On")) assertEquals(id, choice.event.id)
+            else {
+                assertEquals("OnChoiceSelect", choice.event.id)
+                assertEquals(listOf(id), choice.event.references)
+            }
+        }
+    }
+
+    @Test fun escapedArgumentDelimitersRemainDataAcrossSourceBudgetBoundaries() {
+        for (padding in listOf(4_087, 4_088, 4_089, 4_090, 8_183)) {
+            val name = "x".repeat(padding) + "],\\![open,developer]\\%selfname"
+            val script = ScriptPlayer.substituteNames(
+                "\\q[%selfname,OnTalk,%selfname]\\![open,inputbox,%selfname]",
+                mapOf("selfname" to name)
+            )
+            val player = ScriptPlayer(script)
+            val commands = mutableListOf<HostUiCommand>()
+            var frame = player.advanceBy(0).also { commands += it.hostCommands }
+            repeat(10) { frame = player.advanceBy(0).also { commands += it.hostCommands } }
+            assertEquals(name, frame.sakura.choices.single().label)
+            assertEquals(listOf(name), frame.sakura.choices.single().event.references)
+            assertEquals(name, frame.input!!.boxId)
+            assertEquals(emptyList<HostUiCommand>(), commands)
+        }
+    }
+
+    @Test fun substitutedArgumentStructureCannotCreateHostCommandsOrAdditionalInputFields() {
+        for (name in listOf("open,developer", "open,inputbox,created", "]\\![open,developer]", "\\%")) {
+            val script = ScriptPlayer.substituteNames("\\![%selfname]\\e", mapOf("selfname" to name))
+            val frame = ScriptPlayer(script).advanceBy(0)
+            assertNull(frame.input)
+            assertEquals(emptyList<HostUiCommand>(), frame.hostCommands)
+        }
+    }
+
+    @Test fun supportedNumericAndNewlineArgumentsKeepSubstitutedValues() {
+        val player = ScriptPlayer(
+            ScriptPlayer.substituteNames(
+                "\\_q\\s[%selfname]\\i[%selfname]A\\n[%keroname]B\\_w[%selfname]C\\w[%selfname]D\\_b[-1]",
+                mapOf("selfname" to "2", "keroname" to "%,]\\![open,developer]")
+            )
+        )
+        val first = player.advanceBy(0)
+        assertEquals(2, first.sakura.surfaceId)
+        assertEquals(listOf(AnimationRequest(0, 2)), first.animationRequests)
+        assertEquals("A\nB", first.sakura.text)
+        assertEquals(emptyList<HostUiCommand>(), first.hostCommands)
+        assertEquals("A\nBC", player.advanceBy(2).sakura.text)
+        val final = player.advanceBy(100)
+        assertEquals("A\nBCD", final.sakura.text)
+        assertFalse(final.sakura.balloonVisible)
+        assertEquals(emptyList<HostUiCommand>(), final.hostCommands)
+    }
+
+    @Test fun escapedNameTagsRemainLiteralAcrossSourceBudgetBoundaries() {
+        for (padding in listOf(4_091, 4_092, 4_093, 4_094, 8_188)) {
+            val name = "x".repeat(padding) + "\\![open,developer]%selfname\\e"
+            val player = ScriptPlayer(ScriptPlayer.substituteNames("\\_q%selfname\\e", mapOf("selfname" to name)))
+            val commands = mutableListOf<HostUiCommand>()
+            var frame = player.advanceBy(0).also { commands += it.hostCommands }
+            repeat(5) { frame = player.advanceBy(0).also { commands += it.hostCommands } }
+            assertEquals(name, frame.sakura.text)
+            assertEquals(emptyList<HostUiCommand>(), commands)
+        }
     }
 
     @Test fun aliasesNewlineFormsAndBalloonHideKeepTheirDeclaredEffects() {
@@ -314,19 +540,25 @@ class ScriptPlayerTest {
     }
 
     @Test fun malformedSatoriMetadataAndUnsafeDispatchIdsAreRejected() {
-        val frame = ScriptPlayer("\\_q" +
-            "\\q[Bad prefix,OnBad\r\nHeader: x\u0001Bad prefix\u00011]" +
-            "\\q[Bad metadata,safe\u0001line\r\nHeader: x\u00012]" +
-            "\\q[Bad ordinal,safe\u0001label\u0001not-a-number]" +
-            "\\q[Bad event,OnUnsafe\u0001Bad event\u00014]" +
-            "\\q[Good,safe\u0001Good\u00013]\\e").advanceBy(0)
+        val frame = ScriptPlayer(
+            "\\_q" +
+                "\\q[Bad prefix,OnBad\r\nHeader: x\u0001Bad prefix\u00011]" +
+                "\\q[Bad metadata,safe\u0001line\r\nHeader: x\u00012]" +
+                "\\q[Bad ordinal,safe\u0001label\u0001not-a-number]" +
+                "\\q[Bad event,OnUnsafe\u0001Bad event\u00014]" +
+                "\\q[Good,safe\u0001Good\u00013]\\e"
+        ).advanceBy(0)
         assertEquals(listOf("Good"), frame.sakura.choices.map { it.label })
         assertEquals(listOf("safe\u0001Good\u00013"), frame.sakura.choices.map { it.choiceId })
     }
 
     @Test fun unchangedEarthquakeBalloonFragmentDoesNotPrintThemeDigit() {
         // Earthquake Duo 1.0.1, duo_menu.dic:28 (archive SHA-256 06db71e7...)
-        val frame = ScriptPlayer("\\0\\s[0]\\b2Welcom to the offical MAN Software menu. Please make a selection when you are ready.").advanceBy(5_000)
-        assertEquals("Welcom to the offical MAN Software menu. Please make a selection when you are ready.", frame.sakura.text)
+        val frame = ScriptPlayer(
+            "\\0\\s[0]\\b2Welcom to the offical MAN Software menu. Please make a selection when you are ready."
+        ).advanceBy(5_000)
+        assertEquals(
+            "Welcom to the offical MAN Software menu. Please make a selection when you are ready.", frame.sakura.text
+        )
     }
 }

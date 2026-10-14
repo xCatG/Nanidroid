@@ -1,4 +1,6 @@
 <resources>
+    <string name="debug_tools_title">開發人員工具</string>
+    <string name="action_close">關閉</string>
     <string name="stage_ghosts">切換角色</string>
     <string name="stage_about">關於</string>
     <string name="stage_bounds">觸控範圍</string>

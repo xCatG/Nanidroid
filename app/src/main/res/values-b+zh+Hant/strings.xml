@@ -1,0 +1,5 @@
+<resources>
+    <string name="debug_tools_title">開發人員工具</string>
+    <string name="stage_show_bounds">顯示觸控範圍</string>
+    <string name="action_close">關閉</string>
+</resources>

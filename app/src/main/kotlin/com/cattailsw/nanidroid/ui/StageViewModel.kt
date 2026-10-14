@@ -6,27 +6,27 @@ import androidx.lifecycle.viewModelScope
 import com.cattailsw.nanidroid.install.ImportAttemptStore
 import com.cattailsw.nanidroid.install.ImportCoordinator
 import com.cattailsw.nanidroid.install.ImportState
+import com.cattailsw.nanidroid.runtime.DialogueToken
 import com.cattailsw.nanidroid.runtime.GhostRuntime
 import com.cattailsw.nanidroid.runtime.InteractionToken
-import com.cattailsw.nanidroid.runtime.DialogueToken
 import com.cattailsw.nanidroid.runtime.RenderedMoveSource
 import com.cattailsw.nanidroid.runtime.StageState
+import java.io.InputStream
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.io.InputStream
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 class StageViewModel(
     private val runtime: GhostRuntime,
     private val coordinator: ImportCoordinator? = null,
     private val saved: SavedStateHandle = SavedStateHandle(),
-    private val attempts: ImportAttemptStore? = null,
+    private val attempts: ImportAttemptStore? = null
 ) : ViewModel() {
     val state: StateFlow<StageState> = runtime.state
     val importState: StateFlow<ImportState> = coordinator?.state ?: MutableStateFlow(ImportState.Idle)
@@ -66,17 +66,19 @@ class StageViewModel(
         val phase = saved.get<String>("import_phase")
         val live = coordinator?.state?.value
         if (id != null && live != ImportState.Idle && when (live) {
-            is ImportState.Picking -> live.attemptId == id
-            is ImportState.Running -> live.attemptId == id
-            is ImportState.Completed -> live.attemptId == id
-            else -> false
-        }) {
+                is ImportState.Picking -> live.attemptId == id
+                is ImportState.Running -> live.attemptId == id
+                is ImportState.Completed -> live.attemptId == id
+                else -> false
+            }
+        ) {
             // Rotation retains the application-owned attempt, including completed prompts.
         } else if (id != null && phase == "picking" &&
             try { attempts?.wasConsumed(id) } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) { true } == false &&
-            coordinator?.restorePicking(id) == true) {
+            coordinator?.restorePicking(id) == true
+        ) {
             // This is the first copy after a picker outlived the process.
         } else if (id != null) {
             saved.remove<String>("import_attempt_id")
@@ -122,7 +124,7 @@ class StageViewModel(
 
     suspend fun acceptPickerResult(
         openSource: (() -> InputStream)?,
-        awaitStarted: suspend () -> Unit = {},
+        awaitStarted: suspend () -> Unit = {}
     ) {
         restoreAttempt()
         val id = saved.get<String>("import_attempt_id") ?: return
@@ -168,12 +170,15 @@ class StageViewModel(
     fun setResumed(resumed: Boolean) = runtime.setResumed(resumed)
     fun click(speaker: Int, x: Int, y: Int, collisionSurfaceId: Int, origin: DialogueToken?) =
         runtime.click(speaker, x, y, collisionSurfaceId, origin)
-    fun doubleClick(speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
-        origin: DialogueToken?) = runtime.doubleClick(speaker, x, y, collisionSurfaceId, origin)
+    fun doubleClick(
+        speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
+        origin: DialogueToken?
+    ) = runtime.doubleClick(speaker, x, y, collisionSurfaceId, origin)
     fun move(speaker: Int, x: Int, y: Int, collisionSurfaceId: Int, source: RenderedMoveSource) =
         runtime.move(speaker, x, y, collisionSurfaceId, source)
     fun cancelMove(speaker: Int) = runtime.cancelMove(speaker)
     fun choose(token: InteractionToken) = runtime.choose(token)
+    fun claimHostUiRequest(requestId: Long) = runtime.claimHostUiRequest(requestId)
     fun submitInput(token: InteractionToken, text: String) = runtime.submitInput(token, text)
     fun cancelInput(token: InteractionToken) = runtime.cancelInput(token)
     fun isCurrentDialogue(token: DialogueToken) = runtime.isCurrentDialogue(token)

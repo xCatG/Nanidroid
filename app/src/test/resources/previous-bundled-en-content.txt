@@ -1,0 +1,9 @@
+﻿; event,string
+OnFirstBoot,\0\s0Hello World\e
+OnGhostChanging,\0\s0Changing to %1$s\e
+OnGhostChanged,\0\s0Changed From %1$s\e
+OnClose,\0\s0Thank you for using Nanidroid\e
+OnBoot,\0\s0Hi there! Welcome back!\e
+OnInstallFailure,\0\s0Install Failed!\e
+; strings
+homeurl,http://www.cattail-sw.com/nanidroid/
