@@ -27,7 +27,7 @@ fun DebugToolsDialog(
     onDismiss: () -> Unit,
 ) {
     val title = stringResource(R.string.debug_tools_title)
-    val bounds = stringResource(R.string.debug_show_touch_bounds)
+    val bounds = stringResource(R.string.stage_show_bounds)
     val close = stringResource(R.string.action_close)
     AlertDialog(
         modifier = Modifier.testTag("debug-tools-dialog"),

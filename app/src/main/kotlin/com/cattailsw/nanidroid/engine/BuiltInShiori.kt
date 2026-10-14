@@ -12,22 +12,17 @@ class BuiltInShiori private constructor(
     private data class Selector(val event: String, val reference3: Int?, val debug: Boolean)
     private val variants = mutableMapOf<Selector, String>()
     private val scripts: Map<String, String> = buildMap {
-        content.removePrefix("\uFEFF").split(Regex("\r\n|\n")).forEach { line ->
-            if (line.isEmpty() || line.startsWith(';')) return@forEach
-            val comma = line.indexOf(',')
-            if (comma <= 0) return@forEach
-            val key = line.substring(0, comma)
-            val script = line.substring(comma + 1)
+        dictionaryEntries(content).forEach { (key, script) ->
             val selector = selector(key)
             if (selector != null) variants[selector] = script else put(key, script)
         }
     }
 
     override suspend fun request(event: ShioriEvent): ShioriReply {
-        if (selector(event.id) != null) return ShioriReply(204)
+        if ('@' in event.id && selector(event.id) != null) return ShioriReply(204)
         val reference3 = event.references.getOrNull(3)?.let(::canonicalInt)
         val mouseEligible = event.id !in MOUSE_EVENTS ||
-            (event.references.size >= 3 && event.references.take(3).all { it.toIntOrNull() != null })
+            (event.references.size >= 3 && (0..2).all { event.references[it].toIntOrNull() != null })
         val script = (if (mouseEligible) {
             reference3?.let { if (developerCommandsEnabled) variants[Selector(event.id, it, true)] else null }
                 ?: reference3?.let { variants[Selector(event.id, it, false)] }
@@ -44,6 +39,13 @@ class BuiltInShiori private constructor(
     }
 
     companion object {
+        internal fun dictionaryEntries(content: String): Map<String, String> = buildMap {
+            content.removePrefix("\uFEFF").split(Regex("\r\n|\n")).forEach { line ->
+                if (line.isEmpty() || line.startsWith(';')) return@forEach
+                val comma = line.indexOf(',')
+                if (comma > 0) put(line.substring(0, comma), line.substring(comma + 1))
+            }
+        }
         private val MOUSE_EVENTS = setOf("OnMouseClick", "OnMouseDoubleClick", "OnMouseMove")
         private val SELECTOR = Regex("^([^@]+)(?:@r3=(0|[1-9][0-9]*))?(@debug)?$")
         private fun canonicalInt(value: String): Int? = value.toIntOrNull()

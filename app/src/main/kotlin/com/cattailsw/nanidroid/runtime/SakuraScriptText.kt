@@ -14,7 +14,7 @@ internal object SakuraScriptText {
         script.getOrNull(index + 1) in ESCAPED
 
     /** Decode only after the parser has identified the surrounding data boundaries. */
-    fun decode(value: String): String = buildString {
+    fun decode(value: String): String = if ('\\' !in value) value else buildString {
         var index = 0
         while (index < value.length) {
             if (isEscape(value, index)) index++

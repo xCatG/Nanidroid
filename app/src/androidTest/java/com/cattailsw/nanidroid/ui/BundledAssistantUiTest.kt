@@ -112,7 +112,7 @@ class BundledAssistantUiTest {
             }
             val resources = app.createConfigurationContext(configuration).resources
             assertEquals("開發人員工具", resources.getString(R.string.debug_tools_title))
-            assertEquals("顯示觸控範圍", resources.getString(R.string.debug_show_touch_bounds))
+            assertEquals("顯示觸控範圍", resources.getString(R.string.stage_show_bounds))
             assertEquals("關閉", resources.getString(R.string.action_close))
         }
         tools("Debug tools")

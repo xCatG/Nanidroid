@@ -53,10 +53,10 @@ class HostUiRequestTest {
         File(master, "ja/content.txt").writeText("OnFirstBoot,\\_q\\q[Ghosts,OnNanidroidOpenGhosts]\\e\nOnNanidroidOpenGhosts,\\![open,ghostexplorer]\\e")
         File(root, "$id/shell/master").mkdirs()
     }
-    private fun assistant(base: BundledGhost, language: String) = BuiltInShiori.bundled(base.content, true)
+    private fun assistant(base: BundledGhost) = BuiltInShiori.bundled(base.content, true)
     private suspend fun TestScope.started(
         fixture: Fixture = fixture(), saved: String? = null, boot: Boot = Boot(onboardingAvailable = false), language: String = "en",
-        engine: ShioriEngine = assistant(fixture.base, language),
+        engine: ShioriEngine = assistant(fixture.base),
     ): GhostRuntime = GhostRuntime(
         { fixture.base }, { BuiltInShiori(it.content) }, boot,
         backgroundScope, InstalledGhostRepository(fixture.root), Last(saved),
@@ -336,7 +336,7 @@ class HostUiRequestTest {
         val runtime = GhostRuntime({ original.base }, { forged }, Boot(onboardingAvailable = false),
             backgroundScope, InstalledGhostRepository(other.root), Last("nanidroid"),
             ioDispatcher = StandardTestDispatcher(testScheduler),
-            bundledEngineFactory = { trustedLoads++; assistant(it, "en") },
+            bundledEngineFactory = { trustedLoads++; assistant(it) },
             elapsedRealtime = { testScheduler.currentTime })
         runtime.start("en"); runtime.setResumed(true); runCurrent()
         choose(runtime)
@@ -351,7 +351,7 @@ class HostUiRequestTest {
         val runtime = GhostRuntime({ fixture.base }, { forged }, Boot(onboardingAvailable = false),
             backgroundScope, InstalledGhostRepository(fixture.root), Last("lookalike"),
             ioDispatcher = StandardTestDispatcher(testScheduler),
-            bundledEngineFactory = { assistant(it, "en") }, elapsedRealtime = { testScheduler.currentTime })
+            bundledEngineFactory = { assistant(it) }, elapsedRealtime = { testScheduler.currentTime })
         runtime.start("en"); runtime.setResumed(true); runCurrent()
         choose(runtime)
         assertNull(runtime.action())

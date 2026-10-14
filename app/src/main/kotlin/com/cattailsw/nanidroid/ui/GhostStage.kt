@@ -218,9 +218,10 @@ fun GhostStage(
                 var showAbout by remember(sessionId) { mutableStateOf(false) }
                 var showDebugTools by remember(sessionId) { mutableStateOf(false) }
                 val claimHostUiRequest by rememberUpdatedState(onClaimHostUiRequest)
-                val modalVisible = showGhosts || showAbout || showDebugTools || state.switchPrompt != null ||
-                    state.input != null || importState is ImportState.Running ||
+                val importDialogVisible = importState is ImportState.Running ||
                     importState is ImportState.Completed || importInterrupted
+                val modalVisible = showGhosts || showAbout || showDebugTools || state.switchPrompt != null ||
+                    state.input != null || importDialogVisible
                 LaunchedEffect(state.hostUiRequest?.id, interactionActive, modalVisible) {
                     val request = state.hostUiRequest ?: return@LaunchedEffect
                     if (!interactionActive || modalVisible) return@LaunchedEffect
@@ -305,8 +306,7 @@ fun GhostStage(
                         onShowTouchBoundsChange = { showTouchBounds = it },
                         onDismiss = { showDebugTools = false })
                 }
-                if ((showGhosts || importState is ImportState.Running ||
-                    importState is ImportState.Completed || importInterrupted) && state.switchPrompt == null) {
+                if ((showGhosts || importDialogVisible) && state.switchPrompt == null) {
                     AlertDialog(
                         onDismissRequest = {
                             if (importState is ImportState.Running) onClose() else {

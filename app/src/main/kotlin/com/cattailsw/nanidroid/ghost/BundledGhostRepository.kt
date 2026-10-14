@@ -1,5 +1,6 @@
 package com.cattailsw.nanidroid.ghost
 
+import com.cattailsw.nanidroid.engine.BuiltInShiori
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
@@ -102,17 +103,12 @@ class BundledGhostRepository(
             "Bundled install descriptor mismatch"
         }
         require(File(root, "ghost/master/descript.txt").isFile)
-        require(File(root, "ghost/master/en/content.txt").isFile)
-        require(File(root, "ghost/master/ja/content.txt").isFile)
-        require(File(root, "ghost/master/zh-TW/content.txt").isFile)
         require(File(root, "shell/master/surface0000.png").isFile)
         require(File(root, "shell/master/surface0010.png").isFile)
         for (path in MANAGED_PATHS) {
-            val entries = boundedBytes(File(root, path)).toString(Charsets.UTF_8)
-                .removePrefix("\uFEFF").lineSequence().mapNotNull { line ->
-                    val comma = line.indexOf(',')
-                    if (comma <= 0 || line.startsWith(';')) null else line.substring(0, comma)
-                }.toSet()
+            val file = File(root, path)
+            require(file.isFile)
+            val entries = BuiltInShiori.dictionaryEntries(boundedBytes(file).toString(Charsets.UTF_8)).keys
             require(ARCHIVE_REQUIRED.all { it in entries }) { "Incomplete shipped dictionary" }
         }
     }
@@ -130,17 +126,8 @@ class BundledGhostRepository(
         require(sha256(it).equals(expectedSha256, ignoreCase = true)) { "Bundled ghost hash mismatch" }
     }
 
-    private fun boundedBytes(file: File): ByteArray = file.inputStream().use { input ->
-        val buffer = ByteArray(CONTENT_LIMIT + 1)
-        var count = 0
-        while (count < buffer.size) {
-            val next = input.read(buffer, count, buffer.size - count)
-            if (next < 0) break
-            count += next
-        }
-        require(count <= CONTENT_LIMIT) { "Bundled content exceeds 64 KiB" }
-        buffer.copyOf(count)
-    }
+    private fun boundedBytes(file: File): ByteArray =
+        ShellFiles.readAtMost(file, CONTENT_LIMIT, "Bundled content exceeds 64 KiB")
 
     /** Checks every fixed path component without following links, before any refresh writes. */
     private fun confined(root: File, relative: String): File {
@@ -191,29 +178,22 @@ class BundledGhostRepository(
                 val entry = zip.nextEntry ?: break
                 if (entry.name in MANAGED_PATHS) {
                     require(entry.name !in replacement) { "Duplicate managed dictionary" }
-                    val bytes = ByteArray(CONTENT_LIMIT + 1)
-                    var count = 0
-                    while (count < bytes.size) {
-                        val next = zip.read(bytes, count, bytes.size - count)
-                        if (next < 0) break
-                        count += next
-                    }
-                    require(count <= CONTENT_LIMIT) { "Bundled content exceeds 64 KiB" }
-                    replacement[entry.name] = bytes.copyOf(count)
+                    replacement[entry.name] = ShellFiles.readAtMost(zip, CONTENT_LIMIT,
+                        "Bundled content exceeds 64 KiB")
                 }
                 zip.closeEntry()
             }
         }
         require(replacement.keys == MANAGED_PATHS) { "Missing managed dictionary" }
         for (path in MANAGED_PATHS) {
-            var target = confined(root, path)
+            val target = confined(root, path)
             val before = target.takeIf { it.exists() }?.let(::hashFile)
             val bytes = replacement.getValue(path)
             val newHash = sha256(bytes)
             if (before == newHash || (before != null && before != PREVIOUS_HASHES[path])) continue
             val parent = requireNotNull(target.parentFile)
             require(parent.isDirectory || parent.mkdirs()) { "Cannot create dictionary parent" }
-            target = confined(root, path)
+            confined(root, path)
             val temporary = Files.createTempFile(parent.toPath(), ".nanidroid-dictionary-", ".tmp")
             try {
                 Files.newOutputStream(temporary).use { it.write(bytes) }

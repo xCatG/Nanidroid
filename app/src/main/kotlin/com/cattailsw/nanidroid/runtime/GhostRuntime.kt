@@ -487,12 +487,12 @@ class GhostRuntime(
             val session = dialogueOwner(token.sessionId, token.dialogueId) ?: return@launch
             val choice = (session.frame.sakura.choices + session.frame.kero.choices)
                 .firstOrNull { it.key == token.itemKey } ?: return@launch
-            val deliveryEpoch = actionDeliveryEpoch.takeIf { resumed }
+            val requestEpoch = deliveryEpoch()
             clearDialogue(session)
             val generation = session.replacementGeneration
             if (inFarewellDialogue(session)) session.transitionRepliesPending++
             publish(session)
-            requestAction(session, generation, choice.event, deliveryEpoch)
+            requestAction(session, generation, choice.event, requestEpoch)
         }
     }
 
@@ -888,7 +888,7 @@ class GhostRuntime(
         try {
             val first = bootState.recordActivation(session.ghost.directoryId)
             if (!sameActive(session)) return
-            if ((bundledTarget || session.isBundledDefault) && first) bootState.consumeOnboarding()
+            if (session.isBundledDefault && first) bootState.consumeOnboarding()
             lastGhostStore?.write(session.ghost.directoryId)
             val id = when {
                 first -> "OnFirstBoot"
