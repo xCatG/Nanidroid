@@ -248,7 +248,9 @@ class BundledAssistantUiTest {
             runtime.click(1, 0, 0)
         }
         compose.waitUntil(10_000) { ready(runtime).choices[1].orEmpty().any { it.label == "About and licenses" } }
-        scenario.onActivity { runtime.choose(ready(runtime).choices[1]!!.single { it.label == "About and licenses" }.token) }
+        scenario.onActivity {
+            runtime.choose(ready(runtime).choices[1]!!.single { it.label == "About and licenses" }.token)
+        }
         compose.waitUntil(5_000) {
             ready(runtime).hostUiRequest != null ||
                 compose.onAllNodes(hasTestTag("about-dialog")).fetchSemanticsNodes().isNotEmpty()
@@ -300,7 +302,9 @@ class BundledAssistantUiTest {
             scenario.onActivity { runtime.selectGhost("other") }
             compose.waitUntil(5_000) { ready(runtime).switchPrompt != null }
             scenario.onActivity { runtime.confirmSwitch() }
-            compose.waitUntil(10_000) { ready(runtime).ghostName == name && ready(runtime).dialogueToken!!.sessionId != original }
+            compose.waitUntil(10_000) {
+                ready(runtime).ghostName == name && ready(runtime).dialogueToken!!.sessionId != original
+            }
             scenario.onActivity { runtime.selectGhost("nanidroid") }
             compose.waitUntil(5_000) { ready(runtime).switchPrompt != null }
             scenario.onActivity { runtime.confirmSwitch() }
@@ -430,7 +434,9 @@ class BundledAssistantUiTest {
         val app = ApplicationProvider.getApplicationContext<NanidroidApplication>()
         val directory = File(app.getExternalFilesDir(null), "cleanup-evidence").apply { mkdirs() }
         val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-        File(directory, "$name.png").outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+        File(directory, "$name.png").outputStream().use {
+            assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+        }
         bitmap.recycle()
     }
 
@@ -439,7 +445,8 @@ class BundledAssistantUiTest {
         val previousLocale = Locale.getDefault()
         val previousLocaleList = LocaleList.getDefault()
         val previousLocales = app.resources.configuration.locales
-        val runtimeField = NanidroidApplication::class.java.getDeclaredField("runtime\$delegate").apply { isAccessible = true }
+        val runtimeField = NanidroidApplication::class.java.getDeclaredField("runtime\$delegate")
+            .apply { isAccessible = true }
         val priorRuntime = runtimeField.get(app)
         fun ownedCacheRoots() = app.cacheDir.listFiles().orEmpty()
             .filter { it.name.startsWith("assistant-ui-") }.map { it.name }.toSet()
@@ -521,7 +528,8 @@ class BundledAssistantUiTest {
         val previousConfiguration = Configuration(app.resources.configuration)
         val locale = Locale.forLanguageTag(localeTag)
         val root = File(app.cacheDir, "assistant-ui-${System.nanoTime()}")
-        val runtimeField = NanidroidApplication::class.java.getDeclaredField("runtime\$delegate").apply { isAccessible = true }
+        val runtimeField = NanidroidApplication::class.java.getDeclaredField("runtime\$delegate")
+            .apply { isAccessible = true }
         val priorRuntime = runtimeField.get(app)
         var rootCreated = false
         var runtimeReplaced = false
@@ -571,7 +579,9 @@ class BundledAssistantUiTest {
             )
             val base = repository.load(installed, locale)
             val master = File(root, "other/ghost/master").apply { mkdirs() }
-            File(master, "descript.txt").writeText("name,$foreignName\nsakura.name,Other guide\nkero.name,Other companion\nshiori,Nanidroid")
+            File(master, "descript.txt").writeText(
+                "name,$foreignName\nsakura.name,Other guide\nkero.name,Other companion\nshiori,Nanidroid"
+            )
             File(master, "en").mkdirs()
             File(master, "en/content.txt").writeText(
                 "OnFirstBoot,\\_q\\0Other ghost\\e\nOnBoot,\\_q\\0Other ghost\\e\n" +

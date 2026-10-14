@@ -269,7 +269,9 @@ fun GhostStage(
                 )
                 val ghostsLabel = stringResource(R.string.stage_ghosts)
                 val aboutLabel = stringResource(R.string.stage_about)
-                val loaded by produceState<LoadedImages>(LoadedImages.Loading, state.surfaces, state.shell, imageLoader) {
+                val loaded by produceState<LoadedImages>(
+                    LoadedImages.Loading, state.surfaces, state.shell, imageLoader
+                ) {
                     value = try {
                         LoadedImages.Ready(loadSurfaces(state.surfaces, state.shell, imageLoader))
                     } catch (cancelled: CancellationException) {
@@ -377,7 +379,8 @@ fun GhostStage(
                                                 (importState.promptResult as? ImportPromptResult.Unavailable)
                                                     ?.let { "Ghost imported. ${it.message}." }
                                                     ?: "Ghost imported. Review the readme before switching."
-                                            is ImportOutcome.Refused -> "Ghost is already installed or cannot be imported."
+                                            is ImportOutcome.Refused ->
+                                                "Ghost is already installed or cannot be imported."
                                             is ImportOutcome.Failed -> "Import failed. ${importState.outcome.message}."
                                             ImportOutcome.Cancelled -> "Import cancelled."
                                         }
@@ -410,11 +413,16 @@ fun GhostStage(
                                     }
                                 ) { Text("Cancel") }
                             } else {
-                                TextButton(onClick = {
-                                    showGhosts = false
-                                    if (importState is ImportState.Completed) onAcknowledgeImport(importState.attemptId)
-                                    if (importInterrupted) onDismissInterrupted()
-                                }, modifier = Modifier.semantics { contentDescription = "Close Ghosts" }) { Text("Close") }
+                                TextButton(
+                                    onClick = {
+                                        showGhosts = false
+                                        if (importState is ImportState.Completed) {
+                                            onAcknowledgeImport(importState.attemptId)
+                                        }
+                                        if (importInterrupted) onDismissInterrupted()
+                                    },
+                                    modifier = Modifier.semantics { contentDescription = "Close Ghosts" }
+                                ) { Text("Close") }
                             }
                         },
                         dismissButton = {

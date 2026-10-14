@@ -2,16 +2,37 @@ package com.cattailsw.nanidroid.runtime
 
 import com.cattailsw.nanidroid.data.BootStateStore
 import com.cattailsw.nanidroid.data.LastGhostStore
-import com.cattailsw.nanidroid.engine.*
-import com.cattailsw.nanidroid.ghost.*
+import com.cattailsw.nanidroid.engine.BuiltInShiori
+import com.cattailsw.nanidroid.engine.NativeAvailability
+import com.cattailsw.nanidroid.engine.NativeKind
+import com.cattailsw.nanidroid.engine.NativeLease
+import com.cattailsw.nanidroid.engine.NativeLoadResult
+import com.cattailsw.nanidroid.engine.NativeShutdownResult
+import com.cattailsw.nanidroid.engine.NativeUnloadResult
+import com.cattailsw.nanidroid.engine.ShioriEngine
+import com.cattailsw.nanidroid.engine.ShioriEvent
+import com.cattailsw.nanidroid.engine.ShioriReply
+import com.cattailsw.nanidroid.ghost.BundledGhost
+import com.cattailsw.nanidroid.ghost.BundledGhostRepository
+import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
 import com.cattailsw.nanidroid.ui.StageViewModel
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.security.MessageDigest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.*
-import org.junit.Assert.*
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -50,12 +71,18 @@ class HostUiRequestTest {
         val master = File(root, "$id/ghost/master").apply { mkdirs() }
         File(master, "descript.txt").writeText("name,Nanidroid\nsakura.name,Sakura\nkero.name,Kero\nshiori,Nanidroid")
         File(master, "ja").mkdirs()
-        File(master, "ja/content.txt").writeText("OnFirstBoot,\\_q\\q[Ghosts,OnNanidroidOpenGhosts]\\e\nOnNanidroidOpenGhosts,\\![open,ghostexplorer]\\e")
+        File(master, "ja/content.txt").writeText(
+            "OnFirstBoot,\\_q\\q[Ghosts,OnNanidroidOpenGhosts]\\e\n" +
+                "OnNanidroidOpenGhosts,\\![open,ghostexplorer]\\e"
+        )
         File(root, "$id/shell/master").mkdirs()
     }
     private fun assistant(base: BundledGhost) = BuiltInShiori.bundled(base.content, true)
     private suspend fun TestScope.started(
-        fixture: Fixture = fixture(), saved: String? = null, boot: Boot = Boot(onboardingAvailable = false), language: String = "en",
+        fixture: Fixture = fixture(),
+        saved: String? = null,
+        boot: Boot = Boot(onboardingAvailable = false),
+        language: String = "en",
         engine: ShioriEngine = assistant(fixture.base)
     ): GhostRuntime = GhostRuntime(
         { fixture.base }, { BuiltInShiori(it.content) }, boot,
@@ -211,7 +238,10 @@ class HostUiRequestTest {
             engine = engine { event ->
                 when (event.id) {
                     "OnFirstBoot", "OnMouseClick" -> menu()
-                    "OnNanidroidOpenGhosts" -> { gate.await(); ShioriReply(200, "\\_qOrdinary dialogue\\![open,ghostexplorer]\\e") }
+                    "OnNanidroidOpenGhosts" -> {
+                        gate.await()
+                        ShioriReply(200, "\\_qOrdinary dialogue\\![open,ghostexplorer]\\e")
+                    }
                     else -> ShioriReply(204)
                 }
             }
@@ -268,7 +298,10 @@ class HostUiRequestTest {
                 engine = engine {
                     when (it.id) {
                         "OnFirstBoot" -> menu()
-                        "OnNanidroidOpenGhosts" -> { gate.await(); ShioriReply(200, "\\_qLate\\![open,ghostexplorer]\\e") }
+                        "OnNanidroidOpenGhosts" -> {
+                            gate.await()
+                            ShioriReply(200, "\\_qLate\\![open,ghostexplorer]\\e")
+                        }
                         "OnMouseClick" -> ShioriReply(200, "\\_qNew\\e")
                         else -> ShioriReply(204)
                     }
@@ -540,7 +573,11 @@ class HostUiRequestTest {
         val fixture = fixture()
         for (candidate in listOf<ShioriEngine>(
             BuiltInShiori.bundled("OnMouseClick,\\_qBefore\\![open,developer]After\\e", false),
-            engine { if (it.id == "OnMouseClick") ShioriReply(200, "\\_qBefore\\![open,developer]After\\e") else ShioriReply(204) }
+            engine {
+                if (it.id == "OnMouseClick") {
+                    ShioriReply(200, "\\_qBefore\\![open,developer]After\\e")
+                } else ShioriReply(204)
+            }
         )) {
             val runtime = started(fixture, engine = candidate)
             runtime.click(0, 0, 0); runCurrent()
@@ -686,7 +723,11 @@ class HostUiRequestTest {
                     "\\_qBefore\\![open,developer]After\\![open,ghostexplorer]\\![open,configurationdialog,about]\\e"
                 ) else ShioriReply(204)
             override suspend fun unload(lease: NativeLease) = NativeUnloadResult.Unloaded
-            override suspend fun shutdown(lease: NativeLease, notifyDestroy: Boolean, timeoutMillis: Long) = NativeShutdownResult.Completed
+            override suspend fun shutdown(
+                lease: NativeLease,
+                notifyDestroy: Boolean,
+                timeoutMillis: Long
+            ) = NativeShutdownResult.Completed
         }
         val runtime = GhostRuntime(
             { fixture.base }, { BuiltInShiori(it.content) }, Boot(), backgroundScope,

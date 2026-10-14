@@ -4,7 +4,9 @@ import com.cattailsw.nanidroid.runtime.HostUiCommand
 import com.cattailsw.nanidroid.runtime.ScriptPlayer
 import java.util.zip.ZipInputStream
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BuiltInDefaultShioriTest {
@@ -19,7 +21,8 @@ class BuiltInDefaultShioriTest {
     }
 
     @Test fun selectorPriorityAndCanonicalReferences() = runTest {
-        val table = "Event,plain\nEvent@debug,debug\nEvent@r3=1,one\nEvent@r3=1@debug,one-debug\nEvent@r3=2147483647,max"
+        val table = "Event,plain\nEvent@debug,debug\nEvent@r3=1,one\n" +
+            "Event@r3=1@debug,one-debug\nEvent@r3=2147483647,max"
         fun event(reference: String) = ShioriEvent("Event", listOf("", "", "", reference))
         assertEquals("one-debug", BuiltInShiori.bundled(table, true).request(event("1")).value)
         assertEquals("one", BuiltInShiori.bundled(table, false).request(event("1")).value)
@@ -69,7 +72,9 @@ class BuiltInDefaultShioriTest {
         ZipInputStream(javaClass.getResourceAsStream("/nanidroid.zip")!!).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
-                if (entry.name.endsWith("content.txt")) dictionaries[entry.name] = zip.readBytes().toString(Charsets.UTF_8)
+                if (entry.name.endsWith("content.txt")) {
+                    dictionaries[entry.name] = zip.readBytes().toString(Charsets.UTF_8)
+                }
             }
         }
         assertEquals(3, dictionaries.size)
@@ -90,12 +95,18 @@ class BuiltInDefaultShioriTest {
                     assertTrue(frame.kero.choices.any { it.event.id == "OnNanidroidOpenGhosts" })
                 }
                 assertTrue(engine.request(ShioriEvent("OnFirstBoot")).value!!.contains("OnNanidroidTools"))
-                assertTrue(engine.request(ShioriEvent("OnMouseClick", listOf("0", "0", "0", "0"))).value!!.contains("OnNanidroidIntro"))
+                assertTrue(
+                    engine.request(ShioriEvent("OnMouseClick", listOf("0", "0", "0", "0")))
+                        .value!!.contains("OnNanidroidIntro")
+                )
                 for ((id, command) in mapOf(
                     "OnNanidroidOpenGhosts" to HostUiCommand.GhostExplorer,
                     "OnNanidroidOpenAbout" to HostUiCommand.About, "OnNanidroidOpenDebug" to HostUiCommand.Developer
                 )) {
-                    assertEquals(listOf(command), ScriptPlayer(engine.request(ShioriEvent(id)).value!!).advanceBy(0).hostCommands)
+                    assertEquals(
+                        listOf(command),
+                        ScriptPlayer(engine.request(ShioriEvent(id)).value!!).advanceBy(0).hostCommands
+                    )
                 }
                 assertEquals(204, engine.request(ShioriEvent("OnMouseClick", listOf("x", "0", "0", "0"))).status)
             }

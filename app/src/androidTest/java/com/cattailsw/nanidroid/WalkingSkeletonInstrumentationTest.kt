@@ -249,7 +249,8 @@ class RuntimeProbe : ViewModel() {
         engineFactory = { ghost ->
             val engine = BuiltInShiori(ghost.content)
             object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent) = engine.request(event).also { replies += event to it.status }
+                override suspend fun request(event: ShioriEvent) =
+                    engine.request(event).also { replies += event to it.status }
             }
         },
         bootState = object : BootStateStore {

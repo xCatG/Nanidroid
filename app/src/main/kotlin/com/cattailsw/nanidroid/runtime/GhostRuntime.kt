@@ -166,7 +166,11 @@ class GhostRuntime(
     private sealed interface SessionState {
         data object Idle : SessionState
         class Loading(val id: Long, val done: CompletableDeferred<Unit>) : SessionState
-        class Active(val session: Session, val prompt: CandidatePrompt? = null, val error: String? = null) : SessionState
+        class Active(
+            val session: Session,
+            val prompt: CandidatePrompt? = null,
+            val error: String? = null
+        ) : SessionState
         class Switching(val from: Session, val to: GhostDescriptor, val phase: Phase) : SessionState
         class Closing(val session: Session, var cleanupStarted: Boolean = false) : SessionState
         class ClosingSwitch(val from: Session) : SessionState
@@ -431,7 +435,10 @@ class GhostRuntime(
                     ShioriEvent(
                         "OnGhostChanging",
                         listOf(
-                            target.sakuraName, "manual", "", target.masterPath.parentFile?.parentFile?.absolutePath.orEmpty()
+                            target.sakuraName,
+                            "manual",
+                            "",
+                            target.masterPath.parentFile?.parentFile?.absolutePath.orEmpty()
                         )
                     )
                 )

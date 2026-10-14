@@ -220,7 +220,9 @@ class NativeDialogSessionTest {
                     if (dialog == "about") compose.onNodeWithTag("about-dialog").assertIsDisplayed()
                     else compose.onNodeWithContentDescription("Close Ghosts").assertIsDisplayed()
                     activity.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
-                    compose.waitUntil(20_000) { activityActivityOrientation(activity) == Configuration.ORIENTATION_LANDSCAPE }
+                    compose.waitUntil(20_000) {
+                        activityActivityOrientation(activity) == Configuration.ORIENTATION_LANDSCAPE
+                    }
                     // The approved policy permits dismissal on recreation, then reopening.
                     if (dialog == "about") compose.onNodeWithTag("about-dialog").assertDoesNotExist()
                     else compose.onNodeWithContentDescription("Close Ghosts").assertDoesNotExist()
@@ -235,7 +237,9 @@ class NativeDialogSessionTest {
                     if (dialog == "about") compose.onNodeWithTag("about-close").performClick()
                     else compose.onNodeWithContentDescription("Close Ghosts").performClick()
                     activity.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
-                    compose.waitUntil(20_000) { activityActivityOrientation(activity) == Configuration.ORIENTATION_PORTRAIT }
+                    compose.waitUntil(20_000) {
+                        activityActivityOrientation(activity) == Configuration.ORIENTATION_PORTRAIT
+                    }
                 }
 
                 val choice = (runtime.state.value as StageState.Ready).choices.values.flatten()
@@ -246,7 +250,9 @@ class NativeDialogSessionTest {
                         .fetchSemanticsNodes().isNotEmpty()
                 }
                 compose.onNodeWithTag(choiceTag).performScrollTo().performClick()
-                compose.waitUntil(25_000) { host.observationForTest().eventCount("OnAiTalk") == boot.eventCount("OnAiTalk") + 1 }
+                compose.waitUntil(25_000) {
+                    host.observationForTest().eventCount("OnAiTalk") == boot.eventCount("OnAiTalk") + 1
+                }
                 assertEquals(before.loads + 1, host.observationForTest().loads)
                 assertTrue(runtime.activeNativeLeaseForTest() === lease)
                 println(

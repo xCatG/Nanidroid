@@ -92,7 +92,8 @@ class BundledGhostRepositoryTest {
         File(root, "ghost/master/ja/content.txt").writeText("")
         val shell = File(root, "shell/master").apply { mkdirs() }
         File(shell, "surfaces.txt").writeText("surface0 {\nelement0,base,body.png,0,0\n}")
-        val ghost = BundledGhostRepository({ error("Not installing") }, requireNotNull(root.parentFile)).load(root, "ja")
+        val ghost = BundledGhostRepository({ error("Not installing") }, requireNotNull(root.parentFile))
+            .load(root, "ja")
         assertTrue(ghost.surfaces.isEmpty())
         assertEquals(shell, ghost.shellDirectory)
     }
@@ -172,9 +173,10 @@ class BundledGhostRepositoryTest {
     private fun snapshot(root: File) = root.walkTopDown().associate {
         it.relativeTo(root).invariantSeparatorsPath to if (it.isFile) sha256(it.readBytes()) else "directory"
     }
-    private fun previous(locale: String) = javaClass.getResourceAsStream("/previous-bundled-$locale-content.txt")!!.use {
-        it.readBytes()
-    }
+    private fun previous(locale: String) =
+        javaClass.getResourceAsStream("/previous-bundled-$locale-content.txt")!!.use {
+            it.readBytes()
+        }
 
     @Test fun productionAndTestArchiveMatchWithOriginalPngBytesAndPinnedPreviousHashes() {
         val bytes = javaClass.getResourceAsStream("/nanidroid.zip")!!.use { it.readBytes() }
@@ -183,8 +185,14 @@ class BundledGhostRepositoryTest {
         assertEquals("b4621c0532d0027a539aecfadd85448b2167d9671f0f9c78239735b302b67f0c", sha256(previous("en")))
         assertEquals("3b1fbeee59cb47e1e015fe41535218ec9a778444be2dc98d145b91df85b36002", sha256(previous("ja")))
         val root = realRepository(temporaryFolder.newFolder()).ensureInstalled()
-        assertEquals("5c1c95e3f0c7de16d279c92d8ea5de01e4a80771bb270226588c8d1bd4316c9f", sha256(File(root, "shell/master/surface0000.png").readBytes()))
-        assertEquals("f2358bab6b34ac088ff6db3f73e39b9c7143ad627f7015a6efd49aaae7d56d53", sha256(File(root, "shell/master/surface0010.png").readBytes()))
+        assertEquals(
+            "5c1c95e3f0c7de16d279c92d8ea5de01e4a80771bb270226588c8d1bd4316c9f",
+            sha256(File(root, "shell/master/surface0000.png").readBytes())
+        )
+        assertEquals(
+            "f2358bab6b34ac088ff6db3f73e39b9c7143ad627f7015a6efd49aaae7d56d53",
+            sha256(File(root, "shell/master/surface0010.png").readBytes())
+        )
     }
 
     @Test fun startupLocaleUsesFullScriptAndRegionWithHansPriority() {

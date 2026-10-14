@@ -29,7 +29,9 @@ import org.junit.rules.TemporaryFolder
 class GhostRuntimeTest {
     @get:Rule val folder = TemporaryFolder()
     private val ghost =
-        BundledGhost("nanidroid", "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura.png"), 10 to File("kero.png")), "")
+        BundledGhost(
+            "nanidroid", "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura.png"), 10 to File("kero.png")), ""
+        )
 
     @Test fun firstLaunchHasNoRuntimeAuthoredWelcome() = runTest {
         var now = 0L
@@ -405,9 +407,14 @@ class GhostRuntimeTest {
     @Test fun pauseFreezesPartialTextAndResumeDoesNotCatchUp() = runTest {
         val events = mutableListOf<String>()
         val runtime =
-            GhostRuntime({
-                ghost
-            }, { RecordingEngine(events) }, FakeStore(onboarding = false), backgroundScope) { testScheduler.currentTime }
+            GhostRuntime(
+                {
+                    ghost
+                },
+                { RecordingEngine(events) },
+                FakeStore(onboarding = false),
+                backgroundScope
+            ) { testScheduler.currentTime }
         runtime.start("en")
         runtime.setResumed(true)
         runCurrent()
@@ -428,9 +435,14 @@ class GhostRuntimeTest {
     @Test fun unknownTouchClearsDialogueAndCloseWaitsForReply() = runTest {
         val events = mutableListOf<String>()
         val runtime =
-            GhostRuntime({
-                ghost
-            }, { RecordingEngine(events) }, FakeStore(onboarding = false), backgroundScope) { testScheduler.currentTime }
+            GhostRuntime(
+                {
+                    ghost
+                },
+                { RecordingEngine(events) },
+                FakeStore(onboarding = false),
+                backgroundScope
+            ) { testScheduler.currentTime }
         runtime.start("en")
         runtime.setResumed(true); runCurrent()
         runtime.click(0, 3, 4)
@@ -557,7 +569,8 @@ class GhostRuntimeTest {
             engineFactory = {
                 object : ShioriEngine {
                     override suspend fun request(event: ShioriEvent): ShioriReply = when (event.id) {
-                        "OnSecondChange" -> if (secondReplies++ == 0) ShioriReply(200, "\\0Second\\e") else ShioriReply(204)
+                        "OnSecondChange" ->
+                            if (secondReplies++ == 0) ShioriReply(200, "\\0Second\\e") else ShioriReply(204)
                         "OnMinuteChange" -> minute.await()
                         else -> ShioriReply(204)
                     }

@@ -52,7 +52,10 @@ class MainActivity : ComponentActivity() {
         val app = application as NanidroidApplication
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>, extras: androidx.lifecycle.viewmodel.CreationExtras): T =
+            override fun <T : ViewModel> create(
+                modelClass: Class<T>,
+                extras: androidx.lifecycle.viewmodel.CreationExtras
+            ): T =
                 StageViewModel(
                     app.runtime, app.importCoordinator, extras.createSavedStateHandle(),
                     app.importAttemptStore

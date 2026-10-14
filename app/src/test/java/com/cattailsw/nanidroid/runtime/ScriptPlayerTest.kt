@@ -314,7 +314,9 @@ class ScriptPlayerTest {
             "$\\\\\\%keroname|Second|First|Kero|%other",
             ScriptPlayer.substituteNames(
                 "%username|%selfname2|%selfname|%keroname|%other",
-                mapOf("username" to "$\\%keroname", "selfname" to "First", "selfname2" to "Second", "keroname" to "Kero")
+                mapOf(
+                    "username" to "$\\%keroname", "selfname" to "First", "selfname2" to "Second", "keroname" to "Kero"
+                )
             )
         )
     }
@@ -552,7 +554,11 @@ class ScriptPlayerTest {
 
     @Test fun unchangedEarthquakeBalloonFragmentDoesNotPrintThemeDigit() {
         // Earthquake Duo 1.0.1, duo_menu.dic:28 (archive SHA-256 06db71e7...)
-        val frame = ScriptPlayer("\\0\\s[0]\\b2Welcom to the offical MAN Software menu. Please make a selection when you are ready.").advanceBy(5_000)
-        assertEquals("Welcom to the offical MAN Software menu. Please make a selection when you are ready.", frame.sakura.text)
+        val frame = ScriptPlayer(
+            "\\0\\s[0]\\b2Welcom to the offical MAN Software menu. Please make a selection when you are ready."
+        ).advanceBy(5_000)
+        assertEquals(
+            "Welcom to the offical MAN Software menu. Please make a selection when you are ready.", frame.sakura.text
+        )
     }
 }
