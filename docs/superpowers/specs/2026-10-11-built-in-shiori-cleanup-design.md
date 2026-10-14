@@ -25,6 +25,8 @@ Chinese. Japanese and unsupported locales, including explicit zh-Hans, use the
 Japanese fallback. Reads are bounded to 64 KiB. Dialogue locale is selected at
 process startup; changing language requires a restart. Debug-dialog labels use
 Android English/Japanese/Traditional Chinese resources independently.
+Imported built-in ghosts share the supported locale mapping while retaining
+authored language directories for other languages; startup passes the full locale tag.
 
 ## Script delivery
 
@@ -39,6 +41,8 @@ Commands execute when playback reaches them, respecting waits and input pauses.
 ScriptPlayer emits transient commands; GhostRuntime assigns occurrence IDs and
 holds one session-owned FIFO. Compose claims a request once, when no conflicting
 modal is visible. Repeated authored commands remain separate occurrences.
+The FIFO retains at most 32 pending occurrences; further requests are dropped
+while full, preserving the retained prefix's order and independent identities.
 
 Replacement, pause, switch and close invalidate pending delivery. Natural queue
 advancement preserves reached commands. Request-time epochs reject stale replies
@@ -60,6 +64,8 @@ shipped bytes are replaced; current bytes are unchanged; missing files are added
 other existing bytes are preserved as customized. Each replacement uses an
 exclusively created adjacent temporary file, an ownership recheck and atomic move.
 Interrupted refresh can retry by hash; there is no directory replacement or sweep.
+Refresh I/O failures are logged and retain installed content for this launch.
+Fresh-install errors and failed hash/path validation remain strict.
 
 PNGs, descriptors, shell files, saved state, activation markers, unknown files and
 imported ghosts remain intact. Customized dictionaries may intentionally lack the

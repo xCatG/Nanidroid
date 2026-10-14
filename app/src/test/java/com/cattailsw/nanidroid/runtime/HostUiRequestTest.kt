@@ -112,19 +112,28 @@ class HostUiRequestTest {
         assertNotNull(runtime.action())
     }
     @Test fun importedBuiltinUsesFullLocaleAndPreservesAuthoredLanguageDirectories() = runTest {
+        val fixture = fixture().apply { imported() }
+        for ((directory, text) in listOf("ja" to "Japanese", "zh-TW" to "Traditional",
+            "en" to "English", "fr" to "French")) {
+            val content = File(fixture.root, "lookalike/ghost/master/$directory/content.txt")
+            content.parentFile!!.mkdirs()
+            content.writeText("OnFirstBoot,\\_q$text\\e")
+        }
         for ((tag, expected) in listOf("zh-Hant-TW" to "Traditional", "zh-HK" to "Traditional",
             "zh-MO" to "Traditional", "zh-Hans-TW" to "Japanese", "en-GB" to "English",
             "fr-FR" to "French")) {
-            val fixture = fixture().apply { imported() }
-            for ((directory, text) in listOf("ja" to "Japanese", "zh-TW" to "Traditional",
-                "en" to "English", "fr" to "French")) {
-                val content = File(fixture.root, "lookalike/ghost/master/$directory/content.txt")
-                content.parentFile!!.mkdirs()
-                content.writeText("OnFirstBoot,\\_q$text\\e")
-            }
             val runtime = started(fixture, saved = "lookalike", language = tag)
             assertEquals(expected, runtime.ready.frame.sakura.text)
         }
+    }
+
+    @Test fun importedTraditionalLocaleRetainsLegacyChineseDictionaryIfStandardFolderMissing() = runTest {
+        val fixture = fixture().apply { imported() }
+        val content = File(fixture.root, "lookalike/ghost/master/zh/content.txt")
+        content.parentFile!!.mkdirs()
+        content.writeText("OnFirstBoot,\\_qLegacy Chinese\\e")
+        val runtime = started(fixture, saved = "lookalike", language = "zh-Hant-TW")
+        assertEquals("Legacy Chinese", runtime.ready.frame.sakura.text)
     }
 
     @Test fun periodicHostRequestsRemainBoundedWhileConsumerIsBlocked() = runTest {

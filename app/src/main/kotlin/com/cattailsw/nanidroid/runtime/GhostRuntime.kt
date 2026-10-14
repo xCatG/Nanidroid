@@ -751,9 +751,9 @@ class GhostRuntime(
             val target = requireNotNull(target)
             try {
                 val content = withContext(ioDispatcher) {
-                    val locale = BuiltInDictionaryLocale.importedFolder(Locale.forLanguageTag(language))
-                    val requested = File(target.masterPath, "$locale/content.txt")
-                    val file = requested.takeIf { it.isFile } ?: File(target.masterPath, "ja/content.txt")
+                    val candidates = BuiltInDictionaryLocale.importedFolders(Locale.forLanguageTag(language))
+                        .map { File(target.masterPath, "$it/content.txt") }
+                    val file = candidates.firstOrNull { it.isFile } ?: candidates.last()
                     file.readText(Charsets.UTF_8)
                 }
                 val ghost = descriptorGhost(target).copy(content = content)

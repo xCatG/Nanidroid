@@ -12,7 +12,14 @@ internal object BuiltInDictionaryLocale {
         else -> "ja"
     }
 
-    fun importedFolder(locale: Locale): String = if (locale.language in setOf("en", "ja", "zh")) {
-        bundledFolder(locale)
-    } else locale.language.takeIf { it.matches(Regex("[A-Za-z]{2,8}")) } ?: "ja"
+    fun importedFolders(locale: Locale): List<String> {
+        val language = locale.language.takeIf { it.matches(Regex("[A-Za-z]{2,8}")) } ?: "ja"
+        if (language == "zh") {
+            if (locale.script.equals("Hans", true)) return listOf("ja")
+            return if (bundledFolder(locale) == "zh-TW") listOf("zh-TW", "zh", "ja")
+                else listOf("zh", "ja")
+        }
+        val selected = if (language in setOf("en", "ja")) bundledFolder(locale) else language
+        return listOf(selected, "ja").distinct()
+    }
 }
