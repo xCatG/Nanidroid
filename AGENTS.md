@@ -39,3 +39,17 @@ authorization gates. User instructions govern.
 - Follow user authorization for Git and external actions; push and PR creation are
   permitted when requested. Publication, releases, signing-key handling and
   user-device installation require explicit authorization.
+
+## Code conventions
+
+- Kotlin follows the Android Kotlin style guide
+  (developer.android.com/kotlin/style-guide) and Kotlin official conventions
+  (`kotlin.code.style=official`). Compose follows the androidx Compose API guidelines.
+- Formatting is enforced by ktlint: `./gradlew ktlintCheck`; fix with `ktlintFormat`.
+- Before adding a helper, search for an existing one (e.g. `ShellFiles`, `ImportStaging`)
+  and reuse or generalize it rather than copying.
+- Keep one source of truth for shared rules (e.g. locale-to-dictionary folder,
+  debug-command policy); do not re-derive or re-check them at each call site.
+- Best-effort work (refresh, cleanup) must not fail the main path: catch, log, continue.
+- Size/safety limits meant for shipped or untrusted input must not be applied to
+  user-owned files unless that is intended.
