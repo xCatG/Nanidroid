@@ -40,7 +40,9 @@ class RealSatoriDoubleTapUiTest {
         val dispatched = AtomicReference<String?>(null)
         compose.setContent {
             val state by runtime.state.collectAsState()
-            GhostStage(state, loader,
+            GhostStage(
+                state,
+                loader,
                 onSelectGhost = runtime::selectGhost,
                 onConfirmSwitch = runtime::confirmSwitch,
                 onDismissSwitch = runtime::dismissSwitch,
@@ -49,10 +51,14 @@ class RealSatoriDoubleTapUiTest {
                 onCharacterDoubleClickResolved = { speaker, x, y, surfaceId, origin ->
                     val ready = runtime.state.value as? StageState.Ready
                     val collision = SurfaceCollisionHitTest.find(
-                        ready?.shell?.definitions?.definition(surfaceId)?.collisions.orEmpty(), x, y)
+                        ready?.shell?.definitions?.definition(surfaceId)?.collisions.orEmpty(),
+                        x,
+                        y
+                    )
                     dispatched.set("$x,$y,0,$speaker,$collision,0,touch; surface=$surfaceId")
                     runtime.doubleClick(speaker, x, y, surfaceId, origin)
-                })
+                }
+            )
         }
         compose.runOnIdle {
             runtime.setResumed(true)
@@ -71,8 +77,10 @@ class RealSatoriDoubleTapUiTest {
             text.contains("薬草よ") || text.contains("いっぱい入っているけど")
         }
         val ready = runtime.state.value as StageState.Ready
-        assertTrue("Expected the real 2elf kusa collision: ${dispatched.get()}",
-            dispatched.get()?.contains(",kusa,0,touch") == true)
+        assertTrue(
+            "Expected the real 2elf kusa collision: ${dispatched.get()}",
+            dispatched.get()?.contains(",kusa,0,touch") == true
+        )
         assertTrue(ready.frame.sakura.balloonVisible)
         assertTrue(ready.activationError == null)
         println("REAL_UI_SATORI doubleTap refs=${dispatched.get()} text=${ready.frame.sakura.text.take(120)}")

@@ -24,9 +24,10 @@ object ShellFiles {
     }
 
     /** True when [file] is a regular, non-linked file directly inside a non-linked [shell]. */
-    fun isDirectChild(shell: File, file: File): Boolean =
-        !Files.isSymbolicLink(shell.toPath()) && !Files.isSymbolicLink(file.toPath()) &&
-            file.isFile && file.canonicalFile.parentFile == shell.canonicalFile
+    fun isDirectChild(shell: File, file: File): Boolean = !Files.isSymbolicLink(shell.toPath()) &&
+        !Files.isSymbolicLink(file.toPath()) &&
+        file.isFile &&
+        file.canonicalFile.parentFile == shell.canonicalFile
 
     /** Resolve a relative shell asset without following any linked component. */
     fun resolve(shell: File, authoredName: String): File? {

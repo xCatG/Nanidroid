@@ -28,7 +28,9 @@ class BuiltInShiori private constructor(
                 reference3?.let { if (developerCommandsEnabled) variants[Selector(event.id, it, true)] else null }
                     ?: reference3?.let { variants[Selector(event.id, it, false)] }
                     ?: if (developerCommandsEnabled) variants[Selector(event.id, null, true)] else null
-            } else null
+            } else {
+                null
+            }
             ) ?: scripts[event.id] ?: if (event.id == "OnClose" && !bundledMode) {
             "\\0\\s0Thank you.\\e"
         } else {
@@ -36,7 +38,9 @@ class BuiltInShiori private constructor(
         }
         val value = if (event.id == "OnGhostChanging" || event.id == "OnGhostChanged") {
             script.replace("%1\$s", SakuraScriptText.escape(event.references.firstOrNull().orEmpty()))
-        } else script
+        } else {
+            script
+        }
         return ShioriReply(200, value)
     }
 
@@ -57,7 +61,8 @@ class BuiltInShiori private constructor(
             if (match.groupValues[2].isEmpty() && match.groupValues[3].isEmpty()) return null
             val reference = match.groupValues[2].takeIf { it.isNotEmpty() }
             return Selector(
-                match.groupValues[1], reference?.let { canonicalInt(it) ?: return null },
+                match.groupValues[1],
+                reference?.let { canonicalInt(it) ?: return null },
                 match.groupValues[3].isNotEmpty()
             )
         }

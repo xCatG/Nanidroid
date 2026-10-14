@@ -13,35 +13,60 @@ class NarArchiveReader(private val limits: ImportLimits = ImportLimits()) {
     fun inspect(archive: File, checkCancelled: () -> Unit = {}): ImportPackage = open(archive).use { zip ->
         checkCancelled()
         val items = scan(zip, checkCancelled, validateContent = false)
-        val candidates = items.filter { !it.third &&
-            (it.second.equals("install.txt", ignoreCase = true) ||
-                it.second.count { c -> c == '/' } == 1 && it.second.substringAfter('/').equals("install.txt", ignoreCase = true)) }
+        val candidates = items.filter {
+            !it.third &&
+                (
+                    it.second.equals("install.txt", ignoreCase = true) ||
+                        it.second.count { c -> c == '/' } == 1 &&
+                        it.second.substringAfter('/').equals("install.txt", ignoreCase = true)
+                    )
+        }
         val selected = candidates.firstOrNull { it.second.equals("install.txt", ignoreCase = true) }
             ?: candidates.singleOrNull()
             ?: throw IllegalArgumentException("Missing or ambiguous install.txt")
         val root = selected.second.substringBeforeLast('/', "").let { if (it.isEmpty()) "" else "$it/" }
-        require(items.all { it.second.startsWith(root) ||
-            (it.third && root.isNotEmpty() && it.second == root.removeSuffix("/")) }) {
+        require(
+            items.all {
+                it.second.startsWith(root) ||
+                    (it.third && root.isNotEmpty() && it.second == root.removeSuffix("/"))
+            }
+        ) {
             "Archive contains payload outside package root"
         }
         scan(zip, checkCancelled, validateContent = true, descriptorRoot = root)
         val bytes = readEntry(zip, selected.first, INSTALL_DESCRIPTOR_LIMIT.toLong(), checkCancelled)
-        val values = try { DescriptorReader.read(bytes) } catch (e: Exception) {
+        val values = try {
+            DescriptorReader.read(bytes)
+        } catch (e: Exception) {
             throw IllegalArgumentException("Invalid install.txt encoding", e)
         }
         require(values["type"]?.equals("ghost", ignoreCase = true) == true) { "Package is not a ghost" }
         val id = values["directory"] ?: throw IllegalArgumentException("Missing directory")
-        require(id.isNotEmpty() && id == id.trim() && !id.startsWith('.') && !id.endsWith('.') &&
-            '/' !in id && '\\' !in id &&
-            ArchivePath.normalize(id) == id) { "Invalid directory" }
+        require(
+            id.isNotEmpty() &&
+                id == id.trim() &&
+                !id.startsWith('.') &&
+                !id.endsWith('.') &&
+                '/' !in id &&
+                '\\' !in id &&
+                ArchivePath.normalize(id) == id
+        ) { "Invalid directory" }
         ImportPackage(id, root)
     }
 
     fun extract(archive: File, metadata: ImportPackage, destination: File, checkCancelled: () -> Unit) {
         open(archive).use { zip ->
             val items = scan(zip, checkCancelled, validateContent = false, descriptorRoot = metadata.rootPrefix)
-            require(items.all { it.second.startsWith(metadata.rootPrefix) ||
-                (it.third && metadata.rootPrefix.isNotEmpty() && it.second == metadata.rootPrefix.removeSuffix("/")) }) {
+            require(
+                items.all {
+                    it.second.startsWith(metadata.rootPrefix) ||
+                        (
+                            it.third &&
+                                metadata.rootPrefix.isNotEmpty() &&
+                                it.second == metadata.rootPrefix.removeSuffix("/")
+                            )
+                }
+            ) {
                 "Archive contains payload outside package root"
             }
             require(destination.isDirectory && destination.list()?.isEmpty() == true) { "Destination must be empty" }
@@ -60,10 +85,16 @@ class NarArchiveReader(private val limits: ImportLimits = ImportLimits()) {
                     require(target.createNewFile()) { "Destination conflict" }
                     target.outputStream().use { output ->
                         val descriptor = isGhostDescriptor(path, metadata.rootPrefix)
-                        val byteLimit = if (descriptor) minOf(limits.fileBytes, limits.ghostDescriptorBytes.toLong())
-                            else limits.fileBytes
-                        val limitMessage = if (descriptor && limits.ghostDescriptorBytes <= limits.fileBytes)
-                            "Ghost descriptor byte limit exceeded" else "File byte limit exceeded"
+                        val byteLimit = if (descriptor) {
+                            minOf(limits.fileBytes, limits.ghostDescriptorBytes.toLong())
+                        } else {
+                            limits.fileBytes
+                        }
+                        val limitMessage = if (descriptor && limits.ghostDescriptorBytes <= limits.fileBytes) {
+                            "Ghost descriptor byte limit exceeded"
+                        } else {
+                            "File byte limit exceeded"
+                        }
                         streamEntry(zip, entry, byteLimit, checkCancelled, limitMessage) { data, count ->
                             require(total <= Long.MAX_VALUE - count) { "Expanded byte overflow" }
                             require(total <= limits.expandedBytes - count) { "Expanded byte limit exceeded" }
@@ -83,8 +114,12 @@ class NarArchiveReader(private val limits: ImportLimits = ImportLimits()) {
             .setUseUnicodeExtraFields(true).setMaxNumberOfDisks(1).get()
     }
 
-    private fun scan(zip: ZipFile, checkCancelled: () -> Unit, validateContent: Boolean,
-                     descriptorRoot: String? = null): List<Triple<ZipArchiveEntry, String, Boolean>> {
+    private fun scan(
+        zip: ZipFile,
+        checkCancelled: () -> Unit,
+        validateContent: Boolean,
+        descriptorRoot: String? = null
+    ): List<Triple<ZipArchiveEntry, String, Boolean>> {
         val items = mutableListOf<Triple<ZipArchiveEntry, String, Boolean>>()
         val files = mutableSetOf<String>()
         val directories = mutableSetOf<String>()
@@ -111,13 +146,19 @@ class NarArchiveReader(private val limits: ImportLimits = ImportLimits()) {
             require(entry.size >= 0 && entry.crc >= 0 && entry.compressedSize >= 0) { "Unknown ZIP metadata" }
             // Commons exposes the corpus's raw "\\" root name as "/".
             if (entry.name == "\\" || entry.name == "/") {
-                require(directory && (unixType == UnixStat.DIR_FLAG || entry.externalAttributes and 0x10L != 0L) &&
-                    !rootDirectorySeen && entry.size == 0L) { "Unsafe root directory entry" }
+                require(
+                    directory &&
+                        (unixType == UnixStat.DIR_FLAG || entry.externalAttributes and 0x10L != 0L) &&
+                        !rootDirectorySeen &&
+                        entry.size == 0L
+                ) { "Unsafe root directory entry" }
                 rootDirectorySeen = true
                 streamEntry(zip, entry, 0, checkCancelled) { _, _ -> }
                 continue
             }
-            val path = ArchivePath.normalize(if (normalizedName.endsWith('/')) normalizedName.dropLast(1) else normalizedName)
+            val path = ArchivePath.normalize(
+                if (normalizedName.endsWith('/')) normalizedName.dropLast(1) else normalizedName
+            )
             val folded = path.lowercase(Locale.ROOT)
             val components = folded.split('/')
             val originalComponents = path.split('/')
@@ -142,17 +183,27 @@ class NarArchiveReader(private val limits: ImportLimits = ImportLimits()) {
             if (!directory) {
                 require(entry.size <= limits.fileBytes) { "File byte limit exceeded" }
                 val descriptor = descriptorRoot != null && isGhostDescriptor(path, descriptorRoot)
-                if (descriptor) require(entry.size <= limits.ghostDescriptorBytes) {
-                    "Ghost descriptor byte limit exceeded"
+                if (descriptor) {
+                    require(entry.size <= limits.ghostDescriptorBytes) {
+                        "Ghost descriptor byte limit exceeded"
+                    }
                 }
-                val byteLimit = if (descriptor) minOf(limits.fileBytes, limits.ghostDescriptorBytes.toLong())
-                    else limits.fileBytes
-                val limitMessage = if (descriptor && limits.ghostDescriptorBytes <= limits.fileBytes)
-                    "Ghost descriptor byte limit exceeded" else "File byte limit exceeded"
-                if (validateContent) streamEntry(zip, entry, byteLimit, checkCancelled, limitMessage) { _, count ->
-                    require(total <= Long.MAX_VALUE - count) { "Expanded byte overflow" }
-                    require(total <= limits.expandedBytes - count) { "Expanded byte limit exceeded" }
-                    total += count
+                val byteLimit = if (descriptor) {
+                    minOf(limits.fileBytes, limits.ghostDescriptorBytes.toLong())
+                } else {
+                    limits.fileBytes
+                }
+                val limitMessage = if (descriptor && limits.ghostDescriptorBytes <= limits.fileBytes) {
+                    "Ghost descriptor byte limit exceeded"
+                } else {
+                    "File byte limit exceeded"
+                }
+                if (validateContent) {
+                    streamEntry(zip, entry, byteLimit, checkCancelled, limitMessage) { _, count ->
+                        require(total <= Long.MAX_VALUE - count) { "Expanded byte overflow" }
+                        require(total <= limits.expandedBytes - count) { "Expanded byte limit exceeded" }
+                        total += count
+                    }
                 }
             }
             items.add(Triple(entry, path, directory))
@@ -166,9 +217,14 @@ class NarArchiveReader(private val limits: ImportLimits = ImportLimits()) {
         return output.toByteArray()
     }
 
-    private fun streamEntry(zip: ZipFile, entry: ZipArchiveEntry, limit: Long,
-                            checkCancelled: () -> Unit, limitMessage: String = "File byte limit exceeded",
-                            consume: (ByteArray, Int) -> Unit): Long {
+    private fun streamEntry(
+        zip: ZipFile,
+        entry: ZipArchiveEntry,
+        limit: Long,
+        checkCancelled: () -> Unit,
+        limitMessage: String = "File byte limit exceeded",
+        consume: (ByteArray, Int) -> Unit
+    ): Long {
         val crc = CRC32()
         var count = 0L
         zip.getInputStream(entry).use { input ->

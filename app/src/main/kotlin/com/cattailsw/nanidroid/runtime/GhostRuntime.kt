@@ -66,10 +66,7 @@ data class RenderedMoveSource(
 )
 
 /** Composed image bounds and the coordinates this character was drawn with at pointer down. */
-data class RenderedMoveSnapshot(
-    val images: Map<Int, SurfaceImageBounds>,
-    val coordinates: MoveCoordinateSpace
-)
+data class RenderedMoveSnapshot(val images: Map<Int, SurfaceImageBounds>, val coordinates: MoveCoordinateSpace)
 
 /**
  * One application-owned dialogue session. JNI ownership stays in [NativeShioriHost],
@@ -114,7 +111,9 @@ class GhostRuntime(
         var surfaceDraining = false
         val moves = arrayOf(MoveState(), MoveState())
 
-        fun clearPendingMoves() { moves.forEach { it.pending = null } }
+        fun clearPendingMoves() {
+            moves.forEach { it.pending = null }
+        }
 
         fun pendingInteraction(): Boolean = frame.hasInteraction()
 
@@ -124,7 +123,13 @@ class GhostRuntime(
             val seen = mutableSetOf<String>()
             val retained = queue.mapNotNull { item ->
                 val id = item.clockEventId
-                if (id == null) item else if (seen.add(id)) latest[id] else null
+                if (id == null) {
+                    item
+                } else if (seen.add(id)) {
+                    latest[id]
+                } else {
+                    null
+                }
             }
             queue.clear()
             queue.addAll(retained)
@@ -132,15 +137,14 @@ class GhostRuntime(
     }
 
     private data class QueuedDialogue(
-        val script: String, val clockEventId: String? = null,
+        val script: String,
+        val clockEventId: String? = null,
         val deliveryEpoch: Long? = null
     )
     private data class RequestedReply(val reply: ShioriReply, val deliveryEpoch: Long?)
     private data class PendingHostRequest(val request: HostUiRequest, val generation: Long, val epoch: Long)
     private fun deliveryEpoch(): Long? = actionDeliveryEpoch.takeIf { resumed }
-    private data class MovePoint(
-        val x: Int, val y: Int, val collisionSurfaceId: Int?, val source: RenderedMoveSource
-    )
+    private data class MovePoint(val x: Int, val y: Int, val collisionSurfaceId: Int?, val source: RenderedMoveSource)
 
     // The other character only matters through this character's rendered rectangle,
     // and the stage cancels the gesture itself when that rectangle changes.
@@ -150,7 +154,9 @@ class GhostRuntime(
         if (frame.visual == source.visual) return true
         val snapshot = source.geometry ?: return false
         return MoveGeometryResolver.resolve(
-            frame.surfaceId, frame.visual, snapshot.images,
+            frame.surfaceId,
+            frame.visual,
+            snapshot.images,
             MoveGeometryResolver.fallbackSurfaceId(speaker)
         )?.coordinates == snapshot.coordinates
     }
@@ -160,17 +166,16 @@ class GhostRuntime(
         var lastAdmittedAt = Long.MIN_VALUE
     }
     private data class SurfaceEdge(
-        val change: SurfaceChange, val dialogueVersion: Long, val replacementGeneration: Long
+        val change: SurfaceChange,
+        val dialogueVersion: Long,
+        val replacementGeneration: Long
     )
 
     private sealed interface SessionState {
         data object Idle : SessionState
         class Loading(val id: Long, val done: CompletableDeferred<Unit>) : SessionState
-        class Active(
-            val session: Session,
-            val prompt: CandidatePrompt? = null,
-            val error: String? = null
-        ) : SessionState
+        class Active(val session: Session, val prompt: CandidatePrompt? = null, val error: String? = null) :
+            SessionState
         class Switching(val from: Session, val to: GhostDescriptor, val phase: Phase) : SessionState
         class Closing(val session: Session, var cleanupStarted: Boolean = false) : SessionState
         class ClosingSwitch(val from: Session) : SessionState
@@ -252,11 +257,10 @@ class GhostRuntime(
         }
     }
 
-    suspend fun offerImportedGhost(directoryId: String): ImportPromptResult =
-        withContext(scope.coroutineContext) {
-            val active = sessionState as? SessionState.Active ?: return@withContext ImportPromptResult.Deferred
-            offerSelection(active, directoryId)
-        }
+    suspend fun offerImportedGhost(directoryId: String): ImportPromptResult = withContext(scope.coroutineContext) {
+        val active = sessionState as? SessionState.Active ?: return@withContext ImportPromptResult.Deferred
+        offerSelection(active, directoryId)
+    }
 
     suspend fun refreshInstalledChoices() = withContext(scope.coroutineContext) {
         val version = ++choicesVersion
@@ -273,12 +277,14 @@ class GhostRuntime(
     }
 
     /** Read-only identity probe for device recreation tests. */
-    internal fun activeNativeLeaseForTest(): NativeLease? =
-        (sessionState as? SessionState.Active)?.session?.lease
+    internal fun activeNativeLeaseForTest(): NativeLease? = (sessionState as? SessionState.Active)?.session?.lease
 
     suspend fun start(language: String) = withContext(scope.coroutineContext) {
         when (val current = sessionState) {
-            is SessionState.Loading -> { current.done.await(); return@withContext }
+            is SessionState.Loading -> {
+                current.done.await()
+                return@withContext
+            }
             is SessionState.Active, is SessionState.Switching, is SessionState.Closing,
             is SessionState.ClosingSwitch -> return@withContext
             SessionState.Idle, SessionState.Finished -> Unit
@@ -323,7 +329,9 @@ class GhostRuntime(
         scope.launch {
             if (resumed == value) return@launch
             resumed = value
-            if (value) ensureTicker() else {
+            if (value) {
+                ensureTicker()
+            } else {
                 actionDeliveryEpoch++
                 (sessionState as? SessionState.Active)?.session?.let { session ->
                     if (session.hostRequests.isNotEmpty()) {
@@ -348,7 +356,9 @@ class GhostRuntime(
     }
 
     private suspend fun offerSelection(
-        active: SessionState.Active, directoryId: String, manual: Boolean = false
+        active: SessionState.Active,
+        directoryId: String,
+        manual: Boolean = false
     ): ImportPromptResult {
         val request = ++selectionVersion
         val expectedImportEpoch = importEpoch.get()
@@ -383,13 +393,15 @@ class GhostRuntime(
             showError(current, "Native engines are unavailable until restart")
             return ImportPromptResult.Unavailable("Installed ghost is unavailable until restart")
         }
-        if (descriptor.directoryId == current.session.ghost.directoryId)
+        if (descriptor.directoryId == current.session.ghost.directoryId) {
             return ImportPromptResult.Unavailable("Ghost is already active")
+        }
         availableChoiceKinds = availableChoiceKinds + (descriptor.directoryId to selected)
         sessionState = SessionState.Active(
             current.session,
             prompt = CandidatePrompt(
-                descriptor, SwitchPrompt(descriptor.directoryId, descriptor.displayName, readme)
+                descriptor,
+                SwitchPrompt(descriptor.directoryId, descriptor.displayName, readme)
             ),
             error = current.error
         )
@@ -398,12 +410,15 @@ class GhostRuntime(
     }
 
     private fun currentSelectionOwner(
-        active: SessionState.Active, request: Long, manual: Boolean, expectedImportEpoch: Long
-    ): SessionState.Active? =
-        (sessionState as? SessionState.Active)?.takeIf {
-            it.session === active.session && request == selectionVersion &&
-                (!manual || (!importRunning && importEpoch.get() == expectedImportEpoch))
-        }
+        active: SessionState.Active,
+        request: Long,
+        manual: Boolean,
+        expectedImportEpoch: Long
+    ): SessionState.Active? = (sessionState as? SessionState.Active)?.takeIf {
+        it.session === active.session &&
+            request == selectionVersion &&
+            (!manual || (!importRunning && importEpoch.get() == expectedImportEpoch))
+    }
 
     fun dismissSwitch() {
         scope.launch {
@@ -472,10 +487,7 @@ class GhostRuntime(
     fun move(speaker: Int, x: Int, y: Int, collisionSurfaceId: Int, source: RenderedMoveSource) =
         submitMove(speaker, x, y, collisionSurfaceId, source)
 
-    private fun submitMove(
-        speaker: Int, x: Int, y: Int, collisionSurfaceId: Int?,
-        source: RenderedMoveSource?
-    ) {
+    private fun submitMove(speaker: Int, x: Int, y: Int, collisionSurfaceId: Int?, source: RenderedMoveSource?) {
         if (speaker !in 0..1 || !resumed) return
         val ready = mutableState.value as? StageState.Ready ?: return
         val frame = if (speaker == 0) ready.frame.sakura else ready.frame.kero
@@ -508,8 +520,7 @@ class GhostRuntime(
         }
     }
 
-    fun isCurrentDialogue(token: DialogueToken): Boolean =
-        dialogueOwner(token.sessionId, token.dialogueId) != null
+    fun isCurrentDialogue(token: DialogueToken): Boolean = dialogueOwner(token.sessionId, token.dialogueId) != null
 
     fun isFarewellInput(token: InteractionToken): Boolean {
         val session = dialogueOwner(token.sessionId, token.dialogueId) ?: return false
@@ -539,7 +550,8 @@ class GhostRuntime(
             if (inFarewellDialogue(session)) session.transitionRepliesPending++
             resumeInput(session)
             requestAction(
-                session, session.replacementGeneration,
+                session,
+                session.replacementGeneration,
                 ShioriEvent("OnUserInput", listOf(input.boxId, text))
             )
         }
@@ -569,16 +581,20 @@ class GhostRuntime(
      * current, unless [reportStale]; either way it returns null.
      */
     private suspend fun request(
-        session: Session, event: ShioriEvent, generation: Long,
-        failure: String, reportStale: Boolean = false,
+        session: Session,
+        event: ShioriEvent,
+        generation: Long,
+        failure: String,
+        reportStale: Boolean = false,
         epoch: Long? = deliveryEpoch()
     ): RequestedReply? = try {
         RequestedReply(session.engine.request(event), epoch)
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: Exception) {
-        if (reportStale || session.replacementGeneration == generation)
+        if (reportStale || session.replacementGeneration == generation) {
             reportRequestFailure(session, error, failure)
+        }
         null
     }
 
@@ -587,11 +603,16 @@ class GhostRuntime(
         sameActive(session) && session.replacementGeneration == generation
 
     private suspend fun requestAction(
-        session: Session, generation: Long, event: ShioriEvent,
+        session: Session,
+        generation: Long,
+        event: ShioriEvent,
         requestDeliveryEpoch: Long? = deliveryEpoch()
     ) {
         val reply = request(
-            session, event, generation, "Interaction request failed",
+            session,
+            event,
+            generation,
+            "Interaction request failed",
             epoch = requestDeliveryEpoch
         ) ?: run {
             if (inFarewellDialogue(session) && session.replacementGeneration == generation) {
@@ -611,22 +632,30 @@ class GhostRuntime(
     fun claimHostUiRequest(requestId: Long): HostUiCommand? {
         val session = (sessionState as? SessionState.Active)?.session ?: return null
         discardInvalidRequests(session)
-        val head = session.hostRequests.firstOrNull() ?: run { publish(session); return null }
-        if (head.request.id != requestId) { publish(session); return null }
+        val head = session.hostRequests.firstOrNull() ?: run {
+            publish(session)
+            return null
+        }
+        if (head.request.id != requestId) {
+            publish(session)
+            return null
+        }
         session.hostRequests.removeFirst()
         publish(session)
         return head.request.command
     }
 
-    private fun commandAllowed(session: Session, command: HostUiCommand): Boolean =
-        sameActive(session) && resumed && (
+    private fun commandAllowed(session: Session, command: HostUiCommand): Boolean = sameActive(session) &&
+        resumed &&
+        (
             command != HostUiCommand.Developer ||
                 (session.isBundledDefault && (session.engine as? BuiltInShiori)?.developerCommandsEnabled == true)
             )
 
     private fun discardInvalidRequests(session: Session) {
         while (session.hostRequests.firstOrNull()?.let {
-                it.generation != session.replacementGeneration || it.epoch != actionDeliveryEpoch ||
+                it.generation != session.replacementGeneration ||
+                    it.epoch != actionDeliveryEpoch ||
                     !commandAllowed(session, it.request.command)
             } == true
         ) {
@@ -651,38 +680,53 @@ class GhostRuntime(
     }
 
     private suspend fun maybeFinishTransition(session: Session) {
-        if (session.player != null || session.queue.isNotEmpty() || session.pendingInteraction() ||
+        if (session.player != null ||
+            session.queue.isNotEmpty() ||
+            session.pendingInteraction() ||
             session.transitionRepliesPending != 0
-        ) return
+        ) {
+            return
+        }
         when (val current = sessionState) {
             is SessionState.Closing -> if (current.session === session) finishClose(current)
-            is SessionState.Switching -> if (current.from === session && current.phase == Phase.Dialogue)
+            is SessionState.Switching -> if (current.from === session && current.phase == Phase.Dialogue) {
                 finishSwitch(current)
+            }
             else -> Unit
         }
     }
 
     private fun pointerEvent(
-        id: String, speaker: Int, x: Int, y: Int,
-        collisionSurfaceId: Int? = null, origin: DialogueToken? = null,
+        id: String,
+        speaker: Int,
+        x: Int,
+        y: Int,
+        collisionSurfaceId: Int? = null,
+        origin: DialogueToken? = null,
         requireOrigin: Boolean = false
     ) {
         scope.launch {
             if (!resumed) return@launch
             val active = sessionState as? SessionState.Active ?: return@launch
             val session = active.session
-            if (requireOrigin && (
-                    origin == null || origin.sessionId != session.id ||
+            if (requireOrigin &&
+                (
+                    origin == null ||
+                        origin.sessionId != session.id ||
                         origin.dialogueId != session.dialogueVersion
                     )
-            ) return@launch
+            ) {
+                return@launch
+            }
             val collision = collisionAt(session, speaker, x, y, collisionSurfaceId)
             clearDialogue(session)
             val generation = session.replacementGeneration
             publish(session)
             val reply = request(
-                session, ShioriEvent(id, touchReferences(speaker, x, y, collision)),
-                generation, "Touch request failed"
+                session,
+                ShioriEvent(id, touchReferences(speaker, x, y, collision)),
+                generation,
+                "Touch request failed"
             ) ?: return@launch
             if (!acceptsReply(session, generation)) return@launch
             enqueue(session, reply)
@@ -694,7 +738,10 @@ class GhostRuntime(
         listOf(x.toString(), y.toString(), "0", speaker.toString(), collision, "0", "touch")
 
     private fun collisionAt(
-        session: Session, speaker: Int, x: Int, y: Int,
+        session: Session,
+        speaker: Int,
+        x: Int,
+        y: Int,
         displayedCollisionSurfaceId: Int? = null
     ): String {
         val frame = when (speaker) {
@@ -704,7 +751,9 @@ class GhostRuntime(
         }
         val surfaceId = displayedCollisionSurfaceId ?: frame.visual?.baseSurfaceId ?: frame.surfaceId
         return SurfaceCollisionHitTest.find(
-            session.shell?.definitions?.definition(surfaceId)?.collisions.orEmpty(), x, y
+            session.shell?.definitions?.definition(surfaceId)?.collisions.orEmpty(),
+            x,
+            y
         )
     }
 
@@ -718,15 +767,21 @@ class GhostRuntime(
                 state.pending = null
                 continue
             }
-            if (state.inFlight || state.lastAdmittedAt != Long.MIN_VALUE &&
+            if (state.inFlight ||
+                state.lastAdmittedAt != Long.MIN_VALUE &&
                 now - state.lastAdmittedAt < 50
-            ) continue
+            ) {
+                continue
+            }
             state.pending = null
             state.inFlight = true
             state.lastAdmittedAt = now
             val generation = session.replacementGeneration
             val collision = collisionAt(
-                session, speaker, point.x, point.y,
+                session,
+                speaker,
+                point.x,
+                point.y,
                 point.collisionSurfaceId
             )
             scope.launch {
@@ -737,7 +792,8 @@ class GhostRuntime(
                             "OnMouseMove",
                             touchReferences(speaker, point.x, point.y, collision)
                         ),
-                        generation, "Move request failed"
+                        generation,
+                        "Move request failed"
                     ) ?: return@launch
                     if (resumed && acceptsReply(session, generation)) {
                         enqueue(session, reply)
@@ -784,7 +840,9 @@ class GhostRuntime(
         publish(session)
         session.transitionRepliesPending++
         val epoch = deliveryEpoch()
-        val reply = try { session.engine.request(ShioriEvent("OnClose")) } catch (error: Exception) {
+        val reply = try {
+            session.engine.request(ShioriEvent("OnClose"))
+        } catch (error: Exception) {
             if (sessionState === closing) {
                 session.transitionRepliesPending--
                 finishClose(closing, error.message)
@@ -805,13 +863,18 @@ class GhostRuntime(
         language: String,
         previousName: String?
     ) {
-        val bundledTarget = target == null || (
-            target.directoryId == base.directoryId &&
-                base.shellDirectory != null && withContext(ioDispatcher) { isBundledDescriptor(target, base) }
-            )
-        val selected = if (bundledTarget) EngineKind.BUILTIN
-        else availableChoiceKinds[requireNotNull(target).directoryId]
-            ?: withContext(ioDispatcher) { EngineSelector.select(target) }
+        val bundledTarget = target == null ||
+            (
+                target.directoryId == base.directoryId &&
+                    base.shellDirectory != null &&
+                    withContext(ioDispatcher) { isBundledDescriptor(target, base) }
+                )
+        val selected = if (bundledTarget) {
+            EngineKind.BUILTIN
+        } else {
+            availableChoiceKinds[requireNotNull(target).directoryId]
+                ?: withContext(ioDispatcher) { EngineSelector.select(target) }
+        }
         val result = if (bundledTarget) {
             bundledSession(base)
         } else if (selected == EngineKind.BUILTIN) {
@@ -846,7 +909,9 @@ class GhostRuntime(
                     if (sessionState !== expected) return
                     try {
                         nativeHost.load(kind, target.masterPath, target.engineDeclaration.orEmpty())
-                    } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) {
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
                         nativeUnavailable = true
                         NativeLoadResult.Unresolved("Native load threw: ${error.message}")
                     }
@@ -882,15 +947,19 @@ class GhostRuntime(
                             cleanupCandidate(load.lease)
                             "OnInitialize failed: ${error.message}"
                         }
-                        if (initializationError != null) initializationError
-                        else Session(
-                            ++nextId, descriptorGhost(target),
-                            object : ShioriEngine {
-                                override suspend fun request(event: ShioriEvent): ShioriReply =
-                                    nativeHost.request(load.lease, event)
-                            },
-                            load.lease
-                        )
+                        if (initializationError != null) {
+                            initializationError
+                        } else {
+                            Session(
+                                ++nextId,
+                                descriptorGhost(target),
+                                object : ShioriEngine {
+                                    override suspend fun request(event: ShioriEvent): ShioriReply =
+                                        nativeHost.request(load.lease, event)
+                                },
+                                load.lease
+                            )
+                        }
                     }
                     is NativeLoadResult.Failed -> {
                         if (load.status == -1) nativeUnavailable = true
@@ -905,8 +974,10 @@ class GhostRuntime(
             }
         }
         if (sessionState !== expected) {
-            if (result is Session) result.lease?.let { lease ->
-                cleanupCandidate(lease)
+            if (result is Session) {
+                result.lease?.let { lease ->
+                    cleanupCandidate(lease)
+                }
             }
             return
         }
@@ -938,7 +1009,8 @@ class GhostRuntime(
             settleVisuals(session)
             if (sessionState !== expected) return
             sessionState = SessionState.Active(
-                session, prompt = (expected as? SessionState.Active)?.prompt,
+                session,
+                prompt = (expected as? SessionState.Active)?.prompt,
                 error = error
             )
             transferred = true
@@ -987,7 +1059,10 @@ class GhostRuntime(
 
     /** Shows a request failure on its still-active session unless quarantine recovery replaces it. */
     private suspend fun reportRequestFailure(
-        session: Session, error: Exception, fallback: String, show: Boolean = true
+        session: Session,
+        error: Exception,
+        fallback: String,
+        show: Boolean = true
     ) {
         val active = sessionState as? SessionState.Active ?: return
         if (active.session !== session || recoverQuarantinedRequest(active, session, error) || !show) return
@@ -999,11 +1074,7 @@ class GhostRuntime(
         publish(active.session)
     }
 
-    private suspend fun recoverQuarantinedRequest(
-        expected: SessionState,
-        failed: Session,
-        error: Exception
-    ): Boolean {
+    private suspend fun recoverQuarantinedRequest(expected: SessionState, failed: Session, error: Exception): Boolean {
         if (failed.lease == null || nativeHost.availability.value != NativeAvailability.Quarantined) {
             return false
         }
@@ -1011,8 +1082,11 @@ class GhostRuntime(
         if (sessionState !== expected) return true
         clearDialogue(failed)
         val message = error.message ?: "Native request failed; ownership is unresolved"
-        val fallbackExpected = if (expected is SessionState.Active)
-            SessionState.Active(failed, error = expected.error) else expected
+        val fallbackExpected = if (expected is SessionState.Active) {
+            SessionState.Active(failed, error = expected.error)
+        } else {
+            expected
+        }
         try {
             val base = getBundled()
             if (sessionState !== expected) return true
@@ -1022,8 +1096,11 @@ class GhostRuntime(
             activate(fallbackExpected, null, base, currentLanguage, previousName = failed.ghost.name)
             val current = sessionState as? SessionState.Active
             if (current != null && current.session.ghost.directoryId == base.directoryId) {
-                val visibleError = if (current.error == null) message
-                else "$message; bundled recovery failed: ${current.error}"
+                val visibleError = if (current.error == null) {
+                    message
+                } else {
+                    "$message; bundled recovery failed: ${current.error}"
+                }
                 sessionState = SessionState.Active(current.session, error = visibleError)
                 publish(current.session)
             }
@@ -1054,7 +1131,9 @@ class GhostRuntime(
         clearDialogue(from)
         val loading = SessionState.Switching(from, switching.to, Phase.Loading)
         sessionState = loading
-        val base = try { getBundled() } catch (error: Exception) {
+        val base = try {
+            getBundled()
+        } catch (error: Exception) {
             sessionState = SessionState.Finished
             mutableState.value = StageState.Error(error.message ?: "Bundled ghost unavailable")
             return
@@ -1115,9 +1194,14 @@ class GhostRuntime(
                 }
                 val animator = session.animator
                 if (animator != null) {
-                    val animationElapsed = if (player != null && session.player !== player &&
+                    val animationElapsed = if (player != null &&
+                        session.player !== player &&
                         session.player != null
-                    ) 0L else sinceLastTick
+                    ) {
+                        0L
+                    } else {
+                        sinceLastTick
+                    }
                     animator.advanceBy(animationElapsed, talking)?.let { applyVisuals(session, it) }
                 }
                 val eligibilityChanged = filteredChoicesKey?.third !=
@@ -1165,10 +1249,15 @@ class GhostRuntime(
                     ShioriEvent(
                         id,
                         listOf(
-                            (elapsedRealtime() / 3_600_000).toString(), "0", "0", "1"
+                            (elapsedRealtime() / 3_600_000).toString(),
+                            "0",
+                            "0",
+                            "1"
                         )
                     ),
-                    generation, "Timer request failed", reportStale = true
+                    generation,
+                    "Timer request failed",
+                    reportStale = true
                 ) ?: return@launch
                 if (!resumed || !acceptsReply(session, generation)) return@launch
                 enqueue(session, reply, id)
@@ -1237,7 +1326,8 @@ class GhostRuntime(
                     session.hostRequests.addLast(
                         PendingHostRequest(
                             HostUiRequest(++nextActionId, command),
-                            session.replacementGeneration, actionDeliveryEpoch
+                            session.replacementGeneration,
+                            actionDeliveryEpoch
                         )
                     )
                 }
@@ -1246,8 +1336,10 @@ class GhostRuntime(
         session.frame = playback.copy(
             sakura = playback.sakura.copy(visual = prior.sakura.visual),
             kero = playback.kero.copy(visual = prior.kero.visual),
-            textAdvanceSpeakers = emptySet(), animationRequests = emptyList(),
-            surfaceChanges = emptyList(), hostCommands = emptyList()
+            textAdvanceSpeakers = emptySet(),
+            animationRequests = emptyList(),
+            surfaceChanges = emptyList(),
+            hostCommands = emptyList()
         )
         if (!prior.hasInteraction() && session.pendingInteraction()) session.coalesceClockReplies()
         session.animator?.let { animator ->
@@ -1281,18 +1373,24 @@ class GhostRuntime(
                                 ShioriEvent(
                                     "OnSurfaceChange",
                                     listOf(
-                                        edge.change.sakuraId.toString(), edge.change.keroId.toString()
+                                        edge.change.sakuraId.toString(),
+                                        edge.change.keroId.toString()
                                     )
                                 )
                             ),
                             epoch
                         )
-                    } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) {
-                        if (session.replacementGeneration == edge.replacementGeneration)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        if (session.replacementGeneration == edge.replacementGeneration) {
                             reportRequestFailure(
-                                session, error, "Surface request failed",
+                                session,
+                                error,
+                                "Surface request failed",
                                 show = session.dialogueVersion == edge.dialogueVersion
                             )
+                        }
                         continue
                     }
                     if (acceptsReply(session, edge.replacementGeneration) &&
@@ -1332,7 +1430,8 @@ class GhostRuntime(
         val active = sessionState as? SessionState.Active
         val prompt = active?.prompt?.view
         val key = Triple(
-            session.id, choicesVersion,
+            session.id,
+            choicesVersion,
             nativeHost.availability.value to nativeUnavailable
         )
         if (filteredChoicesKey != key) {
@@ -1345,14 +1444,20 @@ class GhostRuntime(
         fun token(key: Long) = InteractionToken(session.id, session.dialogueVersion, key)
 
         // A shared empty list keeps balloons skippable while no choices are shown.
-        fun present(frame: SpeakerFrame) = if (frame.choices.isEmpty()) emptyList()
-        else frame.choices.map { PresentedChoice(token(it.key), it.label, it.textOffset) }
+        fun present(frame: SpeakerFrame) = if (frame.choices.isEmpty()) {
+            emptyList()
+        } else {
+            frame.choices.map { PresentedChoice(token(it.key), it.label, it.textOffset) }
+        }
         mutableState.value = StageState.Ready(
             session.frame, session.ghost.name, session.ghost.sakuraName,
             session.ghost.keroName, session.ghost.surfaces, filteredChoices, prompt, active?.error,
             session.shell,
-            choices = if (owns) mapOf(0 to present(session.frame.sakura), 1 to present(session.frame.kero))
-            else emptyMap(),
+            choices = if (owns) {
+                mapOf(0 to present(session.frame.sakura), 1 to present(session.frame.kero))
+            } else {
+                emptyMap()
+            },
             input = if (owns) session.frame.input?.let { PresentedInput(token(it.key), it.boxId) } else null,
             dialogueToken = DialogueToken(session.id, session.dialogueVersion),
             hostUiRequest = session.hostRequests.firstOrNull()?.request.takeIf { sameActive(session) }
@@ -1373,22 +1478,27 @@ class GhostRuntime(
                 read
             }
             val bytes = buffer.copyOf(count.coerceAtMost(limit))
-            val content = if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() &&
-                bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
+            val content = if (bytes.size >= 3 &&
+                bytes[0] == 0xEF.toByte() &&
+                bytes[1] == 0xBB.toByte() &&
+                bytes[2] == 0xBF.toByte()
             ) {
                 bytes.copyOfRange(3, bytes.size).toString(Charsets.UTF_8)
-            } else bytes.toString(Charset.forName("Shift_JIS"))
+            } else {
+                bytes.toString(Charset.forName("Shift_JIS"))
+            }
             if (count > limit) "$content\n\n[README truncated]" else content
         }.getOrNull()
     }
 
-    private fun nativeSelectionAllowed(session: Session): Boolean = !nativeUnavailable && when (
-        nativeHost.availability.value
-    ) {
-        NativeAvailability.Available -> true
-        NativeAvailability.Occupied -> session.lease != null
-        NativeAvailability.Quarantined -> false
-    }
+    private fun nativeSelectionAllowed(session: Session): Boolean = !nativeUnavailable &&
+        when (
+            nativeHost.availability.value
+        ) {
+            NativeAvailability.Available -> true
+            NativeAvailability.Occupied -> session.lease != null
+            NativeAvailability.Quarantined -> false
+        }
 
     private suspend fun cleanupCandidate(lease: NativeLease) {
         withContext(NonCancellable) {
@@ -1398,13 +1508,13 @@ class GhostRuntime(
         }
     }
 
-    private suspend fun shutdownSafely(
-        lease: NativeLease, notifyDestroy: Boolean = true
-    ): NativeShutdownResult = try {
+    private suspend fun shutdownSafely(lease: NativeLease, notifyDestroy: Boolean = true): NativeShutdownResult = try {
         if (nativeHost.availability.value == NativeAvailability.Quarantined) {
             nativeUnavailable = true
             NativeShutdownResult.Unresolved("Native ownership is quarantined")
-        } else nativeHost.shutdown(lease, notifyDestroy = notifyDestroy)
+        } else {
+            nativeHost.shutdown(lease, notifyDestroy = notifyDestroy)
+        }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: Exception) {
@@ -1412,8 +1522,10 @@ class GhostRuntime(
         NativeShutdownResult.Unresolved("Native shutdown threw: ${error.message}")
     }
 
-    private fun shutdownError(result: NativeShutdownResult?, lease: NativeLease?): String? =
-        if (lease == null) null else when (result) {
+    private fun shutdownError(result: NativeShutdownResult?, lease: NativeLease?): String? = if (lease == null) {
+        null
+    } else {
+        when (result) {
             NativeShutdownResult.Completed -> null
             is NativeShutdownResult.Failed -> result.message
             is NativeShutdownResult.Unresolved -> {
@@ -1422,6 +1534,7 @@ class GhostRuntime(
             }
             null -> "Native shutdown did not complete"
         }
+    }
 
     private suspend fun getBundled(): BundledGhost {
         bundled?.let { return it }
@@ -1429,7 +1542,9 @@ class GhostRuntime(
     }
 
     private fun bundledSession(base: BundledGhost) = Session(
-        ++nextId, base, getBundledEngine(base),
+        ++nextId,
+        base,
+        getBundledEngine(base),
         isBundledDefault = true
     )
 
@@ -1449,8 +1564,12 @@ class GhostRuntime(
     }
 
     private fun descriptorGhost(descriptor: GhostDescriptor) = BundledGhost(
-        descriptor.directoryId, descriptor.displayName, descriptor.sakuraName,
-        descriptor.keroName, descriptor.surfaces, "",
+        descriptor.directoryId,
+        descriptor.displayName,
+        descriptor.sakuraName,
+        descriptor.keroName,
+        descriptor.surfaces,
+        "",
         File(descriptor.masterPath.parentFile.parentFile, "shell/master"),
         descriptor.sakuraName2
     )
@@ -1460,7 +1579,9 @@ class GhostRuntime(
         const val MAX_PENDING_HOST_REQUESTS = 32
         val NATIVE_KINDS = setOf(EngineKind.SATORI, EngineKind.KAWARI, EngineKind.YAYA)
         val EMPTY_FRAME = PlaybackFrame(
-            SpeakerFrame(0, true, "", false), SpeakerFrame(10, true, "", false), true
+            SpeakerFrame(0, true, "", false),
+            SpeakerFrame(10, true, "", false),
+            true
         )
     }
 }

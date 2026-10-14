@@ -168,7 +168,8 @@ class BundledGhostRepositoryTest {
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     private fun realRepository(root: File) = BundledGhostRepository(
-        { javaClass.getResourceAsStream("/nanidroid.zip")!! }, root
+        { javaClass.getResourceAsStream("/nanidroid.zip")!! },
+        root
     )
     private fun snapshot(root: File) = root.walkTopDown().associate {
         it.relativeTo(root).invariantSeparatorsPath to if (it.isFile) sha256(it.readBytes()) else "directory"
@@ -236,8 +237,11 @@ class BundledGhostRepositoryTest {
         File(root, "ghost/master/ja/content.txt").writeBytes(previous("ja"))
         val zh = File(root, "ghost/master/zh-TW/content.txt").apply { delete() }
         for (path in listOf(
-            "ghost/master/activation", "ghost/master/state.dat", "ghost/master/custom.dll",
-            "ghost/master/en/.nanidroid-dictionary-user.tmp", "unknown.txt"
+            "ghost/master/activation",
+            "ghost/master/state.dat",
+            "ghost/master/custom.dll",
+            "ghost/master/en/.nanidroid-dictionary-user.tmp",
+            "unknown.txt"
         )) {
             File(root, path).writeText("preserve:$path")
         }
@@ -341,7 +345,9 @@ class BundledGhostRepositoryTest {
         assertArrayEquals(en, File(root, "ghost/master/en/content.txt").readBytes())
         assertArrayEquals(ja, File(root, "ghost/master/ja/content.txt").readBytes())
         assertEquals("partial", orphan.readText())
-        val before = snapshot(root); repo.ensureInstalled(); assertEquals(before, snapshot(root))
+        val before = snapshot(root)
+        repo.ensureInstalled()
+        assertEquals(before, snapshot(root))
     }
 
     @Test fun managedFileAndEscapedParentLinksAreRejected() {
@@ -352,7 +358,9 @@ class BundledGhostRepositoryTest {
         en.delete()
         try {
             Files.createSymbolicLink(en.toPath(), external.toPath())
-        } catch (unavailable: Exception) { assumeNoException("Host cannot create symlinks", unavailable) }
+        } catch (unavailable: Exception) {
+            assumeNoException("Host cannot create symlinks", unavailable)
+        }
         assertThrows { realRepository(directory).ensureInstalled() }
         assertEquals("external", external.readText())
         Files.delete(en.toPath())
@@ -364,13 +372,17 @@ class BundledGhostRepositoryTest {
     @Test fun regularManagedDirectoryCollisionFailsInsteadOfApparentSuccess() {
         val repo = realRepository(temporaryFolder.newFolder())
         val root = repo.ensureInstalled()
-        val path = File(root, "ghost/master/en/content.txt").apply { delete(); mkdir() }
+        val path = File(root, "ghost/master/en/content.txt").apply {
+            delete()
+            mkdir()
+        }
         assertThrows { repo.ensureInstalled() }
         assertTrue(path.isDirectory)
     }
     private fun assertThrows(action: () -> Unit) {
         try {
-            action(); throw AssertionError("Expected invalid archive/content/path to fail")
+            action()
+            throw AssertionError("Expected invalid archive/content/path to fail")
         } catch (_: IllegalArgumentException) { }
     }
 }

@@ -30,32 +30,46 @@ class GhostRuntimeTest {
     @get:Rule val folder = TemporaryFolder()
     private val ghost =
         BundledGhost(
-            "nanidroid", "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura.png"), 10 to File("kero.png")), ""
+            "nanidroid",
+            "Nanidroid",
+            "Sakura",
+            "Kero",
+            mapOf(0 to File("sakura.png"), 10 to File("kero.png")),
+            ""
         )
 
     @Test fun firstLaunchHasNoRuntimeAuthoredWelcome() = runTest {
         var now = 0L
         val runtime = GhostRuntime(
-            loadGhost = { ghost }, engineFactory = { ScriptEngine("") },
-            bootState = FakeStore(), scope = backgroundScope,
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { now }
+            loadGhost = { ghost },
+            engineFactory = { ScriptEngine("") },
+            bootState = FakeStore(),
+            scope = backgroundScope,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+            elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true)
         runCurrent()
         now = 5_000L
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals("", (runtime.state.value as StageState.Ready).frame.sakura.text)
     }
 
     @Test fun enqueuedScriptSubstitutesNamesExactlyOnce() = runTest {
         val named = ghost.copy(sakuraName = "First", sakuraName2 = "Second", keroName = "Kero")
         val runtime = GhostRuntime(
-            loadGhost = { named }, engineFactory = { ScriptEngine("\\_q%username|%selfname2|%selfname|%keroname\\e") },
-            bootState = FakeStore(onboarding = false), scope = backgroundScope,
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { 0L }
+            loadGhost = { named },
+            engineFactory = { ScriptEngine("\\_q%username|%selfname2|%selfname|%keroname\\e") },
+            bootState = FakeStore(onboarding = false),
+            scope = backgroundScope,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+            elapsedRealtime = { 0L }
         )
-        runtime.start("en"); runtime.setResumed(true); runCurrent()
+        runtime.start("en")
+        runtime.setResumed(true)
+        runCurrent()
         assertEquals("User|Second|First|Kero", (runtime.state.value as StageState.Ready).frame.sakura.text)
     }
 
@@ -72,28 +86,37 @@ class GhostRuntimeTest {
         val timedGhost = ghost.copy(shellDirectory = shell)
         var now = 0L
         val runtime = GhostRuntime(
-            loadGhost = { timedGhost }, engineFactory = { ScriptEngine("") },
-            bootState = FakeStore(onboarding = false), scope = backgroundScope,
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { now }
+            loadGhost = { timedGhost },
+            engineFactory = { ScriptEngine("") },
+            bootState = FakeStore(onboarding = false),
+            scope = backgroundScope,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+            elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.setResumed(true)
         runCurrent()
         val initial = runtime.state.value as StageState.Ready
         now = 50
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertSame(initial, runtime.state.value)
-        runtime.setResumed(false); runCurrent()
+        runtime.setResumed(false)
+        runCurrent()
         now = 10_000
-        advanceTimeBy(500); runCurrent()
+        advanceTimeBy(500)
+        runCurrent()
         assertSame(initial, runtime.state.value)
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         now = 10_050
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         val due = runtime.state.value as StageState.Ready
         assertEquals(1001, due.frame.sakura.visual?.layers?.single()?.surfaceId)
         now = 10_100
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertSame(due, runtime.state.value)
     }
 
@@ -118,33 +141,43 @@ class GhostRuntimeTest {
                 error("No native load expected")
             override suspend fun request(lease: NativeLease, event: ShioriEvent): ShioriReply =
                 error("No native request expected")
-            override suspend fun unload(lease: NativeLease): NativeUnloadResult =
-                error("No native unload expected")
+            override suspend fun unload(lease: NativeLease): NativeUnloadResult = error("No native unload expected")
             override suspend fun shutdown(
-                lease: NativeLease, notifyDestroy: Boolean,
+                lease: NativeLease,
+                notifyDestroy: Boolean,
                 timeoutMillis: Long
             ): NativeShutdownResult = error("No native shutdown expected")
         }
         var now = 0L
         val runtime = GhostRuntime(
             loadGhost = { ghost.copy(shellDirectory = shell) },
-            engineFactory = { ScriptEngine("") }, bootState = FakeStore(onboarding = false),
-            scope = backgroundScope, installedGhosts = InstalledGhostRepository(root),
-            nativeHost = native, ioDispatcher = StandardTestDispatcher(testScheduler),
+            engineFactory = { ScriptEngine("") },
+            bootState = FakeStore(onboarding = false),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            nativeHost = native,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
             elapsedRealtime = { now }
         )
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         val initial = runtime.state.value as StageState.Ready
         assertEquals(1, initial.installedGhosts.size)
-        now = 50; advanceTimeBy(50); runCurrent()
+        now = 50
+        advanceTimeBy(50)
+        runCurrent()
         val animated = runtime.state.value as StageState.Ready
         assertSame(initial.installedGhosts, animated.installedGhosts)
         native.availability.value = NativeAvailability.Quarantined
-        now = 100; advanceTimeBy(50); runCurrent()
+        now = 100
+        advanceTimeBy(50)
+        runCurrent()
         assertTrue((runtime.state.value as StageState.Ready).installedGhosts.isEmpty())
         native.availability.value = NativeAvailability.Available
-        now = 150; advanceTimeBy(50); runCurrent()
+        now = 150
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals(1, (runtime.state.value as StageState.Ready).installedGhosts.size)
     }
 
@@ -160,13 +193,17 @@ class GhostRuntimeTest {
         )
         val runtime = GhostRuntime(
             loadGhost = { ghost.copy(shellDirectory = shell) },
-            engineFactory = { ScriptEngine("") }, bootState = FakeStore(onboarding = false),
-            scope = backgroundScope, ioDispatcher = StandardTestDispatcher(testScheduler),
+            engineFactory = { ScriptEngine("") },
+            bootState = FakeStore(onboarding = false),
+            scope = backgroundScope,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
             elapsedRealtime = { 0L }
         )
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
-        runtime.close(); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
+        runtime.close()
+        runCurrent()
         assertEquals(StageState.Finished, runtime.state.value)
     }
 
@@ -187,15 +224,21 @@ class GhostRuntimeTest {
             .writeText("name,Other\nshiori,Unsupported.dll\n")
         val runtime = GhostRuntime(
             loadGhost = { ghost.copy(shellDirectory = shell) },
-            engineFactory = { ScriptEngine("") }, bootState = FakeStore(onboarding = false),
-            scope = backgroundScope, installedGhosts = InstalledGhostRepository(root),
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { 0L }
+            engineFactory = { ScriptEngine("") },
+            bootState = FakeStore(onboarding = false),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+            elapsedRealtime = { 0L }
         )
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
-        runtime.selectGhost("candidate"); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
+        runtime.selectGhost("candidate")
+        runCurrent()
         assertEquals("candidate", (runtime.state.value as StageState.Ready).switchPrompt?.directoryId)
-        runtime.confirmSwitch(); runCurrent()
+        runtime.confirmSwitch()
+        runCurrent()
         assertEquals("Other", (runtime.state.value as StageState.Ready).ghostName)
     }
 
@@ -221,20 +264,29 @@ class GhostRuntimeTest {
                         return if (event.id == "OnFirstBoot") ShioriReply(200, script) else ShioriReply(204)
                     }
                 }
-            }, bootState = FakeStore(onboarding = false),
-            scope = backgroundScope, ioDispatcher = StandardTestDispatcher(testScheduler),
+            },
+            bootState = FakeStore(onboarding = false),
+            scope = backgroundScope,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
             elapsedRealtime = { now }
         )
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
-        now = 500; advanceTimeBy(50); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
+        now = 500
+        advanceTimeBy(50)
+        runCurrent()
         val triggered = runtime.state.value as StageState.Ready
         assertEquals("", triggered.frame.sakura.text)
         assertTrue(triggered.frame.sakura.visual?.layers?.isEmpty() == true)
-        now = 550; advanceTimeBy(50); runCurrent()
+        now = 550
+        advanceTimeBy(50)
+        runCurrent()
         val ready = runtime.state.value as StageState.Ready
         assertEquals(1001, ready.frame.sakura.visual?.layers?.single()?.surfaceId)
-        now = 600; advanceTimeBy(50); runCurrent()
+        now = 600
+        advanceTimeBy(50)
+        runCurrent()
         assertSame(ready, runtime.state.value)
         assertFalse(events.contains("OnSurfaceChange"))
     }
@@ -261,20 +313,29 @@ class GhostRuntimeTest {
                     }
                 }
             },
-            bootState = FakeStore(onboarding = false), scope = backgroundScope,
-            ioDispatcher = StandardTestDispatcher(testScheduler), elapsedRealtime = { now }
+            bootState = FakeStore(onboarding = false),
+            scope = backgroundScope,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+            elapsedRealtime = { now }
         )
         runtime.start("en")
         runtime.beginImportEvents()!!.emit("OnInstallBegin")
         runCurrent()
-        runtime.setResumed(true); runCurrent()
-        now = 1_000; advanceTimeBy(50); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
+        now = 1_000
+        advanceTimeBy(50)
+        runCurrent()
         val entered = runtime.state.value as StageState.Ready
         assertEquals(1, entered.frame.sakura.surfaceId)
         assertTrue(entered.frame.sakura.visual?.layers?.isEmpty() == true)
-        now = 1_499; advanceTimeBy(50); runCurrent()
+        now = 1_499
+        advanceTimeBy(50)
+        runCurrent()
         assertTrue((runtime.state.value as StageState.Ready).frame.sakura.visual?.layers?.isEmpty() == true)
-        now = 1_500; advanceTimeBy(50); runCurrent()
+        now = 1_500
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals(1001, (runtime.state.value as StageState.Ready).frame.sakura.visual?.layers?.single()?.surfaceId)
     }
 
@@ -291,10 +352,12 @@ class GhostRuntimeTest {
         runtime.setResumed(true)
         runCurrent()
         now = 250L
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals("ABCDE", (runtime.state.value as StageState.Ready).frame.sakura.text)
         now = 300L
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals("ABCDEF", (runtime.state.value as StageState.Ready).frame.sakura.text)
     }
 
@@ -323,7 +386,8 @@ class GhostRuntimeTest {
         runCurrent()
         assertEquals("", (runtime.state.value as StageState.Ready).frame.sakura.text)
         now = 250L
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals("A", (runtime.state.value as StageState.Ready).frame.sakura.text)
     }
 
@@ -340,17 +404,20 @@ class GhostRuntimeTest {
         runtime.setResumed(true)
         runCurrent()
         now = 100L
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals("AB", (runtime.state.value as StageState.Ready).frame.sakura.text)
         runtime.setResumed(false)
         runCurrent()
         now = 10_100L
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals("AB", (runtime.state.value as StageState.Ready).frame.sakura.text)
         runtime.setResumed(true)
         runCurrent()
         now = 10_150L
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals("ABC", (runtime.state.value as StageState.Ready).frame.sakura.text)
     }
 
@@ -367,10 +434,12 @@ class GhostRuntimeTest {
         runtime.setResumed(true)
         runCurrent()
         now = 550L
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals("A", (runtime.state.value as StageState.Ready).frame.sakura.text)
         now = 600L
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals("AB", (runtime.state.value as StageState.Ready).frame.sakura.text)
     }
 
@@ -381,8 +450,15 @@ class GhostRuntimeTest {
         var loads = 0
         var engines = 0
         val runtime = GhostRuntime(
-            loadGhost = { loads++; gate.await(); ghost },
-            engineFactory = { engines++; RecordingEngine(events) },
+            loadGhost = {
+                loads++
+                gate.await()
+                ghost
+            },
+            engineFactory = {
+                engines++
+                RecordingEngine(events)
+            },
             bootState = store,
             scope = backgroundScope,
             elapsedRealtime = { 0L }
@@ -392,7 +468,8 @@ class GhostRuntimeTest {
         runCurrent()
         assertEquals(1, loads)
         gate.complete(Unit)
-        first.await(); second.await()
+        first.await()
+        second.await()
         assertEquals(1, loads)
         assertEquals(1, engines)
         assertEquals(1, store.activations)
@@ -418,16 +495,19 @@ class GhostRuntimeTest {
         runtime.start("en")
         runtime.setResumed(true)
         runCurrent()
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         val partial = (runtime.state.value as StageState.Ready).frame
         assertEquals("H", partial.sakura.text)
         runtime.setResumed(false)
         runCurrent()
-        advanceTimeBy(60_000); runCurrent()
+        advanceTimeBy(60_000)
+        runCurrent()
         assertEquals(partial, (runtime.state.value as StageState.Ready).frame)
         runtime.setResumed(true)
         runCurrent()
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals("Hi", (runtime.state.value as StageState.Ready).frame.sakura.text)
         assertEquals(1, events.count { it == "OnFirstBoot" })
     }
@@ -444,19 +524,22 @@ class GhostRuntimeTest {
                 backgroundScope
             ) { testScheduler.currentTime }
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         runtime.click(0, 3, 4)
         runCurrent()
         assertEquals("OnMouseClick", events.last())
         assertEquals("", (runtime.state.value as StageState.Ready).frame.sakura.text)
-        runtime.setResumed(false); runCurrent()
+        runtime.setResumed(false)
+        runCurrent()
         runtime.close()
         runCurrent()
         assertEquals("OnClose", events.last())
         assertTrue(runtime.state.value is StageState.Ready)
         runtime.setResumed(true)
         runCurrent()
-        advanceTimeBy(1_500); runCurrent()
+        advanceTimeBy(1_500)
+        runCurrent()
         assertTrue(runtime.state.value is StageState.Finished)
     }
 
@@ -487,21 +570,25 @@ class GhostRuntimeTest {
             scope = backgroundScope
         ) { 7_200_000L + testScheduler.currentTime }
         runtime.start("en")
-        advanceTimeBy(60_000); runCurrent()
+        advanceTimeBy(60_000)
+        runCurrent()
         assertEquals(0, calls.count { it.id == "OnSecondChange" })
         runtime.setResumed(true)
         runCurrent()
-        advanceTimeBy(60_000); runCurrent()
+        advanceTimeBy(60_000)
+        runCurrent()
         assertEquals(60, calls.count { it.id == "OnSecondChange" })
         assertEquals(1, calls.count { it.id == "OnMinuteChange" })
         assertEquals(listOf("2", "0", "0", "1"), calls.last().references)
         runtime.setResumed(false)
         runCurrent()
-        advanceTimeBy(60_000); runCurrent()
+        advanceTimeBy(60_000)
+        runCurrent()
         assertEquals(60, calls.count { it.id == "OnSecondChange" })
         runtime.setResumed(true)
         runCurrent()
-        advanceTimeBy(1_000); runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
         assertEquals(61, calls.count { it.id == "OnSecondChange" })
     }
 
@@ -524,10 +611,12 @@ class GhostRuntimeTest {
         repeat(2) {
             runtime.setResumed(true)
             runCurrent()
-            advanceTimeBy(40_000); runCurrent()
+            advanceTimeBy(40_000)
+            runCurrent()
             runtime.setResumed(false)
             runCurrent()
-            advanceTimeBy(30_000); runCurrent()
+            advanceTimeBy(30_000)
+            runCurrent()
         }
         assertEquals(80, calls.count { it == "OnSecondChange" })
         assertEquals(1, calls.count { it == "OnMinuteChange" })
@@ -554,7 +643,8 @@ class GhostRuntimeTest {
         runtime.setResumed(true)
         runCurrent()
         now += 60_000
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertEquals(1, calls.count { it.id == "OnSecondChange" })
         assertEquals(1, calls.count { it.id == "OnMinuteChange" })
         assertEquals(listOf("2", "0", "0", "1"), calls.last().references)
@@ -576,19 +666,24 @@ class GhostRuntimeTest {
                     }
                 }
             },
-            bootState = FakeStore(onboarding = false), scope = backgroundScope,
+            bootState = FakeStore(onboarding = false),
+            scope = backgroundScope,
             elapsedRealtime = { now }
         )
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         val before = (runtime.state.value as StageState.Ready).dialogueToken!!.dialogueId
         now = 60_000
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         assertTrue((runtime.state.value as StageState.Ready).dialogueToken!!.dialogueId > before)
-        minute.complete(ShioriReply(200, "\\0Minute\\e")); runCurrent()
+        minute.complete(ShioriReply(200, "\\0Minute\\e"))
+        runCurrent()
         repeat(80) {
             now += 50
-            advanceTimeBy(50); runCurrent()
+            advanceTimeBy(50)
+            runCurrent()
         }
         assertEquals("Minute", (runtime.state.value as StageState.Ready).frame.sakura.text)
     }
@@ -616,11 +711,13 @@ class GhostRuntimeTest {
         runtime.start("en")
         runtime.setResumed(true)
         runCurrent()
-        advanceTimeBy(5_000); runCurrent()
+        advanceTimeBy(5_000)
+        runCurrent()
         assertEquals(listOf("OnSecondChange"), calls)
         release.complete(Unit)
         runCurrent()
-        advanceTimeBy(1_000); runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
         assertEquals(2, calls.size)
     }
 
@@ -649,14 +746,16 @@ class GhostRuntimeTest {
         runtime.start("en")
         runtime.setResumed(true)
         runCurrent()
-        advanceTimeBy(1_000); runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
         assertEquals(listOf(1), secondCalls)
 
         runtime.close()
         runCurrent()
         runtime.start("en")
         runCurrent()
-        advanceTimeBy(1_000); runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
         assertEquals(listOf(1, 2), secondCalls)
     }
 
@@ -666,8 +765,14 @@ class GhostRuntimeTest {
         var loads = 0
         var engines = 0
         val runtime = GhostRuntime(
-            loadGhost = { loads++; ghost },
-            engineFactory = { engines++; RecordingEngine(events) },
+            loadGhost = {
+                loads++
+                ghost
+            },
+            engineFactory = {
+                engines++
+                RecordingEngine(events)
+            },
             bootState = store,
             scope = backgroundScope
         ) { testScheduler.currentTime }
@@ -676,7 +781,8 @@ class GhostRuntimeTest {
         runCurrent()
         runtime.close()
         runCurrent()
-        advanceTimeBy(1_500); runCurrent()
+        advanceTimeBy(1_500)
+        runCurrent()
         assertTrue(runtime.state.value is StageState.Finished)
         runtime.start("en")
         val relaunched = runtime.state.value as StageState.Ready
@@ -732,7 +838,10 @@ class GhostRuntimeTest {
         val store = FakeStore()
         val events = mutableListOf<String>()
         val runtime = GhostRuntime(
-            loadGhost = { gate.await(); ghost },
+            loadGhost = {
+                gate.await()
+                ghost
+            },
             engineFactory = { RecordingEngine(events) },
             bootState = store,
             scope = backgroundScope

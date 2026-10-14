@@ -29,8 +29,13 @@ class ImportStagingTest {
     @Test fun linkedRootAndLinkedAttemptAreRejectedWithoutTraversal() = runBlocking {
         val files = temp.newFolder("files")
         val outside = temp.newFolder("outside").apply { resolve("keep").writeText("safe") }
-        try { Files.createSymbolicLink(files.resolve("import-staging").toPath(), outside.toPath()) }
-        catch (e: java.nio.file.FileSystemException) { assumeNoException(e) }
+        try {
+            Files.createSymbolicLink(files.resolve("import-staging").toPath(), outside.toPath())
+        } catch (
+            e: java.nio.file.FileSystemException
+        ) {
+            assumeNoException(e)
+        }
         assertThrows(Exception::class.java) { runBlocking { GhostImporter(files).recoverAbandonedAttempts() } }
         assertEquals("safe", outside.resolve("keep").readText())
     }
@@ -39,8 +44,13 @@ class ImportStagingTest {
         val files = temp.newFolder("files")
         val outside = temp.newFolder("outside").apply { resolve("keep").writeText("safe") }
         val attempt = files.resolve("import-staging/attempt-old").apply { mkdirs() }
-        try { Files.createSymbolicLink(attempt.resolve("linked").toPath(), outside.toPath()) }
-        catch (e: java.nio.file.FileSystemException) { assumeNoException(e) }
+        try {
+            Files.createSymbolicLink(attempt.resolve("linked").toPath(), outside.toPath())
+        } catch (
+            e: java.nio.file.FileSystemException
+        ) {
+            assumeNoException(e)
+        }
         assertThrows(Exception::class.java) { runBlocking { GhostImporter(files).recoverAbandonedAttempts() } }
         assertEquals("safe", outside.resolve("keep").readText())
     }

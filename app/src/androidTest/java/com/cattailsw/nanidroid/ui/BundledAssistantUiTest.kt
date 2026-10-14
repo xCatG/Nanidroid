@@ -153,7 +153,11 @@ class BundledAssistantUiTest {
                 CompositionLocalProvider(LocalView provides (policyView.value ?: actualView)) {
                     NanidroidTheme {
                         GhostStage(
-                            stage.value, CachedSurfaceImageLoader(), {}, {}, {},
+                            stage.value,
+                            CachedSurfaceImageLoader(),
+                            {},
+                            {},
+                            {},
                             onClaimHostUiRequest = { HostUiCommand.Developer }
                         )
                     }
@@ -239,7 +243,11 @@ class BundledAssistantUiTest {
             activity.setContent {
                 NanidroidTheme {
                     GhostStage(
-                        runtime.state.collectAsState().value, CachedSurfaceImageLoader(), {}, {}, {},
+                        runtime.state.collectAsState().value,
+                        CachedSurfaceImageLoader(),
+                        {},
+                        {},
+                        {},
                         interactionActive = active.value,
                         onClaimHostUiRequest = runtime::claimHostUiRequest
                     )
@@ -374,12 +382,20 @@ class BundledAssistantUiTest {
 
     @Test fun japaneseStartupMenusAndDebugResources() = localizedMenus(
         "ja-JP",
-        "Nanidroidとは？", "ゴースト管理", "デバッグツール", "タッチ範囲を表示", "閉じる"
+        "Nanidroidとは？",
+        "ゴースト管理",
+        "デバッグツール",
+        "タッチ範囲を表示",
+        "閉じる"
     )
 
     @Test fun traditionalChineseStartupMenusAndDebugResources() = localizedMenus(
         "zh-TW",
-        "Nanidroid 是什麼？", "幽靈管理", "開發人員工具", "顯示觸控範圍", "關閉"
+        "Nanidroid 是什麼？",
+        "幽靈管理",
+        "開發人員工具",
+        "顯示觸控範圍",
+        "關閉"
     )
 
     @Test fun androidManagedFileAndParentSymlinksAreRejected() {
@@ -405,12 +421,18 @@ class BundledAssistantUiTest {
                     java.nio.file.Files.delete(link.toPath())
                 }
             }
-        } finally { root.deleteRecursively() }
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     private fun localizedMenus(
-        tag: String, help: String, ghosts: String, debug: String,
-        bounds: String, close: String
+        tag: String,
+        help: String,
+        ghosts: String,
+        debug: String,
+        bounds: String,
+        close: String
     ) = withAssistant(localeTag = tag) { _, runtime ->
         compose.onNodeWithTag("sakura").performTouchInput { click() }
         choice(help)
@@ -475,7 +497,9 @@ class BundledAssistantUiTest {
         return try {
             val repository = BundledGhostRepository({ app.assets.open("nanidroid.zip") }, root)
             repository.load(repository.ensureInstalled(), "en").content
-        } finally { root.deleteRecursively() }
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     private fun ready(runtime: GhostRuntime) = runtime.state.value as StageState.Ready
@@ -518,7 +542,9 @@ class BundledAssistantUiTest {
     }
 
     private fun withAssistant(
-        debugEnabled: Boolean = true, localeTag: String = "en-US", foreignName: String = "Other",
+        debugEnabled: Boolean = true,
+        localeTag: String = "en-US",
+        foreignName: String = "Other",
         openArchive: (NanidroidApplication) -> InputStream = { it.assets.open("nanidroid.zip") },
         block: (ActivityScenario<MainActivity>, GhostRuntime) -> Unit
     ) {
@@ -591,12 +617,14 @@ class BundledAssistantUiTest {
             base.surfaces.forEach { (id, image) -> image.copyTo(File(shell, "surface$id.png")) }
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { fixtureScope = it }
             val runtime = GhostRuntime(
-                { base }, { BuiltInShiori(it.content) },
+                { base },
+                { BuiltInShiori(it.content) },
                 object : BootStateStore {
                     override suspend fun recordActivation(directoryId: String) = false
                     override suspend fun consumeOnboarding() = false
                 },
-                scope, installedGhosts = InstalledGhostRepository(root),
+                scope,
+                installedGhosts = InstalledGhostRepository(root),
                 bundledEngineFactory = { BuiltInShiori.bundled(it.content, debugEnabled) },
                 // Advance the real script player promptly; assets, routes and dialogue tokens remain real.
                 elapsedRealtime = { android.os.SystemClock.elapsedRealtime() * 20 }

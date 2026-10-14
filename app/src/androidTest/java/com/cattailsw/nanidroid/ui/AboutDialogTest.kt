@@ -110,10 +110,15 @@ class AboutDialogTest {
                 val decor = activity.window.decorView
                 ready = activity !== replaced &&
                     activity.resources.configuration.orientation == orientation &&
-                    activity.lifecycle.currentState == Lifecycle.State.RESUMED && activity.hasWindowFocus() &&
-                    decor.width > 0 && decor.height > 0 &&
-                    if (orientation == Configuration.ORIENTATION_LANDSCAPE) decor.width > decor.height
-                    else decor.height > decor.width
+                    activity.lifecycle.currentState == Lifecycle.State.RESUMED &&
+                    activity.hasWindowFocus() &&
+                    decor.width > 0 &&
+                    decor.height > 0 &&
+                    if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                        decor.width > decor.height
+                    } else {
+                        decor.height > decor.width
+                    }
             }
             ready
         }
@@ -134,16 +139,26 @@ class AboutDialogTest {
         val ready = StageState.Ready(
             PlaybackFrame(
                 SpeakerFrame(0, true, "Still here", true),
-                SpeakerFrame(10, true, "", false), false
+                SpeakerFrame(10, true, "", false),
+                false
             ),
-            "Test", "Sakura", "Kero", mapOf(0 to File("sakura"), 10 to File("kero"))
+            "Test",
+            "Sakura",
+            "Kero",
+            mapOf(0 to File("sakura"), 10 to File("kero"))
         )
         var closes = 0
         compose.setContent {
             BackHandler { closes++ }
             GhostStage(
-                ready, loader, {}, {}, {}, onClose = { closes++ },
-                versionName = "live-version", notices = listOf(Notice("Live notice", "offline text"))
+                ready,
+                loader,
+                {},
+                {},
+                {},
+                onClose = { closes++ },
+                versionName = "live-version",
+                notices = listOf(Notice("Live notice", "offline text"))
             )
         }
         compose.onNodeWithTag("about-action").performClick()
@@ -177,7 +192,8 @@ class NativeDialogSessionTest {
         require(args.getString("fixtureId") == "earthquake_duo") { "fixtureId must be earthquake_duo" }
         require(
             args.getString("fixtureSha256")?.equals(
-                "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538", true
+                "06db71e7e8293b4af0b5127dd73402d4ed90fecc5fdcebf4f0d34337ccb66538",
+                true
             ) == true
         ) { "fixtureSha256 must match the original Earthquake archive" }
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as NanidroidApplication
@@ -199,7 +215,8 @@ class NativeDialogSessionTest {
                 val activity = requireNotNull(scenario)
                 compose.waitUntil(45_000) {
                     (runtime.state.value as? StageState.Ready)
-                        ?.ghostName == "Earthquake Duo!" && runtime.activeNativeLeaseForTest() != null
+                        ?.ghostName == "Earthquake Duo!" &&
+                        runtime.activeNativeLeaseForTest() != null
                 }
                 val lease = requireNotNull(runtime.activeNativeLeaseForTest())
                 compose.waitUntil(20_000) {
@@ -217,15 +234,21 @@ class NativeDialogSessionTest {
 
                 for (dialog in listOf("ghosts", "about")) {
                     compose.onNodeWithTag("$dialog-action").performClick()
-                    if (dialog == "about") compose.onNodeWithTag("about-dialog").assertIsDisplayed()
-                    else compose.onNodeWithContentDescription("Close Ghosts").assertIsDisplayed()
+                    if (dialog == "about") {
+                        compose.onNodeWithTag("about-dialog").assertIsDisplayed()
+                    } else {
+                        compose.onNodeWithContentDescription("Close Ghosts").assertIsDisplayed()
+                    }
                     activity.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
                     compose.waitUntil(20_000) {
                         activityActivityOrientation(activity) == Configuration.ORIENTATION_LANDSCAPE
                     }
                     // The approved policy permits dismissal on recreation, then reopening.
-                    if (dialog == "about") compose.onNodeWithTag("about-dialog").assertDoesNotExist()
-                    else compose.onNodeWithContentDescription("Close Ghosts").assertDoesNotExist()
+                    if (dialog == "about") {
+                        compose.onNodeWithTag("about-dialog").assertDoesNotExist()
+                    } else {
+                        compose.onNodeWithContentDescription("Close Ghosts").assertDoesNotExist()
+                    }
                     assertTrue("Dialog rotation replaced native lease", runtime.activeNativeLeaseForTest() === lease)
                     assertEquals(pending, (runtime.state.value as StageState.Ready).dialogueToken)
                     assertEquals(before.loads + 1, host.observationForTest().loads)
@@ -234,8 +257,11 @@ class NativeDialogSessionTest {
                         host.observationForTest().eventCount("OnClose")
                     )
                     compose.onNodeWithTag("$dialog-action").performClick()
-                    if (dialog == "about") compose.onNodeWithTag("about-close").performClick()
-                    else compose.onNodeWithContentDescription("Close Ghosts").performClick()
+                    if (dialog == "about") {
+                        compose.onNodeWithTag("about-close").performClick()
+                    } else {
+                        compose.onNodeWithContentDescription("Close Ghosts").performClick()
+                    }
                     activity.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
                     compose.waitUntil(20_000) {
                         activityActivityOrientation(activity) == Configuration.ORIENTATION_PORTRAIT
@@ -271,12 +297,19 @@ class NativeDialogSessionTest {
                         host.availability.value == NativeAvailability.Available &&
                             runtime.activeNativeLeaseForTest() == null
                     }
-                } catch (caught: Throwable) { cleanup = caught }
-                try { scenario?.close() } catch (caught: Throwable) {
+                } catch (caught: Throwable) {
+                    cleanup = caught
+                }
+                try {
+                    scenario?.close()
+                } catch (caught: Throwable) {
                     if (cleanup == null) cleanup = caught else cleanup.addSuppressed(caught)
                 }
-                if (cleanup != null && failure != null) failure.addSuppressed(cleanup)
-                else if (cleanup != null) throw cleanup
+                if (cleanup != null && failure != null) {
+                    failure.addSuppressed(cleanup)
+                } else if (cleanup != null) {
+                    throw cleanup
+                }
             }
         }
     }

@@ -14,11 +14,15 @@ internal object SakuraScriptText {
         script.getOrNull(index + 1) in ESCAPED
 
     /** Decode only after the parser has identified the surrounding data boundaries. */
-    fun decode(value: String): String = if ('\\' !in value) value else buildString {
-        var index = 0
-        while (index < value.length) {
-            if (isEscape(value, index)) index++
-            append(value[index++])
+    fun decode(value: String): String = if ('\\' !in value) {
+        value
+    } else {
+        buildString {
+            var index = 0
+            while (index < value.length) {
+                if (isEscape(value, index)) index++
+                append(value[index++])
+            }
         }
     }
 
@@ -26,11 +30,14 @@ internal object SakuraScriptText {
         var start = 0
         var index = 0
         while (index < value.length) {
-            if (isEscape(value, index)) index += 2
-            else if (value[index] == ',' && size < limit - 1) {
+            if (isEscape(value, index)) {
+                index += 2
+            } else if (value[index] == ',' && size < limit - 1) {
                 add(decode(value.substring(start, index)))
                 start = ++index
-            } else index++
+            } else {
+                index++
+            }
         }
         add(decode(value.substring(start)))
     }

@@ -33,7 +33,7 @@ class GhostImporter(
     internal val beforeCleanup: () -> Unit = {},
     internal val writeSourceChunk: (OutputStream, ByteArray, Int) -> Unit = { output, bytes, count ->
         output.write(bytes, 0, count)
-    },
+    }
 ) {
     private val mutex = Mutex()
     private val staging = ImportStaging(filesDir, beforeCleanup)
@@ -45,7 +45,7 @@ class GhostImporter(
 
     suspend fun importArchive(
         openSource: () -> InputStream,
-        onValidated: suspend (ImportPackage) -> Unit,
+        onValidated: suspend (ImportPackage) -> Unit
     ): ImportOutcome = mutex.withLock {
         var attempt: File? = null
         var committedId: String? = null
@@ -61,7 +61,8 @@ class GhostImporter(
             val metadata = withContext(Dispatchers.IO) { reader.inspect(source) { job?.ensureActive() } }
             validateId(metadata.directoryId)
             if (metadata.directoryId.equals("nanidroid", ignoreCase = true) ||
-                withContext(Dispatchers.IO) { collision(metadata.directoryId) }) {
+                withContext(Dispatchers.IO) { collision(metadata.directoryId) }
+            ) {
                 outcome = ImportOutcome.Refused(metadata.directoryId)
             } else {
                 onValidated(metadata)
@@ -76,18 +77,22 @@ class GhostImporter(
                 currentCoroutineContext().ensureActive()
                 outcome = withContext(Dispatchers.IO) {
                     prepareGhostRoot()
-                    if (collision(metadata.directoryId)) ImportOutcome.Refused(metadata.directoryId)
-                    else {
+                    if (collision(metadata.directoryId)) {
+                        ImportOutcome.Refused(metadata.directoryId)
+                    } else {
                         beforeMove()
                         // Check again after injected faults or a concurrent non-import writer.
-                        if (collision(metadata.directoryId)) ImportOutcome.Refused(metadata.directoryId)
-                        else try {
-                            job?.ensureActive()
-                            Files.move(candidate.toPath(), ghostRoot.resolve(metadata.directoryId).toPath())
-                            committedId = metadata.directoryId
-                            ImportOutcome.Installed(metadata.directoryId)
-                        } catch (_: FileAlreadyExistsException) {
+                        if (collision(metadata.directoryId)) {
                             ImportOutcome.Refused(metadata.directoryId)
+                        } else {
+                            try {
+                                job?.ensureActive()
+                                Files.move(candidate.toPath(), ghostRoot.resolve(metadata.directoryId).toPath())
+                                committedId = metadata.directoryId
+                                ImportOutcome.Installed(metadata.directoryId)
+                            } catch (_: FileAlreadyExistsException) {
+                                ImportOutcome.Refused(metadata.directoryId)
+                            }
                         }
                     }
                 }
@@ -127,7 +132,9 @@ class GhostImporter(
                 var count = 0L
                 while (true) {
                     checkCancelled()
-                    val n = try { input.read(buffer) } catch (e: Exception) {
+                    val n = try {
+                        input.read(buffer)
+                    } catch (e: Exception) {
                         checkCancelled()
                         throw e
                     }
@@ -144,8 +151,13 @@ class GhostImporter(
     }
 
     private fun validateId(id: String) {
-        require(id.isNotEmpty() && id == id.trim() && !id.startsWith('.') && !id.endsWith('.') &&
-            id.none { it == '/' || it == '\\' || it == ':' || it.isISOControl() }) {
+        require(
+            id.isNotEmpty() &&
+                id == id.trim() &&
+                !id.startsWith('.') &&
+                !id.endsWith('.') &&
+                id.none { it == '/' || it == '\\' || it == ':' || it.isISOControl() }
+        ) {
             "Invalid ghost directory"
         }
     }

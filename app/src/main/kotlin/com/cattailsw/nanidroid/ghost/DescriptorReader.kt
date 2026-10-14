@@ -12,7 +12,9 @@ object DescriptorReader {
 
     fun read(bytes: ByteArray): Map<String, String> {
         val hasUtf8Bom = bytes.size >= 3 &&
-            bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()
+            bytes[0] == 0xEF.toByte() &&
+            bytes[1] == 0xBB.toByte() &&
+            bytes[2] == 0xBF.toByte()
         val data = if (hasUtf8Bom) bytes.copyOfRange(3, bytes.size) else bytes
         val defaultCharset = Charset.forName("windows-31j")
         val declared = data.toString(defaultCharset)

@@ -2,8 +2,8 @@ package com.cattailsw.nanidroid.engine
 
 import com.cattailsw.nanidroid.ghost.GhostDescriptor
 import java.io.File
-import java.nio.file.Files
 import java.io.FileInputStream
+import java.nio.file.Files
 
 enum class EngineKind { BUILTIN, SATORI, KAWARI, YAYA, UNSUPPORTED }
 
@@ -23,10 +23,16 @@ object EngineSelector {
     fun select(descriptor: GhostDescriptor): EngineKind {
         val master = descriptor.masterPath
         fun has(name: String): Boolean {
-            if (name.isBlank() || name == "." || name == ".." ||
-                name.any { it == '/' || it == '\\' || it == ':' || it.isISOControl() }) return false
+            if (name.isBlank() ||
+                name == "." ||
+                name == ".." ||
+                name.any { it == '/' || it == '\\' || it == ':' || it.isISOControl() }
+            ) {
+                return false
+            }
             val file = File(master, name)
-            return file.isFile && !Files.isSymbolicLink(file.toPath()) &&
+            return file.isFile &&
+                !Files.isSymbolicLink(file.toPath()) &&
                 file.canonicalFile.toPath().startsWith(master.canonicalFile.toPath())
         }
         fun containsYayaMarker(file: File, byteLimit: Long): Boolean {
@@ -36,13 +42,17 @@ object EngineSelector {
                     var matched = 0
                     var inspected = 0L
                     while (inspected < byteLimit) {
-                        val count = stream.read(buffer, 0,
-                            minOf(buffer.size.toLong(), byteLimit - inspected).toInt())
+                        val count = stream.read(
+                            buffer,
+                            0,
+                            minOf(buffer.size.toLong(), byteLimit - inspected).toInt()
+                        )
                         if (count < 0) break
                         inspected += count
                         for (index in 0 until count) {
-                            while (matched > 0 && buffer[index] != marker[matched])
+                            while (matched > 0 && buffer[index] != marker[matched]) {
                                 matched = markerPrefix[matched - 1]
+                            }
                             if (buffer[index] == marker[matched]) matched++
                             if (matched == marker.size) return@runCatching true
                         }
@@ -62,8 +72,9 @@ object EngineSelector {
                 .take(MAX_DLL_CANDIDATES)
                 .any {
                     val size = it.length()
-                    if (size > remaining) false
-                    else {
+                    if (size > remaining) {
+                        false
+                    } else {
                         remaining -= size
                         containsYayaMarker(it, size)
                     }
@@ -72,12 +83,18 @@ object EngineSelector {
         return when {
             descriptor.engineDeclaration == "Nanidroid" -> EngineKind.BUILTIN
             descriptor.engineDeclaration.equals("satori.dll", ignoreCase = true) -> EngineKind.SATORI
-            descriptor.engineDeclaration.equals("shiori.dll", ignoreCase = true) && has("kawarirc.kis") -> EngineKind.KAWARI
+            descriptor.engineDeclaration.equals(
+                "shiori.dll",
+                ignoreCase = true
+            ) &&
+                has("kawarirc.kis") -> EngineKind.KAWARI
             discoversYaya() -> EngineKind.YAYA
             else -> EngineKind.UNSUPPORTED
         }
     }
 
-    private fun hasSafeName(name: String): Boolean = name.isNotBlank() && name != "." && name != ".." &&
+    private fun hasSafeName(name: String): Boolean = name.isNotBlank() &&
+        name != "." &&
+        name != ".." &&
         name.none { it == '/' || it == '\\' || it == ':' || it.isISOControl() }
 }

@@ -1,13 +1,12 @@
 package com.cattailsw.nanidroid.ghost
 
 import java.io.File
-import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 
 /** Reads already installed ghosts from the application's private ghost directory. */
 class InstalledGhostRepository(
     private val ghostRoot: File,
-    private val descriptorByteLimit: Int = GHOST_DESCRIPTOR_LIMIT,
+    private val descriptorByteLimit: Int = GHOST_DESCRIPTOR_LIMIT
 ) {
     fun list(): List<GhostDescriptor> {
         if (!ghostRoot.isDirectory || Files.isSymbolicLink(ghostRoot.toPath())) return emptyList()
@@ -18,8 +17,12 @@ class InstalledGhostRepository(
 
     fun validate(directoryId: String): GhostDescriptor {
         require(descriptorByteLimit in 1 until Int.MAX_VALUE) { "Invalid ghost descriptor byte limit" }
-        require(directoryId.isNotBlank() && directoryId != "." && directoryId != ".." &&
-            directoryId.none { it == '/' || it == '\\' || it == ':' || it.isISOControl() }) {
+        require(
+            directoryId.isNotBlank() &&
+                directoryId != "." &&
+                directoryId != ".." &&
+                directoryId.none { it == '/' || it == '\\' || it == ':' || it.isISOControl() }
+        ) {
             "Unsafe ghost directory ID"
         }
         require(ghostRoot.isDirectory && !Files.isSymbolicLink(ghostRoot.toPath())) {
@@ -36,7 +39,8 @@ class InstalledGhostRepository(
         }
         require(descriptorFile.length() <= descriptorByteLimit) { "Ghost descriptor byte limit exceeded" }
         val fields = DescriptorReader.read(
-            ShellFiles.readAtMost(descriptorFile, descriptorByteLimit, "Ghost descriptor byte limit exceeded"))
+            ShellFiles.readAtMost(descriptorFile, descriptorByteLimit, "Ghost descriptor byte limit exceeded")
+        )
         require(fields.isNotEmpty()) { "Ghost descriptor is malformed" }
         val surfaces = shell.listFiles().orEmpty().sortedBy { it.name }
             .mapNotNull { file ->
@@ -53,7 +57,7 @@ class InstalledGhostRepository(
             surfaces = surfaces,
             engineDeclaration = fields["shiori"],
             readmePath = readme,
-            sakuraName2 = DescriptorReader.sakuraName2(fields),
+            sakuraName2 = DescriptorReader.sakuraName2(fields)
         )
     }
 
@@ -68,5 +72,4 @@ class InstalledGhostRepository(
         }
         return child
     }
-
 }

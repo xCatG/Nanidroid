@@ -1,29 +1,25 @@
 package com.cattailsw.nanidroid.install
 
-import android.provider.OpenableColumns
 import android.graphics.Bitmap
-import android.os.Process
-import android.os.SystemClock
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
+import android.os.SystemClock
+import android.provider.OpenableColumns
 import android.util.Log
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
-import androidx.compose.ui.test.onAllNodesWithTag
-import com.cattailsw.nanidroid.NanidroidApplication
 import com.cattailsw.nanidroid.MainActivity
-import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
-import com.cattailsw.nanidroid.runtime.StageState
-import com.cattailsw.nanidroid.runtime.ImportPromptResult
-import com.cattailsw.nanidroid.ui.StageViewModel
-import androidx.lifecycle.SavedStateHandle
+import com.cattailsw.nanidroid.NanidroidApplication
 import com.cattailsw.nanidroid.data.BootStateStore
 import com.cattailsw.nanidroid.data.LastGhostStore
 import com.cattailsw.nanidroid.engine.BuiltInShiori
@@ -35,7 +31,12 @@ import com.cattailsw.nanidroid.engine.ShioriEngine
 import com.cattailsw.nanidroid.engine.ShioriEvent
 import com.cattailsw.nanidroid.engine.ShioriReply
 import com.cattailsw.nanidroid.ghost.BundledGhost
+import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
+import com.cattailsw.nanidroid.runtime.ImportPromptResult
+import com.cattailsw.nanidroid.runtime.StageState
+import com.cattailsw.nanidroid.ui.StageViewModel
 import java.io.File
+import java.io.FileInputStream
 import java.io.FilterInputStream
 import java.security.MessageDigest
 import java.util.UUID
@@ -43,25 +44,24 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicLong
-import java.io.FileInputStream
-import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -120,7 +120,10 @@ class GhostImportInstrumentationTest {
         if (args.containsKey("fixtureId")) requireFixtureArguments(args)
         if (args.containsKey("phase") || args.containsKey("runId")) {
             requireProcessDeathArguments(args)
-            Log.i("NanidroidTestFixtures", "IMPORT_DEVICE_SETUP_SKIPPED runId=${args.getString("runId")} rootInitialized=${::root.isInitialized}")
+            Log.i(
+                "NanidroidTestFixtures",
+                "IMPORT_DEVICE_SETUP_SKIPPED runId=${args.getString("runId")} rootInitialized=${::root.isInitialized}"
+            )
             return
         }
         root = File(context.cacheDir, "import-device-${UUID.randomUUID()}/files")
@@ -133,143 +136,176 @@ class GhostImportInstrumentationTest {
     }
 
     /** Host-staged, unchanged corpus input; one invocation per cleared installation. */
-    @Test fun measureCorpusImport() { runBlocking {
-        val args = InstrumentationRegistry.getArguments()
-        org.junit.Assume.assumeTrue("Run host-staged import measurement; required arguments: measurePath, measureLabel, measureSha256",
-            listOf("measurePath", "measureLabel", "measureSha256").any { args.containsKey(it) })
-        requireMeasurementArguments(args)
-        val name = requireNotNull(args.getString("measurePath"))
-        val label = requireNotNull(args.getString("measureLabel"))
-        val expected = requireNotNull(args.getString("measureSha256")).lowercase()
-        val input = File(context.filesDir, name)
-        val output = requireNotNull(context.getExternalFilesDir(null))
-        val resultFile = File(output, "import-measure-result.json")
-        val result = JSONObject().put("label", label).put("expectedSha256", expected)
-        try {
-            assertTrue("Staged input missing", input.isFile)
-            val actual = sha256(input)
-            result.put("actualSha256", actual).put("archiveBytes", input.length())
-            assertEquals("Device input hash", expected, actual)
-            val importer = GhostImporter(root)
-            val ui = Handler(Looper.getMainLooper())
-            val largestMainGap = AtomicLong(0)
-            val lastMainTick = AtomicLong(0)
-            val mainTicks = AtomicInteger(0)
-            val polling = AtomicBoolean(true)
-            fun tick() {
-                if (!polling.get()) return
-                val now = SystemClock.elapsedRealtimeNanos()
-                val previous = lastMainTick.getAndSet(now)
-                if (previous != 0L) largestMainGap.accumulateAndGet((now - previous) / 1_000_000, ::maxOf)
-                mainTicks.incrementAndGet()
-                ui.postDelayed({ tick() }, 50)
-            }
-            ui.post { tick() }
-            var validatedAt = 0L
-            val start = SystemClock.elapsedRealtimeNanos()
-            val outcome = importer.importArchive({ input.inputStream() }) {
-                validatedAt = SystemClock.elapsedRealtimeNanos()
-                result.put("directoryId", it.directoryId)
-            }
-            val end = SystemClock.elapsedRealtimeNanos()
-            polling.set(false)
-            result.put("importOutcome", outcome.toString())
-                .put("importTotalMs", (end - start) / 1_000_000.0)
-                .put("copyInspectUntilValidatedMs", (validatedAt - start) / 1_000_000.0)
-                .put("extractValidatePublishCleanupMs", (end - validatedAt) / 1_000_000.0)
-                .put("mainTicks", mainTicks.get())
-                .put("largestMainTickGapMs", largestMainGap.get())
-            assertTrue("Import failed: $outcome", outcome is ImportOutcome.Installed)
-            val installed = outcome as ImportOutcome.Installed
-            assertTrue("Published tree missing", File(root, "ghost/${installed.directoryId}").isDirectory)
-            assertTrue("Owned staging remains", File(root, "import-staging").listFiles().isNullOrEmpty())
-
-            // Phase probes run after the measured import and outside its total duration.
-            val reader = NarArchiveReader()
-            val inspectStart = SystemClock.elapsedRealtimeNanos()
-            val metadata = reader.inspect(input)
-            val inspectEnd = SystemClock.elapsedRealtimeNanos()
-            val extracted = File(root, "phase-extract").apply { mkdirs() }
-            val extractStart = SystemClock.elapsedRealtimeNanos()
-            reader.extract(input, metadata, extracted) {}
-            val extractEnd = SystemClock.elapsedRealtimeNanos()
-            result.put("inspectProbeMs", (inspectEnd - inspectStart) / 1_000_000.0)
-                .put("extractProbeMs", (extractEnd - extractStart) / 1_000_000.0)
-                .put("expandedBytes", extracted.walkTopDown().filter { it.isFile }.sumOf { it.length() })
-                .put("expandedFileCount", extracted.walkTopDown().count { it.isFile })
-
-            val runtimeStart = SystemClock.elapsedRealtimeNanos()
-            // A separate copied installation keeps runtime timing out of the archive-processing interval.
-            val app = context.applicationContext as NanidroidApplication
-            val appGhost = File(context.filesDir, "ghost/${installed.directoryId}")
-            appGhost.parentFile!!.mkdirs()
-            assertTrue("App ghost already exists", !appGhost.exists())
-            assertTrue("Cannot stage runtime tree", File(root, "ghost/${installed.directoryId}").copyRecursively(appGhost))
-            com.cattailsw.nanidroid.data.PreferencesLastGhostStore(
-                context.getSharedPreferences("last_ghost", 0)).write(installed.directoryId)
-            val launchAt = SystemClock.elapsedRealtimeNanos()
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                val deadline = SystemClock.elapsedRealtime() + 35_000
-                var leaseAt = 0L
-                var readyAt = 0L
-                while (SystemClock.elapsedRealtime() < deadline) {
-                    if (leaseAt == 0L && app.runtime.activeNativeLeaseForTest() != null)
-                        leaseAt = SystemClock.elapsedRealtimeNanos()
-                    val ready = app.runtime.state.value as? StageState.Ready
-                    if (ready != null && ready.ghostName.isNotEmpty()) {
-                        readyAt = SystemClock.elapsedRealtimeNanos()
-                        result.put("runtimeGhost", ready.ghostName)
-                            .put("activationError", ready.activationError)
-                            .put("readySurfaceCount", ready.surfaces.size)
-                        break
-                    }
-                    SystemClock.sleep(20)
+    @Test fun measureCorpusImport() {
+        runBlocking {
+            val args = InstrumentationRegistry.getArguments()
+            org.junit.Assume.assumeTrue(
+                "Run host-staged import measurement; required arguments: measurePath, measureLabel, measureSha256",
+                listOf("measurePath", "measureLabel", "measureSha256").any { args.containsKey(it) }
+            )
+            requireMeasurementArguments(args)
+            val name = requireNotNull(args.getString("measurePath"))
+            val label = requireNotNull(args.getString("measureLabel"))
+            val expected = requireNotNull(args.getString("measureSha256")).lowercase()
+            val input = File(context.filesDir, name)
+            val output = requireNotNull(context.getExternalFilesDir(null))
+            val resultFile = File(output, "import-measure-result.json")
+            val result = JSONObject().put("label", label).put("expectedSha256", expected)
+            try {
+                assertTrue("Staged input missing", input.isFile)
+                val actual = sha256(input)
+                result.put("actualSha256", actual).put("archiveBytes", input.length())
+                assertEquals("Device input hash", expected, actual)
+                val importer = GhostImporter(root)
+                val ui = Handler(Looper.getMainLooper())
+                val largestMainGap = AtomicLong(0)
+                val lastMainTick = AtomicLong(0)
+                val mainTicks = AtomicInteger(0)
+                val polling = AtomicBoolean(true)
+                fun tick() {
+                    if (!polling.get()) return
+                    val now = SystemClock.elapsedRealtimeNanos()
+                    val previous = lastMainTick.getAndSet(now)
+                    if (previous != 0L) largestMainGap.accumulateAndGet((now - previous) / 1_000_000, ::maxOf)
+                    mainTicks.incrementAndGet()
+                    ui.postDelayed({ tick() }, 50)
                 }
-                assertTrue("Runtime did not become ready", readyAt != 0L)
-                assertTrue("Ready state has no authored surfaces", result.getInt("readySurfaceCount") > 0)
-                result.put("runtimeStageCopyMs", (launchAt - runtimeStart) / 1_000_000.0)
-                    .put("nativeLeaseObservedMsFromLaunch", if (leaseAt == 0L) JSONObject.NULL else (leaseAt - launchAt) / 1_000_000.0)
-                    .put("readyObservedMsFromLaunch", (readyAt - launchAt) / 1_000_000.0)
-                // LoadedImages.Ready exposes the authored character canvas tags. Runtime Ready
-                // alone can still show the loading card while images are decoded on this emulator.
-                compose.waitUntil(15_000) {
-                    compose.onAllNodesWithTag("sakura").fetchSemanticsNodes().isNotEmpty() ||
-                        compose.onAllNodesWithTag("kero").fetchSemanticsNodes().isNotEmpty()
+                ui.post { tick() }
+                var validatedAt = 0L
+                val start = SystemClock.elapsedRealtimeNanos()
+                val outcome = importer.importArchive({ input.inputStream() }) {
+                    validatedAt = SystemClock.elapsedRealtimeNanos()
+                    result.put("directoryId", it.directoryId)
                 }
-                val firstCharacterAt = SystemClock.elapsedRealtimeNanos()
-                result.put("firstCharacterSemanticsMsFromLaunch", (firstCharacterAt - launchAt) / 1_000_000.0)
-                compose.waitForIdle()
-                val captureAt = SystemClock.elapsedRealtimeNanos()
-                val screenshot = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
-                try {
-                    val pixels = mutableSetOf<Int>()
-                    for (y in 0 until screenshot.height step (screenshot.height / 20).coerceAtLeast(1))
-                        for (x in 0 until screenshot.width step (screenshot.width / 20).coerceAtLeast(1))
-                            pixels += screenshot.getPixel(x, y)
-                    result.put("frameWidth", screenshot.width).put("frameHeight", screenshot.height)
-                        .put("sampledDistinctPixels", pixels.size)
-                    assertTrue("Captured frame is nearly uniform", pixels.size >= 8)
-                    File(output, "import-measure-stage.png").outputStream().use { stream ->
-                        assertTrue("PNG encoding failed", screenshot.compress(Bitmap.CompressFormat.PNG, 100, stream))
+                val end = SystemClock.elapsedRealtimeNanos()
+                polling.set(false)
+                result.put("importOutcome", outcome.toString())
+                    .put("importTotalMs", (end - start) / 1_000_000.0)
+                    .put("copyInspectUntilValidatedMs", (validatedAt - start) / 1_000_000.0)
+                    .put("extractValidatePublishCleanupMs", (end - validatedAt) / 1_000_000.0)
+                    .put("mainTicks", mainTicks.get())
+                    .put("largestMainTickGapMs", largestMainGap.get())
+                assertTrue("Import failed: $outcome", outcome is ImportOutcome.Installed)
+                val installed = outcome as ImportOutcome.Installed
+                assertTrue("Published tree missing", File(root, "ghost/${installed.directoryId}").isDirectory)
+                assertTrue("Owned staging remains", File(root, "import-staging").listFiles().isNullOrEmpty())
+
+                // Phase probes run after the measured import and outside its total duration.
+                val reader = NarArchiveReader()
+                val inspectStart = SystemClock.elapsedRealtimeNanos()
+                val metadata = reader.inspect(input)
+                val inspectEnd = SystemClock.elapsedRealtimeNanos()
+                val extracted = File(root, "phase-extract").apply { mkdirs() }
+                val extractStart = SystemClock.elapsedRealtimeNanos()
+                reader.extract(input, metadata, extracted) {}
+                val extractEnd = SystemClock.elapsedRealtimeNanos()
+                result.put("inspectProbeMs", (inspectEnd - inspectStart) / 1_000_000.0)
+                    .put("extractProbeMs", (extractEnd - extractStart) / 1_000_000.0)
+                    .put("expandedBytes", extracted.walkTopDown().filter { it.isFile }.sumOf { it.length() })
+                    .put("expandedFileCount", extracted.walkTopDown().count { it.isFile })
+
+                val runtimeStart = SystemClock.elapsedRealtimeNanos()
+                // A separate copied installation keeps runtime timing out of the archive-processing interval.
+                val app = context.applicationContext as NanidroidApplication
+                val appGhost = File(context.filesDir, "ghost/${installed.directoryId}")
+                appGhost.parentFile!!.mkdirs()
+                assertTrue("App ghost already exists", !appGhost.exists())
+                assertTrue(
+                    "Cannot stage runtime tree",
+                    File(root, "ghost/${installed.directoryId}").copyRecursively(appGhost)
+                )
+                com.cattailsw.nanidroid.data.PreferencesLastGhostStore(
+                    context.getSharedPreferences("last_ghost", 0)
+                ).write(installed.directoryId)
+                val launchAt = SystemClock.elapsedRealtimeNanos()
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    val deadline = SystemClock.elapsedRealtime() + 35_000
+                    var leaseAt = 0L
+                    var readyAt = 0L
+                    while (SystemClock.elapsedRealtime() < deadline) {
+                        if (leaseAt == 0L && app.runtime.activeNativeLeaseForTest() != null) {
+                            leaseAt = SystemClock.elapsedRealtimeNanos()
+                        }
+                        val ready = app.runtime.state.value as? StageState.Ready
+                        if (ready != null && ready.ghostName.isNotEmpty()) {
+                            readyAt = SystemClock.elapsedRealtimeNanos()
+                            result.put("runtimeGhost", ready.ghostName)
+                                .put("activationError", ready.activationError)
+                                .put("readySurfaceCount", ready.surfaces.size)
+                            break
+                        }
+                        SystemClock.sleep(20)
                     }
-                    assertTrue("Captured frame is empty", File(output, "import-measure-stage.png").length() > 24)
-                } finally { screenshot.recycle() }
-                result.put("screenshotCompletedMsFromReady", (SystemClock.elapsedRealtimeNanos() - readyAt) / 1_000_000.0)
-                    .put("screenshotStartedMsFromReady", (captureAt - readyAt) / 1_000_000.0)
-                app.runtime.close()
+                    assertTrue("Runtime did not become ready", readyAt != 0L)
+                    assertTrue("Ready state has no authored surfaces", result.getInt("readySurfaceCount") > 0)
+                    result.put("runtimeStageCopyMs", (launchAt - runtimeStart) / 1_000_000.0)
+                        .put(
+                            "nativeLeaseObservedMsFromLaunch",
+                            if (leaseAt ==
+                                0L
+                            ) {
+                                JSONObject.NULL
+                            } else {
+                                (leaseAt - launchAt) / 1_000_000.0
+                            }
+                        )
+                        .put("readyObservedMsFromLaunch", (readyAt - launchAt) / 1_000_000.0)
+                    // LoadedImages.Ready exposes the authored character canvas tags. Runtime Ready
+                    // alone can still show the loading card while images are decoded on this emulator.
+                    compose.waitUntil(15_000) {
+                        compose.onAllNodesWithTag("sakura").fetchSemanticsNodes().isNotEmpty() ||
+                            compose.onAllNodesWithTag("kero").fetchSemanticsNodes().isNotEmpty()
+                    }
+                    val firstCharacterAt = SystemClock.elapsedRealtimeNanos()
+                    result.put("firstCharacterSemanticsMsFromLaunch", (firstCharacterAt - launchAt) / 1_000_000.0)
+                    compose.waitForIdle()
+                    val captureAt = SystemClock.elapsedRealtimeNanos()
+                    val screenshot =
+                        requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+                    try {
+                        val pixels = mutableSetOf<Int>()
+                        for (y in 0 until screenshot.height step (screenshot.height / 20).coerceAtLeast(1)) {
+                            for (x in 0 until screenshot.width step (screenshot.width / 20).coerceAtLeast(1)) {
+                                pixels += screenshot.getPixel(x, y)
+                            }
+                        }
+                        result.put("frameWidth", screenshot.width).put("frameHeight", screenshot.height)
+                            .put("sampledDistinctPixels", pixels.size)
+                        assertTrue("Captured frame is nearly uniform", pixels.size >= 8)
+                        File(output, "import-measure-stage.png").outputStream().use { stream ->
+                            assertTrue(
+                                "PNG encoding failed",
+                                screenshot.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                            )
+                        }
+                        assertTrue("Captured frame is empty", File(output, "import-measure-stage.png").length() > 24)
+                    } finally {
+                        screenshot.recycle()
+                    }
+                    result.put(
+                        "screenshotCompletedMsFromReady",
+                        (SystemClock.elapsedRealtimeNanos() - readyAt) / 1_000_000.0
+                    )
+                        .put("screenshotStartedMsFromReady", (captureAt - readyAt) / 1_000_000.0)
+                    app.runtime.close()
+                }
+                result.put("testStatus", "completed")
+            } catch (failure: Throwable) {
+                result.put("testStatus", "failed")
+                    .put("failure", "${failure.javaClass.simpleName}: ${failure.message}")
+                throw failure
+            } finally {
+                resultFile.writeText(result.toString(2))
             }
-            result.put("testStatus", "completed")
-        } catch (failure: Throwable) {
-            result.put("testStatus", "failed")
-                .put("failure", "${failure.javaClass.simpleName}: ${failure.message}")
-            throw failure
-        } finally { resultFile.writeText(result.toString(2)) }
-    } }
+        }
+    }
 
     @Test fun importedAya5RootEntryGhostUsesOwnUnsupportedStageWithoutNativeLease() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
-        org.junit.Assume.assumeTrue("Run host-staged unchanged AYA5 root-entry import; required arguments: fixtureId",
-            listOf("fixtureId").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run host-staged unchanged AYA5 root-entry import; required arguments: fixtureId",
+            listOf("fixtureId").any { args.containsKey(it) }
+        )
         requireFixtureArguments(args)
         val id = requireNotNull(args.getString("fixtureId"))
         val repository = InstalledGhostRepository(File(context.filesDir, "ghost"))
@@ -278,8 +314,10 @@ class GhostImportInstrumentationTest {
         assertEquals(EngineKind.UNSUPPORTED, EngineSelector.select(descriptor))
         val host = NativeShioriHost.process
         assertEquals(NativeAvailability.Available, host.availability.value)
-        assertTrue(context.getSharedPreferences("last_ghost", android.content.Context.MODE_PRIVATE)
-            .edit().putString("last_ghost", id).commit())
+        assertTrue(
+            context.getSharedPreferences("last_ghost", android.content.Context.MODE_PRIVATE)
+                .edit().putString("last_ghost", id).commit()
+        )
         val runtime = (context.applicationContext as NanidroidApplication).runtime
         try {
             runtime.start("en")
@@ -292,7 +330,9 @@ class GhostImportInstrumentationTest {
                 SystemClock.sleep(50)
             }
             val ready = runtime.state.value as StageState.Ready
-            println("ROOT_ENTRY_DIAG id=$id ghost=${ready.ghostName} surfaces=${ready.surfaces.size} message=${ready.frame.sakura.text} lease=${runtime.activeNativeLeaseForTest()} availability=${host.availability.value}")
+            println(
+                "ROOT_ENTRY_DIAG id=$id ghost=${ready.ghostName} surfaces=${ready.surfaces.size} message=${ready.frame.sakura.text} lease=${runtime.activeNativeLeaseForTest()} availability=${host.availability.value}"
+            )
             assertEquals(descriptor.displayName, ready.ghostName)
             assertTrue(ready.surfaces.isNotEmpty())
             assertTrue(ready.frame.sakura.text.contains(message))
@@ -301,21 +341,34 @@ class GhostImportInstrumentationTest {
             runtime.selectGhost("nanidroid")
             val promptDeadline = SystemClock.elapsedRealtime() + 20_000
             while ((runtime.state.value as? StageState.Ready)?.switchPrompt?.directoryId != "nanidroid" &&
-                SystemClock.elapsedRealtime() < promptDeadline) SystemClock.sleep(50)
+                SystemClock.elapsedRealtime() < promptDeadline
+            ) {
+                SystemClock.sleep(50)
+            }
             assertEquals("nanidroid", (runtime.state.value as StageState.Ready).switchPrompt?.directoryId)
             runtime.confirmSwitch()
             val switchDeadline = SystemClock.elapsedRealtime() + 30_000
             while ((runtime.state.value as? StageState.Ready)?.ghostName != "Nanidroid" &&
-                SystemClock.elapsedRealtime() < switchDeadline) SystemClock.sleep(50)
-            println("ROOT_ENTRY_DIAG switched=${(runtime.state.value as? StageState.Ready)?.ghostName} lease=${runtime.activeNativeLeaseForTest()} availability=${host.availability.value}")
+                SystemClock.elapsedRealtime() < switchDeadline
+            ) {
+                SystemClock.sleep(50)
+            }
+            println(
+                "ROOT_ENTRY_DIAG switched=${(runtime.state.value as? StageState.Ready)?.ghostName} lease=${runtime.activeNativeLeaseForTest()} availability=${host.availability.value}"
+            )
             assertEquals("Nanidroid", (runtime.state.value as StageState.Ready).ghostName)
             assertNull(runtime.activeNativeLeaseForTest())
         } finally {
             runtime.close()
             val closeDeadline = SystemClock.elapsedRealtime() + 30_000
             while (runtime.state.value !is StageState.Finished &&
-                SystemClock.elapsedRealtime() < closeDeadline) SystemClock.sleep(50)
-            println("ROOT_ENTRY_DIAG close=${runtime.state.value.javaClass.simpleName} availability=${host.availability.value}")
+                SystemClock.elapsedRealtime() < closeDeadline
+            ) {
+                SystemClock.sleep(50)
+            }
+            println(
+                "ROOT_ENTRY_DIAG close=${runtime.state.value.javaClass.simpleName} availability=${host.availability.value}"
+            )
             assertTrue(runtime.state.value is StageState.Finished)
             assertEquals(NativeAvailability.Available, host.availability.value)
         }
@@ -337,12 +390,17 @@ class GhostImportInstrumentationTest {
     @Test fun slowAndUnreadableProvidersLeaveNoPartialInstall() = runBlocking {
         val bytes = archive("deviceslow", padding = 4096)
         val slow = GhostImportTestProvider.uri(bytes, "slow")
-        assertEquals(ImportOutcome.Installed("deviceslow"), GhostImporter(root).importArchive(
-            { context.contentResolver.openInputStream(slow)!! }) {})
+        assertEquals(
+            ImportOutcome.Installed("deviceslow"),
+            GhostImporter(root).importArchive(
+                { context.contentResolver.openInputStream(slow)!! }
+            ) {}
+        )
         for (mode in listOf("open-fail", "read-fail")) {
             val uri = GhostImportTestProvider.uri(archive("devicefailed", padding = 4096), mode)
             val outcome = GhostImporter(root).importArchive(
-                { context.contentResolver.openInputStream(uri)!! }) {}
+                { context.contentResolver.openInputStream(uri)!! }
+            ) {}
             assertTrue("$mode: $outcome", outcome is ImportOutcome.Failed)
             assertFalse(File(root, "ghost/devicefailed").exists())
         }
@@ -351,12 +409,19 @@ class GhostImportInstrumentationTest {
 
     @Test fun cancellationAndMalformedArchiveDoNotPublish() = runBlocking {
         val uri = GhostImportTestProvider.uri(archive("devicecancel"), "exact")
-        assertEquals(ImportOutcome.Cancelled, GhostImporter(root).importArchive(
-            { context.contentResolver.openInputStream(uri)!! }) { throw CancellationException("test cancel") })
+        assertEquals(
+            ImportOutcome.Cancelled,
+            GhostImporter(root).importArchive(
+                { context.contentResolver.openInputStream(uri)!! }
+            ) { throw CancellationException("test cancel") }
+        )
         assertFalse(File(root, "ghost/devicecancel").exists())
         val malformed = GhostImportTestProvider.uri(byteArrayOf(1, 2, 3), "exact")
-        assertTrue(GhostImporter(root).importArchive(
-            { context.contentResolver.openInputStream(malformed)!! }) {} is ImportOutcome.Failed)
+        assertTrue(
+            GhostImporter(root).importArchive(
+                { context.contentResolver.openInputStream(malformed)!! }
+            ) {} is ImportOutcome.Failed
+        )
         assertFalse(File(root, "import-staging").listFiles()?.any() == true)
     }
 
@@ -369,12 +434,14 @@ class GhostImportInstrumentationTest {
         val activations = mutableListOf<String>()
         val runtime = com.cattailsw.nanidroid.runtime.GhostRuntime(
             loadGhost = { BundledGhost("nanidroid", "Nanidroid", "", "", emptyMap(), "") },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply {
-                    synchronized(events) { events += event }
-                    return ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply {
+                        synchronized(events) { events += event }
+                        return ShioriReply(204)
+                    }
                 }
-            } },
+            },
             bootState = object : BootStateStore {
                 override suspend fun recordActivation(directoryId: String): Boolean {
                     synchronized(activations) { activations += directoryId }
@@ -384,12 +451,16 @@ class GhostImportInstrumentationTest {
             },
             scope = scope,
             installedGhosts = InstalledGhostRepository(File(root, "ghost")),
-            elapsedRealtime = { 0L },
+            elapsedRealtime = { 0L }
         )
         val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
         val preferences = context.getSharedPreferences("repeated-import-$id", android.content.Context.MODE_PRIVATE)
-        val model = StageViewModel(runtime, coordinator, SavedStateHandle(),
-            ImportAttemptStore.fromPreferences(preferences))
+        val model = StageViewModel(
+            runtime,
+            coordinator,
+            SavedStateHandle(),
+            ImportAttemptStore.fromPreferences(preferences)
+        )
         val sourceOpens = AtomicInteger()
         val pickerLaunches = AtomicInteger()
         val completions = AtomicInteger()
@@ -462,10 +533,13 @@ class GhostImportInstrumentationTest {
             assertEquals(1, File(root, "ghost").listFiles()?.count { it.name == id })
             assertTrue(File(root, "ghost/$id/ghost/master/descript.txt").isFile)
             assertFalse(File(root, "import-staging").listFiles()?.any { it.name.startsWith("attempt-") } == true)
-            assertEquals(listOf(
-                ShioriEvent("OnInstallBegin", listOf("ghost", id, id)),
-                ShioriEvent("OnInstallComplete", listOf("ghost", id, id)),
-            ), synchronized(events) { events.filter { it.id.startsWith("OnInstall") }.toList() })
+            assertEquals(
+                listOf(
+                    ShioriEvent("OnInstallBegin", listOf("ghost", id, id)),
+                    ShioriEvent("OnInstallComplete", listOf("ghost", id, id))
+                ),
+                synchronized(events) { events.filter { it.id.startsWith("OnInstall") }.toList() }
+            )
             val stage = runtime.state.value as StageState.Ready
             assertEquals(id, stage.switchPrompt?.directoryId)
             assertEquals("Nanidroid", stage.ghostName)
@@ -484,12 +558,16 @@ class GhostImportInstrumentationTest {
     @Test fun importedBuiltInGhostSwitchesAfterPrompt() = runBlocking {
         val id = "switch${UUID.randomUUID().toString().replace("-", "").take(12)}"
         val uri = GhostImportTestProvider.uri(
-            archive(id, builtinContent = "OnGhostChanged,\\0Imported ghost\\e\n"), "exact")
+            archive(id, builtinContent = "OnGhostChanged,\\0Imported ghost\\e\n"),
+            "exact"
+        )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         val last = object : LastGhostStore {
             private val directoryId = AtomicReference<String?>()
             override fun read() = directoryId.get()
-            override fun write(directoryId: String) { this.directoryId.set(directoryId) }
+            override fun write(directoryId: String) {
+                this.directoryId.set(directoryId)
+            }
         }
         val runtime = com.cattailsw.nanidroid.runtime.GhostRuntime(
             loadGhost = { BundledGhost("nanidroid", "Nanidroid", "", "", emptyMap(), "") },
@@ -501,7 +579,7 @@ class GhostImportInstrumentationTest {
             scope = scope,
             installedGhosts = InstalledGhostRepository(File(root, "ghost")),
             lastGhostStore = last,
-            elapsedRealtime = { 0L },
+            elapsedRealtime = { 0L }
         )
         val coordinator = ImportCoordinator(GhostImporter(root), runtime, scope)
         try {
@@ -511,13 +589,19 @@ class GhostImportInstrumentationTest {
             coordinator.acceptResult(attempt) { context.contentResolver.openInputStream(uri)!! }
             withTimeout(10_000) {
                 while ((coordinator.state.value as? ImportState.Completed)?.promptResult !=
-                    ImportPromptResult.Shown) delay(20)
+                    ImportPromptResult.Shown
+                ) {
+                    delay(20)
+                }
             }
             assertEquals(id, (runtime.state.value as StageState.Ready).switchPrompt?.directoryId)
             runtime.confirmSwitch()
             withTimeout(10_000) {
                 while (last.read() != id ||
-                    (runtime.state.value as? StageState.Ready)?.ghostName != "Device test") delay(20)
+                    (runtime.state.value as? StageState.Ready)?.ghostName != "Device test"
+                ) {
+                    delay(20)
+                }
             }
             val switched = runtime.state.value as StageState.Ready
             assertEquals("Device test", switched.ghostName)
@@ -538,23 +622,27 @@ class GhostImportInstrumentationTest {
         val sourceClosed = AtomicBoolean()
         val returned = CompletableDeferred<ImportOutcome>()
         val job = launch(Dispatchers.Default) {
-            returned.complete(GhostImporter(root).importArchive({
-                object : FilterInputStream(context.contentResolver.openInputStream(uri)!!) {
-                    override fun read(bytes: ByteArray): Int {
-                        if (readCalls.incrementAndGet() == 2) enteredSecondRead.countDown()
-                        return super.read(bytes)
-                    }
+            returned.complete(
+                GhostImporter(root).importArchive({
+                    object : FilterInputStream(context.contentResolver.openInputStream(uri)!!) {
+                        override fun read(bytes: ByteArray): Int {
+                            if (readCalls.incrementAndGet() == 2) enteredSecondRead.countDown()
+                            return super.read(bytes)
+                        }
 
-                    override fun close() {
-                        sourceClosed.set(true)
-                        super.close()
+                        override fun close() {
+                            sourceClosed.set(true)
+                            super.close()
+                        }
                     }
-                }
-            }) {})
+                }) {}
+            )
         }
         try {
-            assertTrue("Importer never entered the blocked provider read",
-                enteredSecondRead.await(5, TimeUnit.SECONDS))
+            assertTrue(
+                "Importer never entered the blocked provider read",
+                enteredSecondRead.await(5, TimeUnit.SECONDS)
+            )
             assertFalse("Importer completed while the provider gate was closed", returned.isCompleted)
             job.cancel()
             assertEquals(ImportOutcome.Cancelled, withTimeout(2_000) { returned.await() })
@@ -604,8 +692,9 @@ class GhostImportInstrumentationTest {
                 }
             }
             scenario.close()
-            if (settled) File(context.filesDir, "ghost/$id").deleteRecursively()
-            else {
+            if (settled) {
+                File(context.filesDir, "ghost/$id").deleteRecursively()
+            } else {
                 Log.e("ImportLifecycle", "Rotation-copy cleanup timed out; retained synthetic installation")
                 if (assertionsPassed) throw AssertionError("Import did not settle before cleanup")
             }
@@ -662,7 +751,11 @@ class GhostImportInstrumentationTest {
             viewModel.submitPickerResult {
                 object : FilterInputStream(FileInputStream(source)) {
                     override fun close() {
-                        try { super.close() } finally { sourceClosed.set(true) }
+                        try {
+                            super.close()
+                        } finally {
+                            sourceClosed.set(true)
+                        }
                     }
                 }
             }
@@ -686,24 +779,37 @@ class GhostImportInstrumentationTest {
             }
             assertEquals(ImportState.Running(acceptedAttempt), app.importCoordinator.state.value)
             assertTrue("Source stream must close before extraction", sourceClosed.get())
-            Log.i("ImportExtractRotation", "phase=partial bytes=$partial expected=$expectedBytes activity=${scenario.state} path=${partialPath.name}")
+            Log.i(
+                "ImportExtractRotation",
+                "phase=partial bytes=$partial expected=$expectedBytes activity=${scenario.state} path=${partialPath.name}"
+            )
             scenario.onActivity { activity ->
-                activity.lifecycle.addObserver(LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_STOP) {
-                        stopPartial.set(partialPath.length())
-                        stopWasConfigurationChange.set(activity.isChangingConfigurations)
-                        Log.i("ImportExtractRotation", "phase=onStop bytes=${stopPartial.get()} changing=${activity.isChangingConfigurations}")
+                activity.lifecycle.addObserver(
+                    LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_STOP) {
+                            stopPartial.set(partialPath.length())
+                            stopWasConfigurationChange.set(activity.isChangingConfigurations)
+                            Log.i(
+                                "ImportExtractRotation",
+                                "phase=onStop bytes=${stopPartial.get()} changing=${activity.isChangingConfigurations}"
+                            )
+                        }
                     }
-                })
+                )
             }
             scenario.recreate()
             awaitScenarioState(scenario, Lifecycle.State.RESUMED)
             scenario.onActivity { activity -> assertSame(viewModel, activityStageViewModel(activity)) }
-            assertTrue("Rotation reached ON_STOP after extraction ended: ${stopPartial.get()}",
-                stopPartial.get() in 1 until expectedBytes)
+            assertTrue(
+                "Rotation reached ON_STOP after extraction ended: ${stopPartial.get()}",
+                stopPartial.get() in 1 until expectedBytes
+            )
             assertTrue("Rotation ON_STOP was not a configuration change", stopWasConfigurationChange.get())
             val result = awaitCompletion(app)
-            Log.i("ImportExtractRotation", "phase=result attempt=${result.attemptId} outcome=${result.outcome} activity=${scenario.state}")
+            Log.i(
+                "ImportExtractRotation",
+                "phase=result attempt=${result.attemptId} outcome=${result.outcome} activity=${scenario.state}"
+            )
             assertEquals(acceptedAttempt, result.attemptId)
             assertEquals(ImportOutcome.Installed(id), result.outcome)
             val prompted = withTimeout(10_000) {
@@ -722,7 +828,10 @@ class GhostImportInstrumentationTest {
             assertEquals(1, completionCount.get())
             assertEquals(1, promptCount.get())
             assertEquals(id, (app.runtime.state.value as StageState.Ready).switchPrompt?.directoryId)
-            Log.i("ImportExtractRotation", "phase=verified completions=${completionCount.get()} prompts=${promptCount.get()} bytes=$expectedBytes")
+            Log.i(
+                "ImportExtractRotation",
+                "phase=verified completions=${completionCount.get()} prompts=${promptCount.get()} bytes=$expectedBytes"
+            )
             assertNoOwnedStaging()
             assertionsPassed = true
         } finally {
@@ -748,10 +857,15 @@ class GhostImportInstrumentationTest {
                 Log.e("ImportExtractRotation", "Cleanup timed out; retained synthetic source/installation")
                 if (assertionsPassed) throw AssertionError("Import did not settle before cleanup")
             }
-            assertNull("Extraction rotation retained the application runtime's native lease",
-                app.runtime.activeNativeLeaseForTest())
-            assertEquals("Extraction rotation retained native host ownership", NativeAvailability.Available,
-                NativeShioriHost.process.availability.value)
+            assertNull(
+                "Extraction rotation retained the application runtime's native lease",
+                app.runtime.activeNativeLeaseForTest()
+            )
+            assertEquals(
+                "Extraction rotation retained native host ownership",
+                NativeAvailability.Available,
+                NativeShioriHost.process.availability.value
+            )
         }
     }
 
@@ -802,8 +916,9 @@ class GhostImportInstrumentationTest {
                 }
             }
             scenario.close()
-            if (settled) File(context.filesDir, "ghost/$id").deleteRecursively()
-            else {
+            if (settled) {
+                File(context.filesDir, "ghost/$id").deleteRecursively()
+            } else {
                 Log.e("ImportLifecycle", "Shade cleanup timed out; retained synthetic installation")
                 if (assertionsPassed) throw AssertionError("Import did not settle before cleanup")
             }
@@ -844,10 +959,12 @@ class GhostImportInstrumentationTest {
             lateinit var viewModel: StageViewModel
             scenario.onActivity { activity ->
                 viewModel = activityStageViewModel(activity)
-                activity.lifecycle.addObserver(LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_PAUSE) pauses.incrementAndGet()
-                    if (event == Lifecycle.Event.ON_STOP) stops.incrementAndGet()
-                })
+                activity.lifecycle.addObserver(
+                    LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_PAUSE) pauses.incrementAndGet()
+                        if (event == Lifecycle.Event.ON_STOP) stops.incrementAndGet()
+                    }
+                )
             }
             var attempt: String? = null
             withTimeout(15_000) {
@@ -867,7 +984,10 @@ class GhostImportInstrumentationTest {
             assertEquals("Pause-only transition reached ON_STOP", 0, stops.get())
             assertEquals(ImportState.Running(acceptedAttempt), app.importCoordinator.state.value)
             assertFalse("Pause-only transition closed the source", sourceClosed.get())
-            Log.i("ImportPauseOnly", "phase=paused pauses=${pauses.get()} stops=${stops.get()} state=${app.importCoordinator.state.value}")
+            Log.i(
+                "ImportPauseOnly",
+                "phase=paused pauses=${pauses.get()} stops=${stops.get()} state=${app.importCoordinator.state.value}"
+            )
             releaseProviderGate(uri, gateId)
             val result = awaitCompletion(app)
             assertEquals(acceptedAttempt, result.attemptId)
@@ -886,10 +1006,15 @@ class GhostImportInstrumentationTest {
             assertEquals(1, prompts.get())
             assertEquals(0, stops.get())
             assertTrue(sourceClosed.get())
-            assertTrue(ByteArray(4096) { (it % 251).toByte() }
-                .contentEquals(File(context.filesDir, "ghost/$id/shell/master/placeholder.txt").readBytes()))
+            assertTrue(
+                ByteArray(4096) { (it % 251).toByte() }
+                    .contentEquals(File(context.filesDir, "ghost/$id/shell/master/placeholder.txt").readBytes())
+            )
             assertNoOwnedStaging()
-            Log.i("ImportPauseOnly", "phase=verified completions=${completions.get()} prompts=${prompts.get()} activity=${scenario.state}")
+            Log.i(
+                "ImportPauseOnly",
+                "phase=verified completions=${completions.get()} prompts=${prompts.get()} activity=${scenario.state}"
+            )
             assertionsPassed = true
         } finally {
             app.importCoordinator.cancelBeforePublication()
@@ -907,10 +1032,15 @@ class GhostImportInstrumentationTest {
                 while (app.runtime.state.value !is StageState.Finished) delay(20)
             }
             scenario.close()
-            assertNull("Activity close retained the application runtime's native lease",
-                app.runtime.activeNativeLeaseForTest())
-            assertEquals("Activity close retained native host ownership", NativeAvailability.Available,
-                NativeShioriHost.process.availability.value)
+            assertNull(
+                "Activity close retained the application runtime's native lease",
+                app.runtime.activeNativeLeaseForTest()
+            )
+            assertEquals(
+                "Activity close retained native host ownership",
+                NativeAvailability.Available,
+                NativeShioriHost.process.availability.value
+            )
             completionCollector.cancelAndJoin()
             promptCollector.cancelAndJoin()
             if (settled) {
@@ -923,9 +1053,7 @@ class GhostImportInstrumentationTest {
         Unit
     }
 
-    private suspend fun assertPhysicalStopCancels(
-        action: String, command: String, wakeAfter: Boolean = false,
-    ) {
+    private suspend fun assertPhysicalStopCancels(action: String, command: String, wakeAfter: Boolean = false) {
         val id = "stop${UUID.randomUUID().toString().replace("-", "").take(12)}"
         val gateId = UUID.randomUUID().toString()
         val uri = GhostImportTestProvider.gatedUri(archive(id, padding = 4096), gateId)
@@ -960,8 +1088,9 @@ class GhostImportInstrumentationTest {
                 }
             }
             scenario.close()
-            if (settled) File(context.filesDir, "ghost/$id").deleteRecursively()
-            else {
+            if (settled) {
+                File(context.filesDir, "ghost/$id").deleteRecursively()
+            } else {
                 Log.e("ImportLifecycle", "$action cleanup timed out; retained synthetic installation")
                 if (assertionsPassed) throw AssertionError("Import did not settle before cleanup")
             }
@@ -971,7 +1100,11 @@ class GhostImportInstrumentationTest {
     private fun trackedSource(uri: android.net.Uri, closed: AtomicBoolean): () -> java.io.InputStream = {
         object : FilterInputStream(context.contentResolver.openInputStream(uri)!!) {
             override fun close() {
-                try { super.close() } finally { closed.set(true) }
+                try {
+                    super.close()
+                } finally {
+                    closed.set(true)
+                }
             }
         }
     }
@@ -991,25 +1124,25 @@ class GhostImportInstrumentationTest {
             }
             true
         }
-        assertTrue("Provider was not waiting with copied source bytes; state=${(context as NanidroidApplication).importCoordinator.state.value}", entered == true)
+        assertTrue(
+            "Provider was not waiting with copied source bytes; state=${(context as NanidroidApplication).importCoordinator.state.value}",
+            entered == true
+        )
     }
 
     private fun releaseProviderGate(uri: android.net.Uri, gateId: String) {
         context.contentResolver.call(uri, "release-read", gateId, null)
     }
 
-    private suspend fun awaitCompletion(app: NanidroidApplication): ImportState.Completed =
-        withTimeout(10_000) {
-            while (true) {
-                (app.importCoordinator.state.value as? ImportState.Completed)?.let { return@withTimeout it }
-                delay(20)
-            }
-            error("unreachable")
+    private suspend fun awaitCompletion(app: NanidroidApplication): ImportState.Completed = withTimeout(10_000) {
+        while (true) {
+            (app.importCoordinator.state.value as? ImportState.Completed)?.let { return@withTimeout it }
+            delay(20)
         }
+        error("unreachable")
+    }
 
-    private suspend fun awaitScenarioState(
-        scenario: ActivityScenario<MainActivity>, expected: Lifecycle.State,
-    ) {
+    private suspend fun awaitScenarioState(scenario: ActivityScenario<MainActivity>, expected: Lifecycle.State) {
         val reached = withTimeoutOrNull(15_000) {
             while (scenario.state != expected) delay(20)
             true
@@ -1025,8 +1158,10 @@ class GhostImportInstrumentationTest {
     }
 
     private fun assertNoOwnedStaging() {
-        assertFalse(File(context.filesDir, "import-staging").listFiles()
-            ?.any { it.name.startsWith("attempt-") } == true)
+        assertFalse(
+            File(context.filesDir, "import-staging").listFiles()
+                ?.any { it.name.startsWith("attempt-") } == true
+        )
     }
 
     private suspend fun awaitOwnedImportSettled(app: NanidroidApplication, attemptId: String?): Boolean =
@@ -1037,9 +1172,11 @@ class GhostImportInstrumentationTest {
                 val active = when (state) {
                     is ImportState.Picking -> state.attemptId == attemptId
                     is ImportState.Running -> state.attemptId == attemptId
-                    is ImportState.Completed -> state.attemptId == attemptId &&
-                        state.outcome is ImportOutcome.Installed && state.promptResult == null &&
-                        app.runtime.state.value != StageState.Finished
+                    is ImportState.Completed ->
+                        state.attemptId == attemptId &&
+                            state.outcome is ImportOutcome.Installed &&
+                            state.promptResult == null &&
+                            app.runtime.state.value != StageState.Finished
                     else -> false
                 }
                 val staged = File(context.filesDir, "import-staging").listFiles()
@@ -1060,19 +1197,27 @@ class GhostImportInstrumentationTest {
         val before = treeHashes(existing)
         for (id in listOf("DeviceValue", "devicevalue")) {
             val uri = GhostImportTestProvider.uri(archive(id), "exact")
-            assertEquals(ImportOutcome.Refused(id), GhostImporter(root).importArchive(
-                { context.contentResolver.openInputStream(uri)!! }) {})
+            assertEquals(
+                ImportOutcome.Refused(id),
+                GhostImporter(root).importArchive(
+                    { context.contentResolver.openInputStream(uri)!! }
+                ) {}
+            )
             assertEquals(before, treeHashes(existing))
         }
-        assertEquals("engine-written-value",
-            File(existing, "ghost/master/savedata/value.txt").readText())
+        assertEquals(
+            "engine-written-value",
+            File(existing, "ghost/master/savedata/value.txt").readText()
+        )
     }
 
     /** The host kills this live instrumented app process after observing the marker. */
     @Test fun holdAtProcessDeathBoundary() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
-        org.junit.Assume.assumeTrue("Run tools/test-import-process-death.ps1; required arguments: phase, runId",
-            listOf("phase", "runId").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run tools/test-import-process-death.ps1; required arguments: phase, runId",
+            listOf("phase", "runId").any { args.containsKey(it) }
+        )
         requireProcessDeathArguments(args)
         val phase = requireNotNull(args.getString("phase"))
         val runId = requireNotNull(args.getString("runId"))
@@ -1086,14 +1231,15 @@ class GhostImportInstrumentationTest {
             marker.writeText("runId=$runId\nphase=$boundary\npid=${Process.myPid()}\nghostId=$ghostId\n")
             latch.await()
         }
-        val importer = GhostImporter(context.filesDir,
+        val importer = GhostImporter(
+            context.filesDir,
             writeSourceChunk = { output, bytes, count ->
                 output.write(bytes, 0, count)
                 output.flush()
                 if (phase == "copy" && !marker.exists()) hold("copy")
             },
             beforeMove = { if (phase == "pre") hold("pre") },
-            afterMove = { if (phase == "post") hold("post") },
+            afterMove = { if (phase == "post") hold("post") }
         )
         // Enough source bytes to leave a real partial source.nar at the copy boundary.
         if (phase == "extract") {
@@ -1121,8 +1267,10 @@ class GhostImportInstrumentationTest {
                 zip.closeEntry()
             }
             importer.importArchive({ source.inputStream() }) {
-                marker.writeText("runId=$runId\nphase=extract\npid=${Process.myPid()}\n" +
-                    "ghostId=$ghostId\nexpectedBytes=$expectedBytes\n")
+                marker.writeText(
+                    "runId=$runId\nphase=extract\npid=${Process.myPid()}\n" +
+                        "ghostId=$ghostId\nexpectedBytes=$expectedBytes\n"
+                )
                 val release = File(context.filesDir, "process-death-$runId.release")
                 while (!release.exists()) delay(10)
             }
@@ -1136,8 +1284,10 @@ class GhostImportInstrumentationTest {
 
     @Test fun verifyProcessDeathRecovery() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
-        org.junit.Assume.assumeTrue("Run tools/test-import-process-death.ps1; required arguments: phase, runId",
-            listOf("phase", "runId").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run tools/test-import-process-death.ps1; required arguments: phase, runId",
+            listOf("phase", "runId").any { args.containsKey(it) }
+        )
         requireProcessDeathArguments(args)
         val phase = requireNotNull(args.getString("phase"))
         val runId = requireNotNull(args.getString("runId"))
@@ -1148,7 +1298,10 @@ class GhostImportInstrumentationTest {
         // Startup recovery is asynchronous; the host has already launched MainActivity.
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
         while (staging.listFiles()?.any { it.name.startsWith("attempt-") } == true &&
-            System.nanoTime() < deadline) Thread.sleep(50)
+            System.nanoTime() < deadline
+        ) {
+            Thread.sleep(50)
+        }
         assertFalse(staging.listFiles()?.any { it.name.startsWith("attempt-") } == true)
         assertEquals("unrelated:$runId", sentinel.readText())
         assertEquals(phase == "post", target.exists())
@@ -1162,12 +1315,18 @@ class GhostImportInstrumentationTest {
             ?: throw AssertionError("Runtime did not reach a ready stage on restart")
         assertNull("Restart must not offer an import switch prompt", stage.switchPrompt)
         assertEquals(phase == "post", stage.installedGhosts.any { it.directoryId == ghostId })
-        assertFalse(context.getSharedPreferences("last_ghost", android.content.Context.MODE_PRIVATE)
-            .getString("last_ghost", null) == ghostId)
+        assertFalse(
+            context.getSharedPreferences("last_ghost", android.content.Context.MODE_PRIVATE)
+                .getString("last_ghost", null) == ghostId
+        )
     }
 
-    private fun archive(id: String, padding: Int = 0, randomPadding: Boolean = false,
-                        builtinContent: String? = null): ByteArray {
+    private fun archive(
+        id: String,
+        padding: Int = 0,
+        randomPadding: Boolean = false,
+        builtinContent: String? = null
+    ): ByteArray {
         val output = java.io.ByteArrayOutputStream()
         ZipOutputStream(output).use { zip ->
             val payload = ByteArray(padding.coerceAtLeast(1)) { (it % 251).toByte() }
@@ -1175,7 +1334,7 @@ class GhostImportInstrumentationTest {
             val contents = linkedMapOf(
                 "install.txt" to "type,ghost\ndirectory,$id\n".toByteArray(),
                 "ghost/master/descript.txt" to "name,Device test\nshiori,Nanidroid\n".toByteArray(),
-                "shell/master/placeholder.txt" to payload,
+                "shell/master/placeholder.txt" to payload
             )
             if (builtinContent != null) {
                 contents["ghost/master/ja/content.txt"] = builtinContent.toByteArray()
@@ -1225,11 +1384,13 @@ class GhostImportInstrumentationTest {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun activityStageViewModel(activity: MainActivity): StageViewModel =
-        ViewModelProvider(activity, object : ViewModelProvider.Factory {
+    private fun activityStageViewModel(activity: MainActivity): StageViewModel = ViewModelProvider(
+        activity,
+        object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
                 throw AssertionError("MainActivity did not create its StageViewModel")
-        })[StageViewModel::class.java]
+        }
+    )[StageViewModel::class.java]
 
     private fun treeHashes(tree: File): Map<String, String> = tree.walkTopDown()
         .filter { it.isFile }

@@ -6,5 +6,5 @@ data class SpeakerFrame(
     val text: String,
     val balloonVisible: Boolean,
     val visual: SurfaceVisual? = null,
-    val choices: List<ChoiceItem> = emptyList(),
+    val choices: List<ChoiceItem> = emptyList()
 )

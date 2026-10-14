@@ -11,5 +11,5 @@ data class GhostDescriptor(
     val surfaces: Map<Int, File>,
     val engineDeclaration: String?,
     val readmePath: File?,
-    val sakuraName2: String = sakuraName,
+    val sakuraName2: String = sakuraName
 )

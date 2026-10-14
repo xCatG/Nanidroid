@@ -1,30 +1,25 @@
 package com.cattailsw.nanidroid.ui
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.core.app.ApplicationProvider
-import android.content.Context
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.click
-import com.cattailsw.nanidroid.ghost.SurfaceImageLoader
-import com.cattailsw.nanidroid.install.ImportOutcome
-import com.cattailsw.nanidroid.install.ImportState
-import com.cattailsw.nanidroid.install.ImportAttemptStore
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import com.cattailsw.nanidroid.MainActivity
 import com.cattailsw.nanidroid.NanidroidApplication
 import com.cattailsw.nanidroid.engine.EngineKind
@@ -32,6 +27,10 @@ import com.cattailsw.nanidroid.engine.EngineSelector
 import com.cattailsw.nanidroid.engine.NativeAvailability
 import com.cattailsw.nanidroid.engine.NativeShioriHost
 import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
+import com.cattailsw.nanidroid.ghost.SurfaceImageLoader
+import com.cattailsw.nanidroid.install.ImportAttemptStore
+import com.cattailsw.nanidroid.install.ImportOutcome
+import com.cattailsw.nanidroid.install.ImportState
 import com.cattailsw.nanidroid.runtime.PlaybackFrame
 import com.cattailsw.nanidroid.runtime.SpeakerFrame
 import com.cattailsw.nanidroid.runtime.StageState
@@ -40,12 +39,12 @@ import java.io.FilterInputStream
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONObject
-import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -55,16 +54,21 @@ class GhostImportUiTest {
     private val loader = SurfaceImageLoader { image }
     private val stage = StageState.Ready(
         PlaybackFrame(SpeakerFrame(0, true, "", false), SpeakerFrame(10, true, "", false), false),
-        "Nanidroid", "Sakura", "Kero", mapOf(0 to File("sakura"), 10 to File("kero")),
+        "Nanidroid",
+        "Sakura",
+        "Kero",
+        mapOf(0 to File("sakura"), 10 to File("kero"))
     )
 
     @Test fun importActionAndRunningCancelAreAccessible() {
         var imports = 0
         var cancels = 0
         compose.setContent {
-            GhostStage(stage, loader, {}, {}, {}, { _, _, _ -> }, { _, _, _ -> },
+            GhostStage(
+                stage, loader, {}, {}, {}, { _, _, _ -> }, { _, _, _ -> },
                 importState = ImportState.Running("attempt"), onImport = { imports++ },
-                onCancelImport = { cancels++ })
+                onCancelImport = { cancels++ }
+            )
         }
         compose.onNodeWithContentDescription("Ghosts").performClick()
         compose.onNodeWithText("Importing ghost…").assertExists()
@@ -78,8 +82,10 @@ class GhostImportUiTest {
         var outerBacks = 0
         compose.setContent {
             BackHandler { outerBacks++ }
-            GhostStage(stage, loader, {}, {}, {}, { _, _, _ -> }, { _, _, _ -> },
-                importState = ImportState.Running("attempt"), onClose = { closes++ })
+            GhostStage(
+                stage, loader, {}, {}, {}, { _, _, _ -> }, { _, _, _ -> },
+                importState = ImportState.Running("attempt"), onClose = { closes++ }
+            )
         }
         compose.onNodeWithText("Importing ghost…").assertExists()
         // An outside tap must leave the running attempt under the user's control.
@@ -95,10 +101,23 @@ class GhostImportUiTest {
 
     @Test fun unavailablePromptExplainsImportedGhostCannotBeUsedYet() {
         compose.setContent {
-            GhostStage(stage, loader, {}, {}, {}, { _, _, _ -> }, { _, _, _ -> },
-                importState = ImportState.Completed("id", ImportOutcome.Installed("visitor"), "visitor",
+            GhostStage(
+                stage,
+                loader,
+                {},
+                {},
+                {},
+                { _, _, _ -> },
+                { _, _, _ -> },
+                importState = ImportState.Completed(
+                    "id",
+                    ImportOutcome.Installed("visitor"),
+                    "visitor",
                     promptResult = com.cattailsw.nanidroid.runtime.ImportPromptResult.Unavailable(
-                        "Installed ghost is unavailable until restart")))
+                        "Installed ghost is unavailable until restart"
+                    )
+                )
+            )
         }
         compose.onNodeWithText("Ghost imported. Installed ghost is unavailable until restart.").assertExists()
         compose.onNodeWithText("Ghost imported. Review the readme before switching.").assertDoesNotExist()
@@ -106,8 +125,16 @@ class GhostImportUiTest {
 
     @Test fun failedImportDialogShowsArchiveByteLimitReason() {
         compose.setContent {
-            GhostStage(stage, loader, {}, {}, {}, { _, _, _ -> }, { _, _, _ -> },
-                importState = ImportState.Completed("id", ImportOutcome.Failed("Archive byte limit exceeded")))
+            GhostStage(
+                stage,
+                loader,
+                {},
+                {},
+                {},
+                { _, _, _ -> },
+                { _, _, _ -> },
+                importState = ImportState.Completed("id", ImportOutcome.Failed("Archive byte limit exceeded"))
+            )
         }
         compose.onNodeWithText("Import failed. Archive byte limit exceeded.").assertExists()
         compose.onNodeWithText("Import failed.").assertDoesNotExist()
@@ -116,8 +143,16 @@ class GhostImportUiTest {
     @Test fun idleGhostsFlowLaunchesImportOnce() {
         var imports = 0
         compose.setContent {
-            GhostStage(stage, loader, {}, {}, {}, { _, _, _ -> }, { _, _, _ -> },
-                onImport = { imports++ })
+            GhostStage(
+                stage,
+                loader,
+                {},
+                {},
+                {},
+                { _, _, _ -> },
+                { _, _, _ -> },
+                onImport = { imports++ }
+            )
         }
         compose.onNodeWithContentDescription("Ghosts").performClick()
         compose.onNodeWithContentDescription("Import .nar").performClick()
@@ -131,8 +166,15 @@ class GhostImportUiTest {
             view = LocalView.current
             GhostStage(stage, loader, {}, {}, {}, { _, _, _ -> }, { _, _, _ -> }, importState = state.value)
         }
-        compose.runOnIdle { assertFalse(view.keepScreenOn); state.value = ImportState.Running("id") }
-        compose.runOnIdle { assertTrue(view.keepScreenOn); state.value = ImportState.Completed("id", ImportOutcome.Cancelled) }
+        compose.runOnIdle {
+            assertFalse(view.keepScreenOn)
+            state.value = ImportState.Running("id")
+        }
+        compose.runOnIdle {
+            assertTrue(view.keepScreenOn)
+            state.value =
+                ImportState.Completed("id", ImportOutcome.Cancelled)
+        }
         compose.runOnIdle { assertFalse(view.keepScreenOn) }
     }
 
@@ -152,11 +194,24 @@ class GhostImportUiTest {
     }
 
     @Test fun completedImportShowsResultAndExplicitSwitchPrompt() {
-        val current = stage.copy(switchPrompt = com.cattailsw.nanidroid.runtime.SwitchPrompt(
-            "visitor", "Visitor", "Read me first"))
+        val current = stage.copy(
+            switchPrompt = com.cattailsw.nanidroid.runtime.SwitchPrompt(
+                "visitor",
+                "Visitor",
+                "Read me first"
+            )
+        )
         compose.setContent {
-            GhostStage(current, loader, {}, {}, {}, { _, _, _ -> }, { _, _, _ -> },
-                importState = ImportState.Completed("attempt", ImportOutcome.Installed("visitor")))
+            GhostStage(
+                current,
+                loader,
+                {},
+                {},
+                {},
+                { _, _, _ -> },
+                { _, _, _ -> },
+                importState = ImportState.Completed("attempt", ImportOutcome.Installed("visitor"))
+            )
         }
         compose.onNodeWithText("Read me first").assertExists()
         compose.onNodeWithContentDescription("Confirm ghost switch").assertExists()
@@ -168,9 +223,15 @@ class RealCorpusImportUiTest {
     private val compose = createAndroidComposeRule<MainActivity>()
 
     private fun requireCorpusArguments(args: android.os.Bundle) {
-        org.junit.Assume.assumeTrue("Run host-staged corpus UI probe; required arguments: uiCorpusPath, uiCorpusSha256, uiCorpusGhostId, uiCorpusMode",
-            listOf("uiCorpusPath", "uiCorpusSha256", "uiCorpusGhostId", "uiCorpusMode").any { args.containsKey(it) })
-        require(listOf("uiCorpusPath", "uiCorpusSha256", "uiCorpusGhostId", "uiCorpusMode").all { !args.getString(it).isNullOrBlank() }) {
+        org.junit.Assume.assumeTrue(
+            "Run host-staged corpus UI probe; required arguments: uiCorpusPath, uiCorpusSha256, uiCorpusGhostId, uiCorpusMode",
+            listOf("uiCorpusPath", "uiCorpusSha256", "uiCorpusGhostId", "uiCorpusMode").any { args.containsKey(it) }
+        )
+        require(
+            listOf("uiCorpusPath", "uiCorpusSha256", "uiCorpusGhostId", "uiCorpusMode").all {
+                !args.getString(it).isNullOrBlank()
+            }
+        ) {
             "Provide all nonblank host arguments: uiCorpusPath, uiCorpusSha256, uiCorpusGhostId, uiCorpusMode"
         }
         val name = requireNotNull(args.getString("uiCorpusPath"))
@@ -184,8 +245,10 @@ class RealCorpusImportUiTest {
     }
 
     private fun requireProbeArguments(args: android.os.Bundle) {
-        org.junit.Assume.assumeTrue("Run host-staged corpus cancellation probe; required arguments: uiProbePath, uiProbeSha256",
-            listOf("uiProbePath", "uiProbeSha256").any { args.containsKey(it) })
+        org.junit.Assume.assumeTrue(
+            "Run host-staged corpus cancellation probe; required arguments: uiProbePath, uiProbeSha256",
+            listOf("uiProbePath", "uiProbeSha256").any { args.containsKey(it) }
+        )
         require(listOf("uiProbePath", "uiProbeSha256").all { !args.getString(it).isNullOrBlank() }) {
             "Provide all nonblank host arguments: uiProbePath, uiProbeSha256"
         }
@@ -222,7 +285,10 @@ class RealCorpusImportUiTest {
                         androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
                             .removeLifecycleCallback(callback)
                     }
-                    android.util.Log.i("NanidroidHostUi", "UI_HOST_LAUNCH method=${description.methodName} created=${launches.get()}")
+                    android.util.Log.i(
+                        "NanidroidHostUi",
+                        "UI_HOST_LAUNCH method=${description.methodName} created=${launches.get()}"
+                    )
                 }
             }
         }
@@ -236,7 +302,7 @@ class RealCorpusImportUiTest {
         val args = InstrumentationRegistry.getArguments()
         requireCorpusArguments(args)
         val name = requireNotNull(args.getString("uiCorpusPath"))
-        val expectedHash = requireNotNull(args.getString("uiCorpusSha256" )).lowercase()
+        val expectedHash = requireNotNull(args.getString("uiCorpusSha256")).lowercase()
         val id = requireNotNull(args.getString("uiCorpusGhostId"))
         val mode = requireNotNull(args.getString("uiCorpusMode"))
         val target = compose.activity
@@ -281,13 +347,19 @@ class RealCorpusImportUiTest {
             compose.onNodeWithContentDescription("Confirm ghost switch").performClick()
             compose.waitUntil(45_000) {
                 val ready = app.runtime.state.value as? StageState.Ready
-                ready?.ghostName == descriptor.displayName && ready.switchPrompt == null &&
+                ready?.ghostName == descriptor.displayName &&
+                    ready.switchPrompt == null &&
                     ready.surfaces.isNotEmpty()
             }
             val ready = app.runtime.state.value as StageState.Ready
-            assertTrue("Selected stage did not use the imported shell", ready.surfaces.values.all {
-                it.canonicalPath.startsWith(descriptor.masterPath.parentFile!!.parentFile!!.canonicalPath + File.separator)
-            })
+            assertTrue(
+                "Selected stage did not use the imported shell",
+                ready.surfaces.values.all {
+                    it.canonicalPath.startsWith(
+                        descriptor.masterPath.parentFile!!.parentFile!!.canonicalPath + File.separator
+                    )
+                }
+            )
             result.put("activeGhost", ready.ghostName).put("surfaceCount", ready.surfaces.size)
                 .put("activationError", ready.activationError)
             compose.waitUntil(20_000) {
@@ -296,9 +368,12 @@ class RealCorpusImportUiTest {
                     compose.onAllNodesWithContentDescription(descriptor.keroName)
                         .fetchSemanticsNodes().isNotEmpty()
             }
-            assertTrue("No imported character Canvas semantics", listOf("sakura", "kero").any {
-                runCatching { compose.onNodeWithTag(it).fetchSemanticsNode() }.isSuccess
-            })
+            assertTrue(
+                "No imported character Canvas semantics",
+                listOf("sakura", "kero").any {
+                    runCatching { compose.onNodeWithTag(it).fetchSemanticsNode() }.isSuccess
+                }
+            )
             val lease = app.runtime.activeNativeLeaseForTest()
             result.put("nativeLeaseActive", lease != null)
             if (mode == "aya5-only") {
@@ -322,7 +397,9 @@ class RealCorpusImportUiTest {
                 File(output, "corpus-import-ui-stage.png").outputStream().use { stream ->
                     assertTrue("PNG compression failed", screenshot.compress(Bitmap.CompressFormat.PNG, 100, stream))
                 }
-            } finally { screenshot.recycle() }
+            } finally {
+                screenshot.recycle()
+            }
 
             compose.onNodeWithContentDescription("Ghosts").performClick()
             compose.onNodeWithContentDescription("Select Nanidroid").performClick()
@@ -396,12 +473,17 @@ class RealCorpusImportUiTest {
                 .put("clickToCompletionMs", (android.os.SystemClock.elapsedRealtimeNanos() - started) / 1_000_000.0)
             assertEquals(ImportOutcome.Cancelled, state.outcome)
             assertTrue("Cancelled import published ghost", File(target.filesDir, "ghost/2elf").exists().not())
-            assertTrue("Cancelled import left staging", File(target.filesDir, "import-staging").listFiles().isNullOrEmpty())
+            assertTrue(
+                "Cancelled import left staging",
+                File(target.filesDir, "import-staging").listFiles().isNullOrEmpty()
+            )
             result.put("testStatus", "completed")
         } catch (failure: Throwable) {
             result.put("testStatus", "failed")
                 .put("failure", "${failure.javaClass.simpleName}: ${failure.message}")
             throw failure
-        } finally { output.writeText(result.toString(2)) }
+        } finally {
+            output.writeText(result.toString(2))
+        }
     }
 }

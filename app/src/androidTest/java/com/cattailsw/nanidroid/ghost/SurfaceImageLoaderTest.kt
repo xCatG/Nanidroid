@@ -74,9 +74,17 @@ class SurfaceImageLoaderTest {
     }
 
     private fun withImages(block: (File) -> Unit) {
-        val directory = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "surface-test-${System.nanoTime()}")
+        val directory =
+            File(
+                InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
+                "surface-test-${System.nanoTime()}"
+            )
         directory.mkdirs()
-        try { block(directory) } finally { directory.deleteRecursively() }
+        try {
+            block(directory)
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 
     private fun indexedPng(palette: IntArray, pixels: IntArray): ByteArray {
@@ -85,8 +93,13 @@ class SurfaceImageLoaderTest {
         png.write(byteArrayOf(137.toByte(), 80, 78, 71, 13, 10, 26, 10))
         val header = ByteArrayOutputStream()
         DataOutputStream(header).apply {
-            writeInt(2); writeInt(2); writeByte(8); writeByte(3)
-            writeByte(0); writeByte(0); writeByte(0)
+            writeInt(2)
+            writeInt(2)
+            writeByte(8)
+            writeByte(3)
+            writeByte(0)
+            writeByte(0)
+            writeByte(0)
         }
         chunk(png, "IHDR", header.toByteArray())
         val colors = ByteArrayOutputStream()
@@ -97,7 +110,9 @@ class SurfaceImageLoaderTest {
         }
         chunk(png, "PLTE", colors.toByteArray())
         val compressed = ByteArrayOutputStream()
-        DeflaterOutputStream(compressed).use { it.write(byteArrayOf(0, pixels[0].toByte(), pixels[1].toByte(), 0, pixels[2].toByte(), pixels[3].toByte())) }
+        DeflaterOutputStream(compressed).use {
+            it.write(byteArrayOf(0, pixels[0].toByte(), pixels[1].toByte(), 0, pixels[2].toByte(), pixels[3].toByte()))
+        }
         chunk(png, "IDAT", compressed.toByteArray())
         chunk(png, "IEND", byteArrayOf())
         return output.toByteArray()

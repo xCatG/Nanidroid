@@ -1,13 +1,13 @@
 package com.cattailsw.nanidroid.ghost
 
-import org.junit.Assert.*
-import org.junit.Rule
-import org.junit.Test
-import org.junit.Assume.assumeNoException
-import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.nio.charset.Charset
 import java.nio.file.Files
+import org.junit.Assert.*
+import org.junit.Assume.assumeNoException
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class InstalledGhostRepositoryTest {
     @get:Rule val temp = TemporaryFolder()
@@ -25,7 +25,8 @@ class InstalledGhostRepositoryTest {
         val root = root()
         val installed = install(root, "element-only")
         installed.resolve("shell/master/surfaces.txt").writeText(
-            "surface0 {\nelement0,base,body.png,0,0\n}\nsurface10 {\nelement0,base,menu.png,0,0\n}")
+            "surface0 {\nelement0,base,body.png,0,0\n}\nsurface10 {\nelement0,base,menu.png,0,0\n}"
+        )
         val descriptor = InstalledGhostRepository(root).validate("element-only")
         assertTrue(descriptor.surfaces.isEmpty())
         assertEquals(installed.resolve("ghost/master"), descriptor.masterPath)
@@ -90,8 +91,15 @@ class InstalledGhostRepositoryTest {
     @Test fun surfaceIndexKeepsExactCaseInsensitiveNumberedPngNames() {
         val root = root()
         val shell = install(root, "named").resolve("shell/master")
-        for (name in listOf("surface0000.png", "SURFACE0010.PNG", "surface00021.png",
-            "surface-1.png", "surface2.png.bak", "xsurface3.png", "surface2147483648.png")) {
+        for (name in listOf(
+            "surface0000.png",
+            "SURFACE0010.PNG",
+            "surface00021.png",
+            "surface-1.png",
+            "surface2.png.bak",
+            "xsurface3.png",
+            "surface2147483648.png"
+        )) {
             shell.resolve(name).writeBytes(byteArrayOf(1))
         }
 

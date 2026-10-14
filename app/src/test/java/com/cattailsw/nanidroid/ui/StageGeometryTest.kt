@@ -21,10 +21,24 @@ class StageGeometryTest {
     }
 
     @Test fun logicalArtworkHasSameDpHeightAtTwoDensitiesWhenUncapped() {
-        val at420 = StageGeometry.scaleFor(269, 378, 239, 380, 1080, 1900,
-            StageGeometry.logicalArtCeiling(411, 914, 2.625f))
-        val at280 = StageGeometry.scaleFor(269, 378, 239, 380, 720, 1267,
-            StageGeometry.logicalArtCeiling(411, 914, 1.75f))
+        val at420 = StageGeometry.scaleFor(
+            269,
+            378,
+            239,
+            380,
+            1080,
+            1900,
+            StageGeometry.logicalArtCeiling(411, 914, 2.625f)
+        )
+        val at280 = StageGeometry.scaleFor(
+            269,
+            378,
+            239,
+            380,
+            720,
+            1267,
+            StageGeometry.logicalArtCeiling(411, 914, 1.75f)
+        )
         assertEquals(1.96875f, at420, 0.0001f)
         assertEquals(1.3125f, at280, 0.0001f)
         assertEquals(283.5f, 378 * at420 / 2.625f, 0.01f)
@@ -32,21 +46,87 @@ class StageGeometryTest {
     }
 
     @Test fun twoSpeakerArtUsesCompactTallAndTabletTargets() {
-        assertEquals(1f, StageGeometry.scaleFor(269, 378, 239, 380, 720, 880,
-            StageGeometry.logicalArtCeiling(360, 640, 2f)), 0f)
-        assertEquals(1.96875f, StageGeometry.scaleFor(269, 378, 239, 380, 1080, 1900,
-            StageGeometry.logicalArtCeiling(411, 914, 2.625f)), 0f)
-        assertEquals(2f, StageGeometry.scaleFor(269, 378, 239, 380, 1600, 2200,
-            StageGeometry.logicalArtCeiling(800, 1280, 2f)), 0f)
+        assertEquals(
+            1f,
+            StageGeometry.scaleFor(
+                269,
+                378,
+                239,
+                380,
+                720,
+                880,
+                StageGeometry.logicalArtCeiling(360, 640, 2f)
+            ),
+            0f
+        )
+        assertEquals(
+            1.96875f,
+            StageGeometry.scaleFor(
+                269,
+                378,
+                239,
+                380,
+                1080,
+                1900,
+                StageGeometry.logicalArtCeiling(411, 914, 2.625f)
+            ),
+            0f
+        )
+        assertEquals(
+            2f,
+            StageGeometry.scaleFor(
+                269,
+                378,
+                239,
+                380,
+                1600,
+                2200,
+                StageGeometry.logicalArtCeiling(800, 1280, 2f)
+            ),
+            0f
+        )
     }
 
     @Test fun commonFitCapsEarthquakeAndCompactLargeFontLandscape() {
-        assertEquals(1080f / 1194f, StageGeometry.scaleFor(772, 535, 422, 377, 1080, 1900,
-            StageGeometry.logicalArtCeiling(411, 914, 2.625f)), 0.0001f)
-        assertEquals(1600f / 1194f, StageGeometry.scaleFor(772, 535, 422, 377, 1600, 2200,
-            StageGeometry.logicalArtCeiling(800, 1280, 2f)), 0.0001f)
-        assertEquals(200f / 380f, StageGeometry.scaleFor(269, 378, 239, 380, 1280, 200,
-            StageGeometry.logicalArtCeiling(640, 360, 2f)), 0.0001f)
+        assertEquals(
+            1080f / 1194f,
+            StageGeometry.scaleFor(
+                772,
+                535,
+                422,
+                377,
+                1080,
+                1900,
+                StageGeometry.logicalArtCeiling(411, 914, 2.625f)
+            ),
+            0.0001f
+        )
+        assertEquals(
+            1600f / 1194f,
+            StageGeometry.scaleFor(
+                772,
+                535,
+                422,
+                377,
+                1600,
+                2200,
+                StageGeometry.logicalArtCeiling(800, 1280, 2f)
+            ),
+            0.0001f
+        )
+        assertEquals(
+            200f / 380f,
+            StageGeometry.scaleFor(
+                269,
+                378,
+                239,
+                380,
+                1280,
+                200,
+                StageGeometry.logicalArtCeiling(640, 360, 2f)
+            ),
+            0.0001f
+        )
     }
 
     @Test fun inverseMapsSurfaceRectangleToLocalPixels() {

@@ -49,8 +49,10 @@ class BuiltInDefaultShioriTest {
         for (id in listOf("OnMouseClick", "OnMouseDoubleClick", "OnMouseMove")) {
             val selector = BuiltInShiori("$id@r3=0,selected")
             for (references in listOf(
-                emptyList(), listOf("0", "0", "0"),
-                listOf("bad", "0", "0", "0"), listOf("0", "2147483648", "0", "0")
+                emptyList(),
+                listOf("0", "0", "0"),
+                listOf("bad", "0", "0", "0"),
+                listOf("0", "2147483648", "0", "0")
             )) {
                 assertEquals(204, selector.request(ShioriEvent(id, references)).status)
                 assertEquals("plain", BuiltInShiori("$id,plain").request(ShioriEvent(id, references)).value)
@@ -101,7 +103,8 @@ class BuiltInDefaultShioriTest {
                 )
                 for ((id, command) in mapOf(
                     "OnNanidroidOpenGhosts" to HostUiCommand.GhostExplorer,
-                    "OnNanidroidOpenAbout" to HostUiCommand.About, "OnNanidroidOpenDebug" to HostUiCommand.Developer
+                    "OnNanidroidOpenAbout" to HostUiCommand.About,
+                    "OnNanidroidOpenDebug" to HostUiCommand.Developer
                 )) {
                     assertEquals(
                         listOf(command),

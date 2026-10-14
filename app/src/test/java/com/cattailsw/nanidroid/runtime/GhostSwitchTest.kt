@@ -2,17 +2,17 @@ package com.cattailsw.nanidroid.runtime
 
 import com.cattailsw.nanidroid.data.BootStateStore
 import com.cattailsw.nanidroid.data.LastGhostStore
-import com.cattailsw.nanidroid.engine.ShioriEngine
-import com.cattailsw.nanidroid.engine.ShioriEvent
-import com.cattailsw.nanidroid.engine.ShioriReply
-import com.cattailsw.nanidroid.engine.ShioriMethod
 import com.cattailsw.nanidroid.engine.NativeAvailability
 import com.cattailsw.nanidroid.engine.NativeKind
 import com.cattailsw.nanidroid.engine.NativeLease
 import com.cattailsw.nanidroid.engine.NativeLoadResult
-import com.cattailsw.nanidroid.engine.NativeUnloadResult
 import com.cattailsw.nanidroid.engine.NativeShutdownResult
 import com.cattailsw.nanidroid.engine.NativeTransportException
+import com.cattailsw.nanidroid.engine.NativeUnloadResult
+import com.cattailsw.nanidroid.engine.ShioriEngine
+import com.cattailsw.nanidroid.engine.ShioriEvent
+import com.cattailsw.nanidroid.engine.ShioriMethod
+import com.cattailsw.nanidroid.engine.ShioriReply
 import com.cattailsw.nanidroid.ghost.BundledGhost
 import com.cattailsw.nanidroid.ghost.InstalledGhostRepository
 import com.cattailsw.nanidroid.ghost.ShellCatalog
@@ -23,18 +23,18 @@ import java.util.logging.Handler
 import java.util.logging.Level
 import java.util.logging.LogRecord
 import java.util.logging.Logger
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlin.coroutines.CoroutineContext
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.async
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -55,24 +55,40 @@ class GhostSwitchTest {
             changingReply = ShioriReply(200, "\\q[Leave,chosen]\\e")
             actionReply = ShioriReply(200, "\\_qAnswer\\e")
         }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine },
-            MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port,
-            ioDispatcher = StandardTestDispatcher(testScheduler)) { testScheduler.currentTime }
-        runtime.start("en"); runtime.setResumed(true); runCurrent()
-        runtime.selectGhost("nanidroid"); runCurrent()
-        runtime.confirmSwitch(); runCurrent()
+        val runtime = GhostRuntime(
+            { bundled() },
+            { SilentEngine },
+            MemoryBoot(),
+            backgroundScope,
+            InstalledGhostRepository(root),
+            MemoryLastGhost().apply { write("native") },
+            port,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) { testScheduler.currentTime }
+        runtime.start("en")
+        runtime.setResumed(true)
+        runCurrent()
+        runtime.selectGhost("nanidroid")
+        runCurrent()
+        runtime.confirmSwitch()
+        runCurrent()
         val token = runtime.ready.choices[0]!!.single().token
-        advanceTimeBy(100); runCurrent()
+        advanceTimeBy(100)
+        runCurrent()
         assertEquals(0, port.unloadCalls)
-        runtime.choose(token); runtime.choose(token); runCurrent()
+        runtime.choose(token)
+        runtime.choose(token)
+        runCurrent()
         assertEquals(listOf("chosen"), port.events.single { it.id == "OnChoiceSelect" }.references)
         assertEquals("Answer", runtime.ready.frame.sakura.text)
-        advanceTimeBy(1_500); runCurrent()
+        advanceTimeBy(1_500)
+        runCurrent()
         assertEquals("Nanidroid", runtime.ready.ghostName)
         assertEquals(1, port.unloadCalls)
-        assertEquals(listOf("request:OnGhostChanging", "request:OnChoiceSelect", "shutdown:true", "unload"),
-            port.operations.takeLast(4))
+        assertEquals(
+            listOf("request:OnGhostChanging", "request:OnChoiceSelect", "shutdown:true", "unload"),
+            port.operations.takeLast(4)
+        )
     }
 
     @Test fun switchInputCancelFinishesRemainderWithoutUserInputEvent() = runTest {
@@ -83,18 +99,30 @@ class GhostSwitchTest {
             loads.add(NativeLoadResult.Loaded(NativeLease(1)))
             changingReply = ShioriReply(200, "\\_qBefore\\![open,inputbox,box]After\\e")
         }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine },
-            MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port,
-            ioDispatcher = StandardTestDispatcher(testScheduler)) { testScheduler.currentTime }
-        runtime.start("en"); runtime.setResumed(true); runCurrent()
-        runtime.selectGhost("nanidroid"); runCurrent()
-        runtime.confirmSwitch(); runCurrent()
+        val runtime = GhostRuntime(
+            { bundled() },
+            { SilentEngine },
+            MemoryBoot(),
+            backgroundScope,
+            InstalledGhostRepository(root),
+            MemoryLastGhost().apply { write("native") },
+            port,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) { testScheduler.currentTime }
+        runtime.start("en")
+        runtime.setResumed(true)
+        runCurrent()
+        runtime.selectGhost("nanidroid")
+        runCurrent()
+        runtime.confirmSwitch()
+        runCurrent()
         val token = runtime.ready.input!!.token
-        runtime.cancelInput(token); runCurrent()
+        runtime.cancelInput(token)
+        runCurrent()
         assertEquals("BeforeAfter", runtime.ready.frame.sakura.text)
         assertEquals(0, port.events.count { it.id == "OnUserInput" })
-        advanceTimeBy(1_500); runCurrent()
+        advanceTimeBy(1_500)
+        runCurrent()
         assertEquals("Nanidroid", runtime.ready.ghostName)
         assertEquals(1, port.unloadCalls)
     }
@@ -108,19 +136,34 @@ class GhostSwitchTest {
             changingReply = ShioriReply(200, "\\_qBefore\\![open,inputbox,box]After\\e")
             actionReply = ShioriReply(200, "\\_qAnswer\\e")
         }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port,
-            ioDispatcher = StandardTestDispatcher(testScheduler)) { testScheduler.currentTime }
-        runtime.start("en"); runtime.setResumed(true); runCurrent()
-        runtime.selectGhost("nanidroid"); runCurrent()
-        runtime.confirmSwitch(); runCurrent()
+        val runtime =
+            GhostRuntime(
+                { bundled() },
+                { SilentEngine },
+                MemoryBoot(),
+                backgroundScope,
+                InstalledGhostRepository(root),
+                MemoryLastGhost().apply { write("native") },
+                port,
+                ioDispatcher = StandardTestDispatcher(testScheduler)
+            ) { testScheduler.currentTime }
+        runtime.start("en")
+        runtime.setResumed(true)
+        runCurrent()
+        runtime.selectGhost("nanidroid")
+        runCurrent()
+        runtime.confirmSwitch()
+        runCurrent()
         val token = runtime.ready.input!!.token
-        runtime.submitInput(token, "answer"); runCurrent()
+        runtime.submitInput(token, "answer")
+        runCurrent()
         assertEquals(listOf("box", "answer"), port.events.single { it.id == "OnUserInput" }.references)
         assertEquals("BeforeAfter", runtime.ready.frame.sakura.text)
-        advanceTimeBy(1_500); runCurrent()
+        advanceTimeBy(1_500)
+        runCurrent()
         assertEquals("Answer", runtime.ready.frame.sakura.text)
-        advanceTimeBy(1_500); runCurrent()
+        advanceTimeBy(1_500)
+        runCurrent()
         assertEquals("Nanidroid", runtime.ready.ghostName)
         assertEquals(1, port.unloadCalls)
     }
@@ -134,16 +177,27 @@ class GhostSwitchTest {
             changingReply = ShioriReply(200, "\\_q\\s[2]Leaving\\e")
             surfaceReply = ShioriReply(200, "\\s[99]Wrong\\e")
         }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine },
-            MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port,
-            ioDispatcher = StandardTestDispatcher(testScheduler)) { testScheduler.currentTime }
-        runtime.start("en"); runtime.setResumed(true); runCurrent()
-        runtime.selectGhost("nanidroid"); runCurrent()
-        runtime.confirmSwitch(); runCurrent()
+        val runtime = GhostRuntime(
+            { bundled() },
+            { SilentEngine },
+            MemoryBoot(),
+            backgroundScope,
+            InstalledGhostRepository(root),
+            MemoryLastGhost().apply { write("native") },
+            port,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) { testScheduler.currentTime }
+        runtime.start("en")
+        runtime.setResumed(true)
+        runCurrent()
+        runtime.selectGhost("nanidroid")
+        runCurrent()
+        runtime.confirmSwitch()
+        runCurrent()
         assertEquals(2, runtime.ready.frame.sakura.surfaceId)
         assertEquals(0, port.events.count { it.id == "OnSurfaceChange" })
-        advanceTimeBy(1_500); runCurrent()
+        advanceTimeBy(1_500)
+        runCurrent()
         assertEquals("Nanidroid", runtime.ready.ghostName)
     }
 
@@ -156,20 +210,35 @@ class GhostSwitchTest {
             changingReply = ShioriReply(200, "\\q[Switch,choice]\\e")
             closeReply = ShioriReply(200, "\\q[Close,choice]\\e")
         }
-        val runtime = GhostRuntime({ bundled() }, { error("Unexpected Kotlin engine") },
-            MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port,
-            ioDispatcher = StandardTestDispatcher(testScheduler)) { testScheduler.currentTime }
-        runtime.start("en"); runtime.setResumed(true); runCurrent()
-        runtime.selectGhost("nanidroid"); runCurrent()
-        runtime.confirmSwitch(); runCurrent()
+        val runtime = GhostRuntime(
+            { bundled() },
+            { error("Unexpected Kotlin engine") },
+            MemoryBoot(),
+            backgroundScope,
+            InstalledGhostRepository(root),
+            MemoryLastGhost().apply { write("native") },
+            port,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) { testScheduler.currentTime }
+        runtime.start("en")
+        runtime.setResumed(true)
+        runCurrent()
+        runtime.selectGhost("nanidroid")
+        runCurrent()
+        runtime.confirmSwitch()
+        runCurrent()
         val switchToken = runtime.ready.choices[0]!!.single().token
-        runtime.close(); runCurrent()
+        runtime.close()
+        runCurrent()
         val closeToken = runtime.ready.choices[0]!!.single().token
-        runtime.choose(switchToken); runCurrent()
+        runtime.choose(switchToken)
+        runCurrent()
         assertEquals(0, port.events.count { it.id == "OnChoiceSelect" })
-        runtime.close(); runtime.close(); runCurrent()
-        runtime.choose(closeToken); runCurrent()
+        runtime.close()
+        runtime.close()
+        runCurrent()
+        runtime.choose(closeToken)
+        runCurrent()
         assertTrue(runtime.state.value is StageState.Finished)
         assertEquals(1, port.events.count { it.id == "OnClose" })
         assertEquals(1, port.unloadCalls)
@@ -184,20 +253,33 @@ class GhostSwitchTest {
         }
         val unloadGate = CompletableDeferred<NativeUnloadResult>()
         port.unloadGate = unloadGate
-        val runtime = GhostRuntime({ bundled() }, { error("Unexpected Kotlin engine") },
-            MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port,
-            ioDispatcher = StandardTestDispatcher(testScheduler)) { testScheduler.currentTime }
-        runtime.start("en"); runtime.setResumed(true); runCurrent()
-        runtime.close(); runCurrent()
+        val runtime = GhostRuntime(
+            { bundled() },
+            { error("Unexpected Kotlin engine") },
+            MemoryBoot(),
+            backgroundScope,
+            InstalledGhostRepository(root),
+            MemoryLastGhost().apply { write("native") },
+            port,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) { testScheduler.currentTime }
+        runtime.start("en")
+        runtime.setResumed(true)
+        runCurrent()
+        runtime.close()
+        runCurrent()
         val token = runtime.ready.choices[0]!!.single().token
-        runtime.close(); runCurrent()
+        runtime.close()
+        runCurrent()
         assertEquals(1, port.unloadCalls)
-        runtime.close(); runtime.choose(token); runCurrent()
+        runtime.close()
+        runtime.choose(token)
+        runCurrent()
         assertEquals(1, port.unloadCalls)
         assertEquals(1, port.events.count { it.id == "OnDestroy" })
         assertEquals(0, port.events.count { it.id == "OnChoiceSelect" })
-        unloadGate.complete(NativeUnloadResult.Unloaded); runCurrent()
+        unloadGate.complete(NativeUnloadResult.Unloaded)
+        runCurrent()
         assertTrue(runtime.state.value is StageState.Finished)
         assertEquals(listOf("request:OnClose", "shutdown:true", "unload"), port.operations.takeLast(3))
     }
@@ -207,10 +289,20 @@ class GhostSwitchTest {
         fixture(root, "candidate", "Other", "Unsupported.dll")
         val queued = ArrayDeque<Runnable>()
         val io = object : CoroutineDispatcher() {
-            override fun dispatch(context: CoroutineContext, block: Runnable) { queued.addLast(block) }
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                queued.addLast(block)
+            }
         }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("candidate") }, ioDispatcher = io) { 0L }
+        val runtime =
+            GhostRuntime(
+                { bundled() },
+                { SilentEngine },
+                MemoryBoot(),
+                backgroundScope,
+                InstalledGhostRepository(root),
+                MemoryLastGhost().apply { write("candidate") },
+                ioDispatcher = io
+            ) { 0L }
         val starting = async { runtime.start("en") }
         runCurrent()
         assertTrue(runtime.state.value is StageState.Loading)
@@ -231,12 +323,21 @@ class GhostSwitchTest {
         val port = FakePort().apply { loads.add(NativeLoadResult.Loaded(lease)) }
         val queued = ArrayDeque<Runnable>()
         val io = object : CoroutineDispatcher() {
-            override fun dispatch(context: CoroutineContext, block: Runnable) { queued.addLast(block) }
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                queued.addLast(block)
+            }
         }
         val runtimeScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
-        val runtime = GhostRuntime({ bundled() }, { error("Unexpected Kotlin engine") },
-            MemoryBoot(), runtimeScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port, ioDispatcher = io) { 0L }
+        val runtime = GhostRuntime(
+            { bundled() },
+            { error("Unexpected Kotlin engine") },
+            MemoryBoot(),
+            runtimeScope,
+            InstalledGhostRepository(root),
+            MemoryLastGhost().apply { write("native") },
+            port,
+            ioDispatcher = io
+        ) { 0L }
         val starting = backgroundScope.async { runtime.start("en") }
         runCurrent()
         while (port.events.none { it.id == "OnInitialize" }) {
@@ -262,21 +363,35 @@ class GhostSwitchTest {
         val root = folder.newFolder("ignored-switch-input")
         fixture(root, "candidate", "Candidate", "Unsupported.dll")
         val events = mutableListOf<String>()
-        val runtime = GhostRuntime({ bundled() }, { object : ShioriEngine {
-            override suspend fun request(event: ShioriEvent): ShioriReply {
-                events += event.id
-                return if (event.id == "OnFirstBoot")
-                    ShioriReply(200, "\\_q\\![open,inputbox,ordinary]\\e") else ShioriReply(204)
-            }
-        } }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            ioDispatcher = StandardTestDispatcher(testScheduler)) { 0L }
+        val runtime = GhostRuntime(
+            { bundled() },
+            {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply {
+                        events += event.id
+                        return if (event.id == "OnFirstBoot") {
+                            ShioriReply(200, "\\_q\\![open,inputbox,ordinary]\\e")
+                        } else {
+                            ShioriReply(204)
+                        }
+                    }
+                }
+            },
+            MemoryBoot(),
+            backgroundScope,
+            InstalledGhostRepository(root),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) { 0L }
         val model = StageViewModel(runtime)
-        model.start("en"); runCurrent()
+        model.start("en")
+        runCurrent()
         val input = runtime.ready.input!!.token
-        runtime.selectGhost("candidate"); runCurrent()
+        runtime.selectGhost("candidate")
+        runCurrent()
         assertNotNull(runtime.ready.switchPrompt)
         runtime.setImportRunning(true)
-        model.confirmSwitch(); runCurrent()
+        model.confirmSwitch()
+        runCurrent()
         assertFalse(model.isFarewellInput(input))
         assertEquals(input, runtime.ready.input!!.token)
         if (model.isFarewellInput(input)) model.close() else model.cancelInput(input)
@@ -290,10 +405,13 @@ class GhostSwitchTest {
         fixture(root, "native", "Native", "satori.dll")
         val lease = NativeLease(72)
         val port = FakePort().apply { loads.add(NativeLoadResult.Loaded(lease)) }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
-            loadCatalog = { _, _, _ -> throw IllegalStateException("catalog escaped") }) { 0L }
+        val runtime =
+            GhostRuntime(
+                { bundled() }, { SilentEngine }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
+                MemoryLastGhost().apply { write("native") }, port,
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+                loadCatalog = { _, _, _ -> throw IllegalStateException("catalog escaped") }
+            ) { 0L }
         runtime.start("en")
         assertEquals(1, port.loadCalls)
         assertEquals(1, port.events.count { it.id == "OnInitialize" })
@@ -309,12 +427,24 @@ class GhostSwitchTest {
         fixture(root, "native", "Native", "satori.dll")
         val lease = NativeLease(73)
         val port = FakePort().apply { loads.add(NativeLoadResult.Loaded(lease)) }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root), nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
-            loadCatalog = { _, _, _ -> throw IllegalStateException("catalog escaped") }) { 0L }
+        val runtime =
+            GhostRuntime(
+                {
+                    bundled()
+                },
+                { SilentEngine },
+                MemoryBoot(),
+                backgroundScope,
+                InstalledGhostRepository(root),
+                nativeHost = port,
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+                loadCatalog = { _, _, _ -> throw IllegalStateException("catalog escaped") }
+            ) { 0L }
         runtime.start("en")
-        runtime.selectGhost("native"); runCurrent()
-        runtime.confirmSwitch(); runCurrent()
+        runtime.selectGhost("native")
+        runCurrent()
+        runtime.confirmSwitch()
+        runCurrent()
         assertEquals(1, port.loadCalls)
         assertEquals(listOf(lease), port.unloadedLeases)
         assertEquals(1, port.unloadCalls)
@@ -332,13 +462,16 @@ class GhostSwitchTest {
             unloadGate = CompletableDeferred()
         }
         var catalogFailures = 1
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
-            loadCatalog = { directory, numbered, _ ->
-                if (catalogFailures-- > 0) throw IllegalStateException("catalog escaped")
-                ShellCatalog(numbered, SurfaceDefinitions.parse(""), directory)
-            }) { 0L }
+        val runtime =
+            GhostRuntime(
+                { bundled() }, { SilentEngine }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
+                MemoryLastGhost().apply { write("native") }, port,
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+                loadCatalog = { directory, numbered, _ ->
+                    if (catalogFailures-- > 0) throw IllegalStateException("catalog escaped")
+                    ShellCatalog(numbered, SurfaceDefinitions.parse(""), directory)
+                }
+            ) { 0L }
         backgroundScope.async { runtime.start("en") }
         runCurrent()
         assertEquals(1, port.unloadCalls)
@@ -348,30 +481,42 @@ class GhostSwitchTest {
         assertEquals(1, port.loadCalls)
         port.unloadGate!!.complete(NativeUnloadResult.Unloaded)
         port.unloadGate = null
-        runCurrent(); second.await()
+        runCurrent()
+        second.await()
         assertEquals(1, port.loadCalls)
         assertEquals("Nanidroid", runtime.ready.ghostName)
-        runtime.selectGhost("native"); runCurrent()
+        runtime.selectGhost("native")
+        runCurrent()
         assertEquals("native", runtime.ready.switchPrompt?.directoryId)
-        runtime.confirmSwitch(); runCurrent()
+        runtime.confirmSwitch()
+        runCurrent()
         assertEquals(2, port.loadCalls)
         assertEquals("Native", runtime.ready.ghostName)
     }
 
     @Test fun inputBackUsesRuntimeFarewellDispositionAndRejectsOldToken() = runTest {
-        val runtime = GhostRuntime({ bundled() }, { object : ShioriEngine {
-            override suspend fun request(event: ShioriEvent) = when (event.id) {
-                "OnFirstBoot" -> ShioriReply(200, "\\_q\\![open,inputbox,ordinary]\\e")
-                "OnClose" -> ShioriReply(200, "\\_q\\![open,inputbox,farewell]\\e")
-                else -> ShioriReply(204)
-            }
-        } }, MemoryBoot(), backgroundScope,
-            ioDispatcher = StandardTestDispatcher(testScheduler)) { 0L }
+        val runtime = GhostRuntime(
+            { bundled() },
+            {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent) = when (event.id) {
+                        "OnFirstBoot" -> ShioriReply(200, "\\_q\\![open,inputbox,ordinary]\\e")
+                        "OnClose" -> ShioriReply(200, "\\_q\\![open,inputbox,farewell]\\e")
+                        else -> ShioriReply(204)
+                    }
+                }
+            },
+            MemoryBoot(),
+            backgroundScope,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) { 0L }
         val model = StageViewModel(runtime)
-        model.start("en"); runCurrent()
+        model.start("en")
+        runCurrent()
         val ordinary = runtime.ready.input!!.token
         assertFalse(model.isFarewellInput(ordinary))
-        model.close(); runCurrent()
+        model.close()
+        runCurrent()
         val farewell = runtime.ready.input!!.token
         assertTrue(model.isFarewellInput(farewell))
         assertFalse(model.isFarewellInput(ordinary))
@@ -389,20 +534,31 @@ class GhostSwitchTest {
         fixture(root, "second", "Second", "Unsupported.dll")
         val queued = ArrayDeque<Runnable>()
         val io = object : CoroutineDispatcher() {
-            override fun dispatch(context: CoroutineContext, block: Runnable) { queued.addLast(block) }
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                queued.addLast(block)
+            }
         }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root), ioDispatcher = io) { 0L }
+        val runtime =
+            GhostRuntime({
+                bundled()
+            }, {
+                SilentEngine
+            }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root), ioDispatcher = io) { 0L }
         val starting = async { runtime.start("en") }
         runCurrent()
-        queued.removeFirst().run(); runCurrent(); starting.await()
+        queued.removeFirst().run()
+        runCurrent()
+        starting.await()
 
         val imported = async { runtime.offerImportedGhost("first") }
         runtime.selectGhost("second")
         runCurrent()
         assertEquals(2, queued.size)
-        queued.removeLast().run(); runCurrent()
+        queued.removeLast().run()
+        runCurrent()
         assertEquals("second", runtime.ready.switchPrompt?.directoryId)
-        queued.removeFirst().run(); runCurrent()
+        queued.removeFirst().run()
+        runCurrent()
         assertTrue(imported.await() is ImportPromptResult.Unavailable)
         assertEquals("second", runtime.ready.switchPrompt?.directoryId)
 
@@ -410,7 +566,8 @@ class GhostSwitchTest {
         runCurrent()
         runtime.dismissSwitch()
         runCurrent()
-        queued.removeFirst().run(); runCurrent()
+        queued.removeFirst().run()
+        runCurrent()
         assertNull(runtime.ready.switchPrompt)
     }
 
@@ -419,33 +576,45 @@ class GhostSwitchTest {
         fixture(root, "candidate", "Other", "Unsupported.dll")
         val queued = ArrayDeque<Runnable>()
         val io = object : CoroutineDispatcher() {
-            override fun dispatch(context: CoroutineContext, block: Runnable) { queued.addLast(block) }
-        }
-        val runtime = GhostRuntime({ bundled() }, { object : ShioriEngine {
-            override suspend fun request(event: ShioriEvent): ShioriReply {
-                if (event.id == "OnMouseClick") error("Touch failed")
-                return ShioriReply(204)
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                queued.addLast(block)
             }
-        } }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root), ioDispatcher = io) { 0L }
+        }
+        val runtime = GhostRuntime({ bundled() }, {
+            object : ShioriEngine {
+                override suspend fun request(event: ShioriEvent): ShioriReply {
+                    if (event.id == "OnMouseClick") error("Touch failed")
+                    return ShioriReply(204)
+                }
+            }
+        }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root), ioDispatcher = io) { 0L }
         val starting = async { runtime.start("en") }
         runCurrent()
-        queued.removeFirst().run(); runCurrent(); starting.await()
+        queued.removeFirst().run()
+        runCurrent()
+        starting.await()
 
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         runtime.selectGhost("candidate")
         runCurrent()
         runtime.click(0, 1, 1)
         runCurrent()
         assertEquals("Touch failed", runtime.ready.activationError)
-        queued.removeFirst().run(); runCurrent()
+        queued.removeFirst().run()
+        runCurrent()
         val ready = runtime.state.value as StageState.Ready
         assertEquals("candidate", ready.switchPrompt?.directoryId)
         assertEquals("Touch failed", ready.activationError)
 
-        runtime.dismissSwitch(); runCurrent()
-        runtime.selectGhost("candidate"); runCurrent()
-        runtime.close(); runCurrent()
-        queued.removeFirst().run(); runCurrent()
+        runtime.dismissSwitch()
+        runCurrent()
+        runtime.selectGhost("candidate")
+        runCurrent()
+        runtime.close()
+        runCurrent()
+        queued.removeFirst().run()
+        runCurrent()
         assertTrue(runtime.state.value is StageState.Finished)
     }
 
@@ -455,25 +624,36 @@ class GhostSwitchTest {
         fixture(root, "second", "Second", "Unsupported.dll")
         val queued = ArrayDeque<Runnable>()
         val io = object : CoroutineDispatcher() {
-            override fun dispatch(context: CoroutineContext, block: Runnable) { queued.addLast(block) }
-        }
-        val runtime = GhostRuntime({ bundled() }, { object : ShioriEngine {
-            override suspend fun request(event: ShioriEvent): ShioriReply {
-                if (event.id == "OnGhostChanging") error("Changing failed")
-                return ShioriReply(204)
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                queued.addLast(block)
             }
-        } }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root), ioDispatcher = io) { 0L }
+        }
+        val runtime = GhostRuntime({ bundled() }, {
+            object : ShioriEngine {
+                override suspend fun request(event: ShioriEvent): ShioriReply {
+                    if (event.id == "OnGhostChanging") error("Changing failed")
+                    return ShioriReply(204)
+                }
+            }
+        }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root), ioDispatcher = io) { 0L }
         val starting = async { runtime.start("en") }
         runCurrent()
-        queued.removeFirst().run(); runCurrent(); starting.await()
-        runtime.selectGhost("first"); runCurrent()
-        queued.removeFirst().run(); runCurrent()
+        queued.removeFirst().run()
+        runCurrent()
+        starting.await()
+        runtime.selectGhost("first")
+        runCurrent()
+        queued.removeFirst().run()
+        runCurrent()
         assertEquals("first", runtime.ready.switchPrompt?.directoryId)
 
-        runtime.selectGhost("second"); runCurrent()
-        runtime.confirmSwitch(); runCurrent()
+        runtime.selectGhost("second")
+        runCurrent()
+        runtime.confirmSwitch()
+        runCurrent()
         assertEquals("Changing failed", runtime.ready.activationError)
-        queued.removeFirst().run(); runCurrent()
+        queued.removeFirst().run()
+        runCurrent()
         assertEquals("first", runtime.ready.switchPrompt?.directoryId)
     }
 
@@ -482,23 +662,36 @@ class GhostSwitchTest {
         fixture(root, "candidate", "Other", "Unsupported.dll")
         val queued = ArrayDeque<Runnable>()
         val io = object : CoroutineDispatcher() {
-            override fun dispatch(context: CoroutineContext, block: Runnable) { queued.addLast(block) }
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                queued.addLast(block)
+            }
         }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root), ioDispatcher = io) { 0L }
+        val runtime =
+            GhostRuntime({
+                bundled()
+            }, {
+                SilentEngine
+            }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root), ioDispatcher = io) { 0L }
         val starting = async { runtime.start("en") }
         runCurrent()
-        queued.removeFirst().run(); runCurrent(); starting.await()
+        queued.removeFirst().run()
+        runCurrent()
+        starting.await()
 
-        runtime.selectGhost("candidate"); runCurrent()
+        runtime.selectGhost("candidate")
+        runCurrent()
         runtime.setImportRunning(true)
-        queued.removeFirst().run(); runCurrent()
+        queued.removeFirst().run()
+        runCurrent()
         assertNull(runtime.ready.switchPrompt)
 
         runtime.setImportRunning(false)
-        runtime.selectGhost("candidate"); runCurrent()
+        runtime.selectGhost("candidate")
+        runCurrent()
         runtime.setImportRunning(true)
         runtime.setImportRunning(false)
-        queued.removeFirst().run(); runCurrent()
+        queued.removeFirst().run()
+        runCurrent()
         assertNull(runtime.ready.switchPrompt)
     }
 
@@ -513,10 +706,16 @@ class GhostSwitchTest {
             }
         }
         val port = FakePort().apply { loads.add(NativeLoadResult.Loaded(NativeLease(1))) }
-        val runtime = GhostRuntime({ bundled() }, { error("Kotlin engine unexpectedly used") },
-            MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port,
-            ioDispatcher = recordingIo) { 0L }
+        val runtime = GhostRuntime(
+            { bundled() },
+            { error("Kotlin engine unexpectedly used") },
+            MemoryBoot(),
+            backgroundScope,
+            InstalledGhostRepository(root),
+            MemoryLastGhost().apply { write("native") },
+            port,
+            ioDispatcher = recordingIo
+        ) { 0L }
         runtime.start("en")
         assertTrue(dispatches > 0)
         assertEquals(1, port.loadCalls)
@@ -530,8 +729,19 @@ class GhostSwitchTest {
         File(root, "broken/ghost/master/profile").writeText("not a directory")
         val last = MemoryLastGhost().apply { write("broken") }
         val port = FakePort().apply { loads.add(NativeLoadResult.Loaded(NativeLease(1))) }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root), last, port,
-            ioDispatcher = StandardTestDispatcher(testScheduler)) { 0L }
+        val runtime =
+            GhostRuntime(
+                {
+                    bundled()
+                },
+                { SilentEngine },
+                MemoryBoot(),
+                backgroundScope,
+                InstalledGhostRepository(root),
+                last,
+                port,
+                ioDispatcher = StandardTestDispatcher(testScheduler)
+            ) { 0L }
         runtime.start("en")
         val fallback = runtime.state.value as StageState.Ready
         assertEquals("Nanidroid", fallback.ghostName)
@@ -559,10 +769,16 @@ class GhostSwitchTest {
         }
         val boot = MemoryBoot()
         val port = FakePort().apply { loads.add(NativeLoadResult.Loaded(NativeLease(1))) }
-        val runtime = GhostRuntime({ bundled() }, { error("Kotlin engine unexpectedly used") },
-            boot, backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port,
-            ioDispatcher = gatedIo) { 0L }
+        val runtime = GhostRuntime(
+            { bundled() },
+            { error("Kotlin engine unexpectedly used") },
+            boot,
+            backgroundScope,
+            InstalledGhostRepository(root),
+            MemoryLastGhost().apply { write("native") },
+            port,
+            ioDispatcher = gatedIo
+        ) { 0L }
         val starting = async { runtime.start("en") }
         runCurrent()
         assertEquals(1, queued.size)
@@ -586,8 +802,18 @@ class GhostSwitchTest {
         val gate = CompletableDeferred<ShioriReply>()
         port.initializeGate = gate
         port.onLoad = { assertTrue(File(master, "profile").isDirectory) }
-        val runtime = GhostRuntime({ bundled() }, { error("Kotlin engine unexpectedly used") },
-            boot, backgroundScope, InstalledGhostRepository(root), last, port, ioDispatcher = StandardTestDispatcher(testScheduler)) { 0L }
+        val runtime = GhostRuntime(
+            { bundled() },
+            { error("Kotlin engine unexpectedly used") },
+            boot,
+            backgroundScope,
+            InstalledGhostRepository(root),
+            last,
+            port,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) {
+            0L
+        }
         val starting = async { runtime.start("en") }
         runCurrent()
         assertEquals(listOf("OnInitialize"), port.events.map { it.id })
@@ -613,7 +839,25 @@ class GhostSwitchTest {
             requestFailureFor = "OnInitialize"
             quarantineOnRequestFailure = false
         }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine }, boot, backgroundScope, InstalledGhostRepository(root), last, port, ioDispatcher = StandardTestDispatcher(testScheduler)) { 0L }
+        val runtime =
+            GhostRuntime(
+                {
+                    bundled()
+                },
+                {
+                    SilentEngine
+                },
+                boot,
+                backgroundScope,
+                InstalledGhostRepository(
+                    root
+                ),
+                last,
+                port,
+                ioDispatcher = StandardTestDispatcher(testScheduler)
+            ) {
+                0L
+            }
         runtime.start("en")
         assertEquals("Nanidroid", runtime.ready.ghostName)
         assertEquals(0, boot.count("native"))
@@ -629,9 +873,18 @@ class GhostSwitchTest {
             loads.add(NativeLoadResult.Loaded(NativeLease(1)))
             unloadResult = NativeUnloadResult.Unresolved("unload failed")
         }
-        val runtime = GhostRuntime({ bundled() }, { error("Kotlin engine unexpectedly used") },
-            MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port, ioDispatcher = StandardTestDispatcher(testScheduler)) { 0L }
+        val runtime = GhostRuntime(
+            { bundled() },
+            { error("Kotlin engine unexpectedly used") },
+            MemoryBoot(),
+            backgroundScope,
+            InstalledGhostRepository(root),
+            MemoryLastGhost().apply {
+                write("native")
+            },
+            port,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) { 0L }
         runtime.start("en")
         runtime.close()
         runCurrent()
@@ -653,9 +906,18 @@ class GhostSwitchTest {
                 initializeReply = ShioriReply(status, "\\0Hidden\\e")
             }
             val boot = MemoryBoot()
-            val runtime = GhostRuntime({ bundled() }, { error("Kotlin engine unexpectedly used") },
-                boot, backgroundScope, InstalledGhostRepository(root),
-                MemoryLastGhost().apply { write("native") }, port, ioDispatcher = StandardTestDispatcher(testScheduler)) { 0L }
+            val runtime = GhostRuntime(
+                { bundled() },
+                { error("Kotlin engine unexpectedly used") },
+                boot,
+                backgroundScope,
+                InstalledGhostRepository(root),
+                MemoryLastGhost().apply {
+                    write("native")
+                },
+                port,
+                ioDispatcher = StandardTestDispatcher(testScheduler)
+            ) { 0L }
             runtime.start("en")
             assertEquals("Native", runtime.ready.ghostName)
             assertEquals("", runtime.ready.frame.sakura.text)
@@ -675,8 +937,18 @@ class GhostSwitchTest {
             loads.add(NativeLoadResult.Loaded(NativeLease(1)))
             initializeGate = gate
         }
-        val runtime = GhostRuntime({ bundled() }, { error("Kotlin engine unexpectedly used") },
-            boot, backgroundScope, InstalledGhostRepository(root), last, port, ioDispatcher = StandardTestDispatcher(testScheduler)) { 0L }
+        val runtime = GhostRuntime(
+            { bundled() },
+            { error("Kotlin engine unexpectedly used") },
+            boot,
+            backgroundScope,
+            InstalledGhostRepository(root),
+            last,
+            port,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) {
+            0L
+        }
         val starting = async { runtime.start("en") }
         runCurrent()
         runtime.close()
@@ -699,7 +971,25 @@ class GhostSwitchTest {
             loads.add(NativeLoadResult.Loaded(NativeLease(1)))
             quarantineOnInitializeReply = true
         }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine }, boot, backgroundScope, InstalledGhostRepository(root), last, port, ioDispatcher = StandardTestDispatcher(testScheduler)) { 0L }
+        val runtime =
+            GhostRuntime(
+                {
+                    bundled()
+                },
+                {
+                    SilentEngine
+                },
+                boot,
+                backgroundScope,
+                InstalledGhostRepository(
+                    root
+                ),
+                last,
+                port,
+                ioDispatcher = StandardTestDispatcher(testScheduler)
+            ) {
+                0L
+            }
         runtime.start("en")
         assertEquals("Nanidroid", runtime.ready.ghostName)
         assertEquals(0, boot.count("native"))
@@ -712,14 +1002,26 @@ class GhostSwitchTest {
         val root = folder.newFolder("ghost")
         fixture(root, "native", "Native", "satori.dll")
         val port = FakePort().apply { loads.add(NativeLoadResult.Loaded(NativeLease(1))) }
-        val runtime = GhostRuntime({ bundled() }, { error("Kotlin engine unexpectedly used") },
-            MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port, ioDispatcher = StandardTestDispatcher(testScheduler)) { 0L }
+        val runtime = GhostRuntime(
+            { bundled() },
+            { error("Kotlin engine unexpectedly used") },
+            MemoryBoot(),
+            backgroundScope,
+            InstalledGhostRepository(root),
+            MemoryLastGhost().apply {
+                write("native")
+            },
+            port,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) { 0L }
         runtime.start("en")
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
-        runtime.setResumed(false); runCurrent()
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
+        runtime.setResumed(false)
+        runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         assertEquals(1, port.loadCalls)
         assertEquals(0, port.unloadCalls)
         assertEquals(listOf("OnInitialize", "OnFirstBoot"), port.events.map { it.id })
@@ -734,11 +1036,13 @@ class GhostSwitchTest {
         }
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
             installedGhosts = InstalledGhostRepository(root),
             lastGhostStore = MemoryLastGhost().apply { write("native") },
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { testScheduler.currentTime }
         runtime.start("en")
         runtime.doubleClick(1, 12, 34)
@@ -762,13 +1066,20 @@ class GhostSwitchTest {
         val events = mutableListOf<ShioriEvent>()
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply {
-                    events += event
-                    return if (event.id == "OnFirstBoot") ShioriReply(200, "\\0Hello\\e")
-                        else ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply {
+                        events += event
+                        return if (event.id == "OnFirstBoot") {
+                            ShioriReply(200, "\\0Hello\\e")
+                        } else {
+                            ShioriReply(204)
+                        }
+                    }
                 }
-            } }, bootState = MemoryBoot(), scope = backgroundScope,
+            },
+            bootState = MemoryBoot(),
+            scope = backgroundScope
         ) { testScheduler.currentTime }
         runtime.start("en")
         runtime.setResumed(true)
@@ -793,14 +1104,17 @@ class GhostSwitchTest {
         port.doubleClickGate = replyGate
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
             installedGhosts = InstalledGhostRepository(root),
             lastGhostStore = MemoryLastGhost().apply { write("native") },
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         runtime.doubleClick(0, 5, 6)
         runCurrent()
         assertEquals(1, port.events.count { it.id == "OnMouseDoubleClick" })
@@ -823,13 +1137,17 @@ class GhostSwitchTest {
         }
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         runtime.doubleClick(0, 5, 6)
         runCurrent()
         val ready = runtime.state.value as StageState.Ready
@@ -847,32 +1165,40 @@ class GhostSwitchTest {
         val events = mutableListOf<String>()
         fun runtime(loader: suspend () -> BundledGhost = { bundled() }) = GhostRuntime(
             loadGhost = loader,
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply {
-                    events += event.id
-                    return when (event.id) {
-                        "OnClose", "OnGhostChanging" -> ShioriReply(200, "\\0Bye")
-                        else -> ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply {
+                        events += event.id
+                        return when (event.id) {
+                            "OnClose", "OnGhostChanging" -> ShioriReply(200, "\\0Bye")
+                            else -> ShioriReply(204)
+                        }
                     }
                 }
-            } },
-            bootState = MemoryBoot(), scope = backgroundScope,
+            },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
             installedGhosts = InstalledGhostRepository(root),
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { testScheduler.currentTime }
         val cases: List<Pair<String, suspend () -> Unit>> = listOf(
             "Idle + Back -> Finished" to {
                 val r = runtime()
-                r.close(); runCurrent()
+                r.close()
+                runCurrent()
                 assertTrue(r.state.value is StageState.Finished)
             },
             "Loading + Back rejects late load" to {
                 val gate = CompletableDeferred<Unit>()
-                val r = runtime { gate.await(); bundled() }
+                val r = runtime {
+                    gate.await()
+                    bundled()
+                }
                 val starting = async { r.start("en") }
                 runCurrent()
                 assertTrue(r.state.value is StageState.Loading)
-                r.close(); runCurrent()
+                r.close()
+                runCurrent()
                 gate.complete(Unit)
                 starting.await()
                 assertTrue(r.state.value is StageState.Finished)
@@ -880,53 +1206,79 @@ class GhostSwitchTest {
             "Active recreation, pause, resume, click" to {
                 events.clear()
                 val r = runtime()
-                r.start("en"); r.start("en")
-                r.setResumed(true); runCurrent()
-                r.setResumed(false); runCurrent()
-                r.setResumed(true); runCurrent()
-                r.click(0, 3, 4); runCurrent()
+                r.start("en")
+                r.start("en")
+                r.setResumed(true)
+                runCurrent()
+                r.setResumed(false)
+                runCurrent()
+                r.setResumed(true)
+                runCurrent()
+                r.click(0, 3, 4)
+                runCurrent()
                 assertTrue(r.state.value is StageState.Ready)
                 assertEquals(1, events.count { it == "OnFirstBoot" })
                 assertEquals(1, events.count { it == "OnMouseClick" })
-                r.setResumed(false); runCurrent()
+                r.setResumed(false)
+                runCurrent()
             },
             "Switching + Back -> Closing -> Finished" to {
                 val r = runtime()
                 r.start("en")
-                r.selectGhost("candidate"); runCurrent()
-                r.confirmSwitch(); runCurrent()
+                r.selectGhost("candidate")
+                runCurrent()
+                r.confirmSwitch()
+                runCurrent()
                 assertEquals("Nanidroid", (r.state.value as StageState.Ready).ghostName)
                 assertEquals("OnGhostChanging", events.last())
-                r.close(); runCurrent()
-                r.setResumed(true); runCurrent()
-                advanceTimeBy(1_500); runCurrent()
+                r.close()
+                runCurrent()
+                r.setResumed(true)
+                runCurrent()
+                advanceTimeBy(1_500)
+                runCurrent()
                 assertTrue(r.state.value is StageState.Finished)
             },
             "Closing + second Back remains single flight" to {
                 events.clear()
                 val r = runtime()
                 r.start("en")
-                r.close(); runCurrent()
-                r.close(); runCurrent()
+                r.close()
+                runCurrent()
+                r.close()
+                runCurrent()
                 assertEquals(1, events.count { it == "OnClose" })
-                r.setResumed(true); runCurrent()
-                advanceTimeBy(1_500); runCurrent()
+                r.setResumed(true)
+                runCurrent()
+                advanceTimeBy(1_500)
+                runCurrent()
                 assertTrue(r.state.value is StageState.Finished)
             },
             "Finished + start creates new active session" to {
                 val r = runtime()
                 r.start("en")
-                r.close(); runCurrent()
-                r.setResumed(true); runCurrent()
-                advanceTimeBy(1_500); runCurrent()
+                r.close()
+                runCurrent()
+                r.setResumed(true)
+                runCurrent()
+                advanceTimeBy(1_500)
+                runCurrent()
                 assertTrue(r.state.value is StageState.Finished)
                 r.start("en")
                 assertTrue(r.state.value is StageState.Ready)
-                r.setResumed(false); runCurrent()
-            },
+                r.setResumed(false)
+                runCurrent()
+            }
         )
-        for ((name, transition) in cases) try { transition() }
-            catch (error: Throwable) { throw AssertionError(name, error) }
+        for ((name, transition) in cases) {
+            try {
+                transition()
+            } catch (
+                error: Throwable
+            ) {
+                throw AssertionError(name, error)
+            }
+        }
     }
 
     @Test fun quarantinedChangingRequestFallsBackWithoutAnotherNativeCall() = runTest {
@@ -940,10 +1292,13 @@ class GhostSwitchTest {
         }
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
         runtime.selectGhost("nanidroid")
@@ -970,10 +1325,13 @@ class GhostSwitchTest {
         }
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
         val ready = runtime.state.value as StageState.Ready
@@ -995,13 +1353,17 @@ class GhostSwitchTest {
         }
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         runtime.click(0, 2, 3)
         runCurrent()
         val ready = runtime.state.value as StageState.Ready
@@ -1023,14 +1385,17 @@ class GhostSwitchTest {
         }
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
             installedGhosts = InstalledGhostRepository(root),
             lastGhostStore = MemoryLastGhost().apply { write("native") },
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         runtime.selectGhost("native2")
         runCurrent()
         assertEquals("native2", runtime.ready.switchPrompt?.directoryId)
@@ -1057,14 +1422,17 @@ class GhostSwitchTest {
         }
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
             installedGhosts = InstalledGhostRepository(root),
             lastGhostStore = MemoryLastGhost().apply { write("native") },
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         runtime.click(0, 2, 3)
         runCurrent()
         val ready = runtime.state.value as StageState.Ready
@@ -1084,10 +1452,13 @@ class GhostSwitchTest {
         }
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { now }
         runtime.start("en")
         runtime.setResumed(true)
@@ -1109,17 +1480,25 @@ class GhostSwitchTest {
         fixture(root, "candidate", "Other", "Unsupported.dll")
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply =
-                    if (event.id == "OnMouseClick" || event.id == "OnSecondChange") error("${event.id} failed")
-                    else ShioriReply(204)
-            } },
-            bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = MemoryLastGhost(),
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply =
+                        if (event.id == "OnMouseClick" || event.id == "OnSecondChange") {
+                            error("${event.id} failed")
+                        } else {
+                            ShioriReply(204)
+                        }
+                }
+            },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = MemoryLastGhost(),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { now }
         runtime.start("en")
-        runtime.setResumed(true); runCurrent()
+        runtime.setResumed(true)
+        runCurrent()
         runtime.selectGhost("candidate")
         runCurrent()
         runtime.click(0, 1, 1)
@@ -1130,7 +1509,8 @@ class GhostSwitchTest {
         runtime.setResumed(true)
         runCurrent()
         now = 1_000L
-        advanceTimeBy(50); runCurrent()
+        advanceTimeBy(50)
+        runCurrent()
         ready = runtime.state.value as StageState.Ready
         assertEquals("OnSecondChange failed", ready.activationError)
         assertEquals("candidate", ready.switchPrompt?.directoryId)
@@ -1144,18 +1524,22 @@ class GhostSwitchTest {
         val last = MemoryLastGhost()
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent): ShioriReply {
-                    events += event
-                    return when (event.id) {
-                        "OnGhostChanging" -> ShioriReply(200, "\\0Leaving")
-                        else -> ShioriReply(204)
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent): ShioriReply {
+                        events += event
+                        return when (event.id) {
+                            "OnGhostChanging" -> ShioriReply(200, "\\0Leaving")
+                            else -> ShioriReply(204)
+                        }
                     }
                 }
-            } },
-            bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { testScheduler.currentTime }
         runtime.start("en")
         runtime.selectGhost("candidate")
@@ -1168,8 +1552,10 @@ class GhostSwitchTest {
         runtime.confirmSwitch()
         runCurrent()
         assertEquals(1, events.count { it.id == "OnGhostChanging" })
-        assertEquals(listOf("Other", "manual", "", File(root, "candidate").absolutePath),
-            events.last().references)
+        assertEquals(
+            listOf("Other", "manual", "", File(root, "candidate").absolutePath),
+            events.last().references
+        )
         assertEquals("nanidroid", last.read())
         runtime.setResumed(true)
         runCurrent()
@@ -1188,9 +1574,10 @@ class GhostSwitchTest {
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
             engineFactory = { SilentEngine },
-            bootState = MemoryBoot(), scope = backgroundScope,
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
             installedGhosts = InstalledGhostRepository(root),
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { testScheduler.currentTime }
         runtime.start("en")
         runtime.selectGhost("candidate")
@@ -1208,11 +1595,16 @@ class GhostSwitchTest {
         val last = MemoryLastGhost()
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent) = ShioriReply(200, "\\0Speaking\\e")
-            } }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            engineFactory = {
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent) = ShioriReply(200, "\\0Speaking\\e")
+                }
+            },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
         runtime.setResumed(true)
@@ -1236,10 +1628,12 @@ class GhostSwitchTest {
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
             engineFactory = { SilentEngine },
-            bootState = boot, scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            bootState = boot,
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
         assertEquals(0, boot.count("native"))
@@ -1268,10 +1662,12 @@ class GhostSwitchTest {
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
             engineFactory = { SilentEngine },
-            bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
         runtime.selectGhost("nanidroid")
@@ -1301,10 +1697,13 @@ class GhostSwitchTest {
         }
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
         assertTrue(runtime.ready.installedGhosts.any { it.directoryId == "native2" })
@@ -1318,9 +1717,13 @@ class GhostSwitchTest {
         assertEquals(2, port.loadCalls)
         assertEquals(1, port.unloadCalls)
         assertSame(firstLease, port.unloadedLeases.single())
-        assertEquals(listOf("request:OnGhostChanging", "shutdown:true", "unload"),
-            port.operations.subList(port.operations.indexOf("request:OnGhostChanging"),
-                port.operations.indexOf("unload") + 1))
+        assertEquals(
+            listOf("request:OnGhostChanging", "shutdown:true", "unload"),
+            port.operations.subList(
+                port.operations.indexOf("request:OnGhostChanging"),
+                port.operations.indexOf("unload") + 1
+            )
+        )
         port.loads.add(NativeLoadResult.Loaded(NativeLease(3)))
         runtime.selectGhost("native1")
         runCurrent()
@@ -1341,8 +1744,19 @@ class GhostSwitchTest {
             firstBootGate = firstBoot
             changingReply = ShioriReply(200, "\\0Leaving\\e")
         }
-        val runtime = GhostRuntime({ bundled() }, { SilentEngine }, MemoryBoot(), backgroundScope, InstalledGhostRepository(root), last, port,
-            ioDispatcher = StandardTestDispatcher(testScheduler)) { testScheduler.currentTime }
+        val runtime =
+            GhostRuntime(
+                {
+                    bundled()
+                },
+                { SilentEngine },
+                MemoryBoot(),
+                backgroundScope,
+                InstalledGhostRepository(root),
+                last,
+                port,
+                ioDispatcher = StandardTestDispatcher(testScheduler)
+            ) { testScheduler.currentTime }
         runtime.setResumed(true)
         val starting = async { runtime.start("en") }
         runCurrent()
@@ -1363,10 +1777,14 @@ class GhostSwitchTest {
         runCurrent()
         assertEquals("Nanidroid", runtime.ready.ghostName)
         assertEquals("nanidroid", last.read())
-        assertEquals(listOf("OnInitialize", "OnFirstBoot", "OnGhostChanging", "OnDestroy"),
-            port.events.map { it.id })
-        assertEquals(listOf("request:OnGhostChanging", "shutdown:true", "unload"),
-            port.operations.takeLast(3))
+        assertEquals(
+            listOf("OnInitialize", "OnFirstBoot", "OnGhostChanging", "OnDestroy"),
+            port.events.map { it.id }
+        )
+        assertEquals(
+            listOf("request:OnGhostChanging", "shutdown:true", "unload"),
+            port.operations.takeLast(3)
+        )
         assertEquals(1, port.unloadCalls)
         assertEquals(listOf(true), port.shutdownNotifications)
     }
@@ -1380,10 +1798,16 @@ class GhostSwitchTest {
             firstBootGate = firstBoot
             closeReply = ShioriReply(200, "\\0Goodbye\\e")
         }
-        val runtime = GhostRuntime({ bundled() }, { error("Kotlin engine unexpectedly used") },
-            MemoryBoot(), backgroundScope, InstalledGhostRepository(root),
-            MemoryLastGhost().apply { write("native") }, port,
-            ioDispatcher = StandardTestDispatcher(testScheduler)) { testScheduler.currentTime }
+        val runtime = GhostRuntime(
+            { bundled() },
+            { error("Kotlin engine unexpectedly used") },
+            MemoryBoot(),
+            backgroundScope,
+            InstalledGhostRepository(root),
+            MemoryLastGhost().apply { write("native") },
+            port,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
+        ) { testScheduler.currentTime }
         runtime.setResumed(true)
         val starting = async { runtime.start("en") }
         runCurrent()
@@ -1400,8 +1824,10 @@ class GhostSwitchTest {
         advanceTimeBy(1_450)
         runCurrent()
         assertTrue(runtime.state.value is StageState.Finished)
-        assertEquals(listOf("OnInitialize", "OnFirstBoot", "OnClose", "OnDestroy"),
-            port.events.map { it.id })
+        assertEquals(
+            listOf("OnInitialize", "OnFirstBoot", "OnClose", "OnDestroy"),
+            port.events.map { it.id }
+        )
         assertEquals(listOf("request:OnClose", "shutdown:true", "unload"), port.operations.takeLast(3))
         assertEquals(1, port.unloadCalls)
         assertEquals(listOf(true), port.shutdownNotifications)
@@ -1417,10 +1843,13 @@ class GhostSwitchTest {
         port.loadGate = gate
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = boot, scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = boot,
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         val starting = async { runtime.start("en") }
         runCurrent()
@@ -1442,10 +1871,13 @@ class GhostSwitchTest {
         port.touchGate = replyGate
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
         runtime.click(0, 1, 2)
@@ -1468,10 +1900,13 @@ class GhostSwitchTest {
         port.touchReplies.add(oldReply)
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
         runtime.click(0, 1, 2)
@@ -1496,10 +1931,13 @@ class GhostSwitchTest {
         port.unloadGate = unloadGate
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { testScheduler.currentTime }
         runtime.start("en")
         runtime.selectGhost("nanidroid")
@@ -1528,10 +1966,13 @@ class GhostSwitchTest {
         }
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         val warnings = mutableListOf<String>()
         val logger = Logger.getLogger(GhostRuntime::class.java.name)
@@ -1569,10 +2010,13 @@ class GhostSwitchTest {
         port.unloadGate = unloadGate
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { SilentEngine }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+            engineFactory = { SilentEngine },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
             nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { 0L }
         runtime.start("en")
         runtime.selectGhost("nanidroid")
@@ -1595,20 +2039,26 @@ class GhostSwitchTest {
         val outcomes = listOf(
             NativeLoadResult.Failed(-1) to false,
             NativeLoadResult.Unresolved("Native load returned -2") to false,
-            null to true,
+            null to true
         )
         for ((outcome, throws) in outcomes) {
             val last = MemoryLastGhost().apply { write("native") }
             val boot = MemoryBoot()
             val port = FakePort()
-            if (throws) port.loadError = IllegalStateException("JNI crashed")
-            else port.loads.add(outcome!!)
+            if (throws) {
+                port.loadError = IllegalStateException("JNI crashed")
+            } else {
+                port.loads.add(outcome!!)
+            }
             val runtime = GhostRuntime(
                 loadGhost = { bundled() },
-                engineFactory = { SilentEngine }, bootState = boot, scope = backgroundScope,
-                installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
+                engineFactory = { SilentEngine },
+                bootState = boot,
+                scope = backgroundScope,
+                installedGhosts = InstalledGhostRepository(root),
+                lastGhostStore = last,
                 nativeHost = port,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+                ioDispatcher = StandardTestDispatcher(testScheduler)
             ) { 0L }
             runtime.start("en")
             assertEquals("Nanidroid", runtime.ready.ghostName)
@@ -1627,12 +2077,17 @@ class GhostSwitchTest {
         val last = MemoryLastGhost()
         val runtime = GhostRuntime(
             loadGhost = { bundled() },
-            engineFactory = { ghost -> object : ShioriEngine {
-                override suspend fun request(event: ShioriEvent) =
-                    ShioriReply(200, if (ghost.content.contains("Own script")) "\\0Own script\\e" else "\\0Base\\e")
-            } }, bootState = MemoryBoot(), scope = backgroundScope,
-            installedGhosts = InstalledGhostRepository(root), lastGhostStore = last,
-            ioDispatcher = StandardTestDispatcher(testScheduler),
+            engineFactory = { ghost ->
+                object : ShioriEngine {
+                    override suspend fun request(event: ShioriEvent) =
+                        ShioriReply(200, if (ghost.content.contains("Own script")) "\\0Own script\\e" else "\\0Base\\e")
+                }
+            },
+            bootState = MemoryBoot(),
+            scope = backgroundScope,
+            installedGhosts = InstalledGhostRepository(root),
+            lastGhostStore = last,
+            ioDispatcher = StandardTestDispatcher(testScheduler)
         ) { testScheduler.currentTime }
         runtime.start("en")
         runtime.selectGhost("otherbuiltin")
@@ -1698,10 +2153,12 @@ class GhostSwitchTest {
             loadError?.let { throw it }
             val result = loadGate?.await() ?: loads.removeFirst()
             if (result is NativeLoadResult.Loaded) availability.value = NativeAvailability.Occupied
-            if (result is NativeLoadResult.Failed && result.status == -1)
+            if (result is NativeLoadResult.Failed && result.status == -1) {
                 availability.value = NativeAvailability.Occupied
-            if (result is NativeLoadResult.Unresolved)
+            }
+            if (result is NativeLoadResult.Unresolved) {
                 availability.value = NativeAvailability.Quarantined
+            }
             return result
         }
         override suspend fun request(lease: NativeLease, event: ShioriEvent): ShioriReply {
@@ -1736,11 +2193,18 @@ class GhostSwitchTest {
             operations += "unload"
             unloadedLeases += lease
             val result = unloadGate?.await() ?: unloadResult
-            availability.value = if (result is NativeUnloadResult.Unresolved)
-                NativeAvailability.Quarantined else NativeAvailability.Available
+            availability.value = if (result is NativeUnloadResult.Unresolved) {
+                NativeAvailability.Quarantined
+            } else {
+                NativeAvailability.Available
+            }
             return result
         }
-        override suspend fun shutdown(lease: NativeLease, notifyDestroy: Boolean, timeoutMillis: Long): NativeShutdownResult {
+        override suspend fun shutdown(
+            lease: NativeLease,
+            notifyDestroy: Boolean,
+            timeoutMillis: Long
+        ): NativeShutdownResult {
             shutdownNotifications += notifyDestroy
             operations += "shutdown:$notifyDestroy"
             if (notifyDestroy) events += ShioriEvent("OnDestroy", method = ShioriMethod.NOTIFY)
@@ -1754,7 +2218,9 @@ class GhostSwitchTest {
     private class MemoryLastGhost : LastGhostStore {
         private var value: String? = null
         override fun read() = value
-        override fun write(directoryId: String) { value = directoryId }
+        override fun write(directoryId: String) {
+            value = directoryId
+        }
     }
 
     private object SilentEngine : ShioriEngine {

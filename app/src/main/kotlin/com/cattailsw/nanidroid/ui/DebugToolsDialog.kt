@@ -21,11 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.cattailsw.nanidroid.R
 
 @Composable
-fun DebugToolsDialog(
-    showTouchBounds: Boolean,
-    onShowTouchBoundsChange: (Boolean) -> Unit,
-    onDismiss: () -> Unit
-) {
+fun DebugToolsDialog(showTouchBounds: Boolean, onShowTouchBoundsChange: (Boolean) -> Unit, onDismiss: () -> Unit) {
     val title = stringResource(R.string.debug_tools_title)
     val bounds = stringResource(R.string.stage_show_bounds)
     val close = stringResource(R.string.action_close)
@@ -38,7 +34,8 @@ fun DebugToolsDialog(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(bounds, Modifier.weight(1f).padding(end = 12.dp))
                     Switch(
-                        checked = showTouchBounds, onCheckedChange = onShowTouchBoundsChange,
+                        checked = showTouchBounds,
+                        onCheckedChange = onShowTouchBoundsChange,
                         modifier = Modifier.semantics { contentDescription = bounds }
                             .testTag("debug-touch-bounds")
                     )

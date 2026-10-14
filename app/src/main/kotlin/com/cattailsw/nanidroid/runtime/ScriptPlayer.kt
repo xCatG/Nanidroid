@@ -48,7 +48,9 @@ class ScriptPlayer(private val script: String) {
                         deferredArgumentStart = cursor
                         deferredTag = null
                     }
-                } else if (cursor >= script.length) skippingTagName = false
+                } else if (cursor >= script.length) {
+                    skippingTagName = false
+                }
                 budget -= cursor - start
                 continue
             }
@@ -60,13 +62,17 @@ class ScriptPlayer(private val script: String) {
                 cursor = minOf(end, limit)
                 argumentEscapePending = end > limit
                 if (cursor < limit) {
-                    val argument = if (deferredTag != null)
-                        script.substring(deferredArgumentStart, cursor) else null
+                    val argument = if (deferredTag != null) {
+                        script.substring(deferredArgumentStart, cursor)
+                    } else {
+                        null
+                    }
                     cursor++
                     skippingArgument = false
                     val tag = deferredTag
-                    if (argument != null && tag != null)
+                    if (argument != null && tag != null) {
                         applyTag(tag, deferredSubtag, argument, animations, surfaces, hostCommands)
+                    }
                     deferredTag = null
                 } else if (cursor >= script.length) {
                     skippingArgument = false
@@ -123,17 +129,20 @@ class ScriptPlayer(private val script: String) {
                 continue
             }
             val tag = script[cursor++]
-            if (tag != '_' && hasExtendedTagArgument(budget - (cursor - start))) consumeUnknownTail()
-            else when (tag) {
-                '0', 'h' -> selectSpeaker(0)
-                '1', 'u' -> selectSpeaker(1)
-                in DIGIT_ARGUMENT_TAGS -> applyTag(tag, null, argumentOrDigit(), animations, surfaces, hostCommands)
-                'n', 'q', '!' -> applyTag(tag, null, bracketArgument(), animations, surfaces, hostCommands)
-                'c' -> clearCurrent()
-                'e' -> endPause = 1_000
-                '_' -> parseUnderscore(animations, surfaces, hostCommands)
-                '-', '4', '5', '6', 'v' -> Unit
-                else -> consumeUnknownTail()
+            if (tag != '_' && hasExtendedTagArgument(budget - (cursor - start))) {
+                consumeUnknownTail()
+            } else {
+                when (tag) {
+                    '0', 'h' -> selectSpeaker(0)
+                    '1', 'u' -> selectSpeaker(1)
+                    in DIGIT_ARGUMENT_TAGS -> applyTag(tag, null, argumentOrDigit(), animations, surfaces, hostCommands)
+                    'n', 'q', '!' -> applyTag(tag, null, bracketArgument(), animations, surfaces, hostCommands)
+                    'c' -> clearCurrent()
+                    'e' -> endPause = 1_000
+                    '_' -> parseUnderscore(animations, surfaces, hostCommands)
+                    '-', '4', '5', '6', 'v' -> Unit
+                    else -> consumeUnknownTail()
+                }
             }
             budget -= cursor - start
         }
@@ -183,11 +192,20 @@ class ScriptPlayer(private val script: String) {
         if ('\u0001' in choiceId) {
             // Satori needs the complete payload in Reference0 to recover choice metadata.
             val parts = choiceId.split('\u0001')
-            if (parts.size != 3 || parts[0].isEmpty() || parts[0].startsWith("On") ||
-                !ScriptInput.isAllowed(parts[0]) || parts[1].isEmpty() || !ScriptInput.isAllowed(parts[1]) ||
-                parts[2].isEmpty() || parts[2].any { it !in '0'..'9' }
-            ) return
-        } else if (choiceId.isEmpty() || !ScriptInput.isAllowed(choiceId)) return
+            if (parts.size != 3 ||
+                parts[0].isEmpty() ||
+                parts[0].startsWith("On") ||
+                !ScriptInput.isAllowed(parts[0]) ||
+                parts[1].isEmpty() ||
+                !ScriptInput.isAllowed(parts[1]) ||
+                parts[2].isEmpty() ||
+                parts[2].any { it !in '0'..'9' }
+            ) {
+                return
+            }
+        } else if (choiceId.isEmpty() || !ScriptInput.isAllowed(choiceId)) {
+            return
+        }
         val references = if (ChoiceItem.isEvent(choiceId)) fields.drop(2) else emptyList()
         if (references.any { !ScriptInput.isAllowed(it) }) return
         val key = nextKey++
@@ -232,7 +250,8 @@ class ScriptPlayer(private val script: String) {
         val maxEnd = minOf(script.length.toLong(), start.toLong() + budget).toInt()
         var probe = start + 2
         while (probe < maxEnd && script[probe].isTagChar()) probe++
-        if (probe == maxEnd && probe < script.length &&
+        if (probe == maxEnd &&
+            probe < script.length &&
             (script[probe].isTagChar() || script[probe] == '[')
         ) {
             if (tag in ARGUMENT_TAGS && script[probe] != '[') return false
@@ -276,10 +295,12 @@ class ScriptPlayer(private val script: String) {
                 parseInput(argument)
                 // Match encoded structure exactly; decoded metadata cannot become a host command.
                 // Host requests also require a complete closing delimiter.
-                if (script.getOrNull(cursor - 1) == ']') when (argument) {
-                    "open,ghostexplorer" -> hostCommands += HostUiCommand.GhostExplorer
-                    "open,configurationdialog,about" -> hostCommands += HostUiCommand.About
-                    "open,developer" -> hostCommands += HostUiCommand.Developer
+                if (script.getOrNull(cursor - 1) == ']') {
+                    when (argument) {
+                        "open,ghostexplorer" -> hostCommands += HostUiCommand.GhostExplorer
+                        "open,configurationdialog,about" -> hostCommands += HostUiCommand.About
+                        "open,developer" -> hostCommands += HostUiCommand.Developer
+                    }
                 }
             }
             '_' -> when (subtag) {
@@ -305,7 +326,9 @@ class ScriptPlayer(private val script: String) {
         bracketArgument()
     } else if (cursor < script.length && script[cursor].isDigit()) {
         script[cursor++].toString()
-    } else ""
+    } else {
+        ""
+    }
 
     private fun bracketArgument(): String {
         if (cursor >= script.length || script[cursor] != '[') return ""
@@ -346,12 +369,16 @@ class ScriptPlayer(private val script: String) {
                 if (macro != null) {
                     append(names[macro.substring(1)]?.let(SakuraScriptText::escape) ?: macro)
                     index += macro.length
-                } else append(script[index++])
+                } else {
+                    append(script[index++])
+                }
             }
         }
 
-        private fun Char.isTagChar(): Boolean = this in 'a'..'z' || this in 'A'..'Z' ||
-            this in '0'..'9' || this == '_'
+        private fun Char.isTagChar(): Boolean = this in 'a'..'z' ||
+            this in 'A'..'Z' ||
+            this in '0'..'9' ||
+            this == '_'
         private fun saturatingAdd(a: Long, b: Long): Long = if (Long.MAX_VALUE - a < b) Long.MAX_VALUE else a + b
         private fun saturatingMultiply(a: Long, b: Long): Long = if (a > Long.MAX_VALUE / b) Long.MAX_VALUE else a * b
     }

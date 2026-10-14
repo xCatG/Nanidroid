@@ -4,10 +4,10 @@ import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.file.Files
+import org.apache.commons.compress.archivers.zip.UnixStat
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import org.apache.commons.compress.archivers.zip.ZipFile
-import org.apache.commons.compress.archivers.zip.UnixStat
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -51,11 +51,15 @@ class NarArchiveReaderTest {
         val centralStart = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).getInt(eocd + 16)
         val local = bytes.copyOfRange(0, centralStart)
         val central = bytes.copyOfRange(centralStart, eocd)
-        val zip64 = if (zip64Locator) ByteBuffer.allocate(56).order(ByteOrder.LITTLE_ENDIAN).apply {
-            putInt(0x06064b50).putLong(44).putShort(45.toShort()).putShort(45.toShort())
-            putInt(0).putInt(0).putLong(1).putLong(1)
-            putLong((central.size * 4).toLong()).putLong((local.size + 56).toLong())
-        }.array() else byteArrayOf()
+        val zip64 = if (zip64Locator) {
+            ByteBuffer.allocate(56).order(ByteOrder.LITTLE_ENDIAN).apply {
+                putInt(0x06064b50).putLong(44).putShort(45.toShort()).putShort(45.toShort())
+                putInt(0).putInt(0).putLong(1).putLong(1)
+                putLong((central.size * 4).toLong()).putLong((local.size + 56).toLong())
+            }.array()
+        } else {
+            byteArrayOf()
+        }
         val bigStart = local.size + zip64.size
         val lastStart = bigStart + central.size * 3
         val real = bytes.copyOfRange(eocd, bytes.size)
@@ -64,16 +68,22 @@ class NarArchiveReaderTest {
             putInt(16, lastStart)
             putShort(20, (if (zip64Locator) 45 else 25).toShort())
         }
-        val locator = if (zip64Locator) ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN).apply {
-            putInt(0x07064b50).putInt(0).putLong(local.size.toLong()).putInt(1)
-        }.array() else byteArrayOf()
+        val locator = if (zip64Locator) {
+            ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN).apply {
+                putInt(0x07064b50).putInt(0).putLong(local.size.toLong()).putInt(1)
+            }.array()
+        } else {
+            byteArrayOf()
+        }
         val fakeOffset = lastStart + central.size + real.size + locator.size
         val fake = bytes.copyOfRange(eocd, bytes.size)
         ByteBuffer.wrap(fake).order(ByteOrder.LITTLE_ENDIAN).apply {
             putInt(12, fakeOffset - bigStart)
             putInt(16, bigStart)
         }
-        zip.writeBytes(local + zip64 + central + central + central + central + real + locator + fake + byteArrayOf(1, 2, 3))
+        zip.writeBytes(
+            local + zip64 + central + central + central + central + real + locator + fake + byteArrayOf(1, 2, 3)
+        )
         ZipFile.builder().setFile(zip).setCharset("windows-31j").setMaxNumberOfDisks(1).get().use {
             assertEquals(4, it.entries.asSequence().count())
         }
@@ -90,8 +100,11 @@ class NarArchiveReaderTest {
     }
 
     @Test fun wrapperDescriptorSelectsOneDirectory() {
-        val zip = archive("wrapper/" to byteArrayOf(), "wrapper/install.txt" to descriptor,
-            "wrapper/ghost/master/descript.txt" to byteArrayOf(9))
+        val zip = archive(
+            "wrapper/" to byteArrayOf(),
+            "wrapper/install.txt" to descriptor,
+            "wrapper/ghost/master/descript.txt" to byteArrayOf(9)
+        )
         assertEquals(ImportPackage("example", "wrapper/"), reader.inspect(zip))
     }
 
@@ -100,22 +113,32 @@ class NarArchiveReaderTest {
         assertEquals(ImportPackage("example", ""), reader.inspect(root))
         val wrapped = archive("wrapper/Install.Txt" to descriptor, "wrapper/ghost/a" to byteArrayOf(2))
         assertEquals(ImportPackage("example", "wrapper/"), reader.inspect(wrapped))
-        val both = archive("InStAlL.TxT" to descriptor, "wrapper/install.txt" to descriptor,
-            "wrapper/ghost/a" to byteArrayOf(3))
+        val both = archive(
+            "InStAlL.TxT" to descriptor,
+            "wrapper/install.txt" to descriptor,
+            "wrapper/ghost/a" to byteArrayOf(3)
+        )
         assertEquals(ImportPackage("example", ""), reader.inspect(both))
     }
 
     @Test fun normalizesMixedSeparatorsAndUnixDirectoryEntries() {
         val zip = Files.createTempFile("nar-mixed", ".zip").toFile()
         ZipArchiveOutputStream(zip).use { output ->
-            listOf("wrapper\\" to UnixStat.DIR_FLAG, "wrapper\\install.txt" to UnixStat.FILE_FLAG,
-                "wrapper/ghost" to UnixStat.DIR_FLAG, "wrapper\\ghost/a" to UnixStat.FILE_FLAG)
+            listOf(
+                "wrapper\\" to UnixStat.DIR_FLAG,
+                "wrapper\\install.txt" to UnixStat.FILE_FLAG,
+                "wrapper/ghost" to UnixStat.DIR_FLAG,
+                "wrapper\\ghost/a" to UnixStat.FILE_FLAG
+            )
                 .forEach { (name, mode) ->
                     val entry = ZipArchiveEntry(name)
                     entry.unixMode = mode or 0x1FF
                     output.putArchiveEntry(entry)
-                    if (name.endsWith("install.txt")) output.write(descriptor)
-                    else if (name.endsWith("/a")) output.write(byteArrayOf(7))
+                    if (name.endsWith("install.txt")) {
+                        output.write(descriptor)
+                    } else if (name.endsWith("/a")) {
+                        output.write(byteArrayOf(7))
+                    }
                     output.closeArchiveEntry()
                 }
         }
@@ -140,9 +163,13 @@ class NarArchiveReaderTest {
     }
 
     @Test fun refusesMissingBadIdentityAndNonGhostType() {
-        listOf("type,ghost\n", "type,shell\ndirectory,example\n",
-            "type,ghost\ndirectory,../bad\n", "type,ghost\ndirectory,.hidden\n",
-            "type,ghost\ndirectory,nested/id\n")
+        listOf(
+            "type,ghost\n",
+            "type,shell\ndirectory,example\n",
+            "type,ghost\ndirectory,../bad\n",
+            "type,ghost\ndirectory,.hidden\n",
+            "type,ghost\ndirectory,nested/id\n"
+        )
             .forEach { value ->
                 val zip = archive("install.txt" to value.toByteArray())
                 assertThrows(IllegalArgumentException::class.java) { reader.inspect(zip) }
@@ -205,15 +232,14 @@ class NarArchiveReaderTest {
             Triple("\\", UnixStat.LINK_FLAG, byteArrayOf()),
             Triple("/escape", UnixStat.FILE_FLAG, byteArrayOf(1)),
             Triple("C:/escape", UnixStat.FILE_FLAG, byteArrayOf(1)),
-            Triple("../escape", UnixStat.FILE_FLAG, byteArrayOf(1)),
+            Triple("../escape", UnixStat.FILE_FLAG, byteArrayOf(1))
         ).forEachIndexed { index, (name, mode, payload) ->
             val zip = rootEntryArchive(name, mode, payload)
             assertThrows("case $index", IllegalArgumentException::class.java) { reader.inspect(zip) }
         }
     }
 
-    private fun rootEntryArchive(name: String, mode: Int, payload: ByteArray,
-                                 dosDirectory: Boolean = false): File {
+    private fun rootEntryArchive(name: String, mode: Int, payload: ByteArray, dosDirectory: Boolean = false): File {
         val file = Files.createTempFile("nar-root-entry", ".zip").toFile().apply { deleteOnExit() }
         ZipArchiveOutputStream(file).use { zip ->
             val root = ZipArchiveEntry(name).apply {
@@ -232,8 +258,9 @@ class NarArchiveReaderTest {
             // Commons' writer stamps Unix even for a DOS-attribute entry; the corpus stamps DOS.
             val bytes = file.readBytes()
             val central = bytes.indices.first { offset ->
-                offset + 4 <= bytes.size && bytes.copyOfRange(offset, offset + 4)
-                    .contentEquals(byteArrayOf(0x50, 0x4b, 0x01, 0x02))
+                offset + 4 <= bytes.size &&
+                    bytes.copyOfRange(offset, offset + 4)
+                        .contentEquals(byteArrayOf(0x50, 0x4b, 0x01, 0x02))
             }
             bytes[central + 5] = 0
             bytes[30] = '\\'.code.toByte()
@@ -278,8 +305,10 @@ class NarArchiveReaderTest {
     @Test fun wrappedMixedCaseBackslashDescriptorIsBoundedDuringInspectAndExtract() {
         val limits = ImportLimits(ghostDescriptorBytes = 10)
         val bounded = NarArchiveReader(limits)
-        val zip = archive("wrapper/install.txt" to descriptor,
-            "wrapper\\GHOST\\MASTER\\DESCRIPT.TXT" to ByteArray(11) { 7 })
+        val zip = archive(
+            "wrapper/install.txt" to descriptor,
+            "wrapper\\GHOST\\MASTER\\DESCRIPT.TXT" to ByteArray(11) { 7 }
+        )
         val inspectError = assertThrows(IllegalArgumentException::class.java) { bounded.inspect(zip) }
         assertEquals("Ghost descriptor byte limit exceeded", inspectError.message)
 
@@ -294,9 +323,11 @@ class NarArchiveReaderTest {
         val limits = ImportLimits(ghostDescriptorBytes = 10)
         val bounded = NarArchiveReader(limits)
         val extra = ByteArray(11) { 7 }
-        val zip = archive("install.txt" to descriptor,
+        val zip = archive(
+            "install.txt" to descriptor,
             "ghost/master/descript.txt" to "name,OK\n".toByteArray(),
-            "extras/ghost/master/descript.txt" to extra)
+            "extras/ghost/master/descript.txt" to extra
+        )
 
         val metadata = bounded.inspect(zip)
         assertEquals(ImportPackage("example", ""), metadata)
@@ -316,7 +347,9 @@ class NarArchiveReaderTest {
     @Test fun enforcesEntryAndArchiveLimits() {
         val zip = archive("install.txt" to descriptor, "a" to byteArrayOf())
         assertThrows(IllegalArgumentException::class.java) { NarArchiveReader(ImportLimits(entries = 1)).inspect(zip) }
-        assertThrows(IllegalArgumentException::class.java) { NarArchiveReader(ImportLimits(archiveBytes = 1)).inspect(zip) }
+        assertThrows(IllegalArgumentException::class.java) {
+            NarArchiveReader(ImportLimits(archiveBytes = 1)).inspect(zip)
+        }
     }
 
     @Test fun rejectsFakeEndRecordInCommentBeforeCommonsReadsExtraEntries() {
@@ -343,8 +376,9 @@ class NarArchiveReaderTest {
             offset + 4 <= bytes.size && bytes.copyOfRange(offset, offset + 4).contentEquals(central)
         }[1]
         val eocd = bytes.indices.last { offset ->
-            offset + 4 <= bytes.size && bytes.copyOfRange(offset, offset + 4)
-                .contentEquals(byteArrayOf(0x50, 0x4b, 0x05, 0x06))
+            offset + 4 <= bytes.size &&
+                bytes.copyOfRange(offset, offset + 4)
+                    .contentEquals(byteArrayOf(0x50, 0x4b, 0x05, 0x06))
         }
         // Claim one entry; make the second entry's local offset impossible so eager ZipFile open fails.
         bytes[second + 42] = 0xFF.toByte()
@@ -365,8 +399,9 @@ class NarArchiveReaderTest {
         val zip = archive("install.txt" to descriptor, "a" to byteArrayOf(1))
         val bytes = zip.readBytes()
         val second = bytes.indices.filter { offset ->
-            offset + 4 <= bytes.size && bytes.copyOfRange(offset, offset + 4)
-                .contentEquals(byteArrayOf(0x50, 0x4b, 0x01, 0x02))
+            offset + 4 <= bytes.size &&
+                bytes.copyOfRange(offset, offset + 4)
+                    .contentEquals(byteArrayOf(0x50, 0x4b, 0x01, 0x02))
         }[1]
         ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).putInt(second + 42, Int.MAX_VALUE)
         zip.writeBytes(ByteArray(16) { 0x53 } + bytes)
@@ -381,12 +416,14 @@ class NarArchiveReaderTest {
         val zip = archive("install.txt" to descriptor, "a" to byteArrayOf(1))
         val bytes = zip.readBytes()
         val second = bytes.indices.filter { offset ->
-            offset + 4 <= bytes.size && bytes.copyOfRange(offset, offset + 4)
-                .contentEquals(byteArrayOf(0x50, 0x4b, 0x01, 0x02))
+            offset + 4 <= bytes.size &&
+                bytes.copyOfRange(offset, offset + 4)
+                    .contentEquals(byteArrayOf(0x50, 0x4b, 0x01, 0x02))
         }[1]
         val eocd = bytes.indices.last { offset ->
-            offset + 4 <= bytes.size && bytes.copyOfRange(offset, offset + 4)
-                .contentEquals(byteArrayOf(0x50, 0x4b, 0x05, 0x06))
+            offset + 4 <= bytes.size &&
+                bytes.copyOfRange(offset, offset + 4)
+                    .contentEquals(byteArrayOf(0x50, 0x4b, 0x05, 0x06))
         }
         val original = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         val directorySize = original.getInt(eocd + 12).toLong() and 0xFFFF_FFFFL
@@ -409,8 +446,10 @@ class NarArchiveReaderTest {
             val error = assertThrows(IllegalArgumentException::class.java) {
                 NarArchiveReader(ImportLimits(entries = 1)).inspect(zip)
             }
-            assertTrue("claimed size $claimedSize: ${error.message}",
-                error.message!!.contains("Entry count limit"))
+            assertTrue(
+                "claimed size $claimedSize: ${error.message}",
+                error.message!!.contains("Entry count limit")
+            )
         }
     }
 
@@ -418,8 +457,9 @@ class NarArchiveReaderTest {
         val zip = archive("install.txt" to descriptor)
         val bytes = zip.readBytes()
         val central = bytes.indices.first { offset ->
-            offset + 4 <= bytes.size && bytes.copyOfRange(offset, offset + 4)
-                .contentEquals(byteArrayOf(0x50, 0x4b, 0x01, 0x02))
+            offset + 4 <= bytes.size &&
+                bytes.copyOfRange(offset, offset + 4)
+                    .contentEquals(byteArrayOf(0x50, 0x4b, 0x01, 0x02))
         }
         bytes[central + 28] = 0xFF.toByte()
         bytes[central + 29] = 0x7F
@@ -525,8 +565,11 @@ class NarArchiveReaderTest {
         val unsupported = archive("install.txt" to descriptor)
         val bytes = unsupported.readBytes()
         val central = bytes.indices.first { offset ->
-            offset + 4 <= bytes.size && bytes[offset] == 0x50.toByte() &&
-                bytes[offset + 1] == 0x4b.toByte() && bytes[offset + 2] == 0x01.toByte() && bytes[offset + 3] == 0x02.toByte()
+            offset + 4 <= bytes.size &&
+                bytes[offset] == 0x50.toByte() &&
+                bytes[offset + 1] == 0x4b.toByte() &&
+                bytes[offset + 2] == 0x01.toByte() &&
+                bytes[offset + 3] == 0x02.toByte()
         }
         bytes[central + 10] = 99
         unsupported.writeBytes(bytes)

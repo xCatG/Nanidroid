@@ -1,7 +1,7 @@
 package com.cattailsw.nanidroid.ghost
 
-import android.graphics.BitmapFactory
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -23,13 +23,16 @@ class CachedSurfaceImageLoader : SurfaceImageLoader {
                 ?: throw IllegalStateException("Unable to decode ${file.name}")
             val maskFile = File(file.parentFile, "${file.nameWithoutExtension}.pna")
             if (Files.isSymbolicLink(maskFile.toPath()) ||
-                (maskFile.isFile && maskFile.canonicalFile.parentFile != file.parentFile.canonicalFile)) {
+                (maskFile.isFile && maskFile.canonicalFile.parentFile != file.parentFile.canonicalFile)
+            ) {
                 throw SecurityException("PNA mask escapes shell directory")
             }
             val mask = if (maskFile.isFile) {
                 BitmapFactory.decodeFile(maskFile.absolutePath)
                     ?: throw IllegalStateException("Unable to decode ${maskFile.name}")
-            } else null
+            } else {
+                null
+            }
             val image = when {
                 mask != null -> {
                     require(mask.width == bitmap.width && mask.height == bitmap.height) {

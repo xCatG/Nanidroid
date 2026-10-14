@@ -7,7 +7,7 @@ data class ImportLimits(
     val expandedBytes: Long = 1024L * 1024 * 1024,
     val fileBytes: Long = 128L * 1024 * 1024,
     val ghostDescriptorBytes: Int = GHOST_DESCRIPTOR_LIMIT,
-    val entries: Int = 20_000,
+    val entries: Int = 20_000
 )
 
 data class ImportPackage(val directoryId: String, val rootPrefix: String)

@@ -18,7 +18,11 @@ interface NativePort {
     suspend fun load(kind: NativeKind, directory: File, libraryName: String): NativeLoadResult
     suspend fun request(lease: NativeLease, event: ShioriEvent): ShioriReply
     suspend fun unload(lease: NativeLease): NativeUnloadResult
-    suspend fun shutdown(lease: NativeLease, notifyDestroy: Boolean = true, timeoutMillis: Long = 5_000L): NativeShutdownResult
+    suspend fun shutdown(
+        lease: NativeLease,
+        notifyDestroy: Boolean = true,
+        timeoutMillis: Long = 5_000L
+    ): NativeShutdownResult
 }
 
 class HostNativePort(private val host: NativeShioriHost) : NativePort {

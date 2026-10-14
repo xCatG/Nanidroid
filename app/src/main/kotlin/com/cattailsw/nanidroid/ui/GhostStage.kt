@@ -133,16 +133,18 @@ private class ActiveCharacterGesture(private val speaker: Int) {
     private var captured: CharacterPointerContext? = null
     val tracking get() = captured != null
 
-    fun begin(context: CharacterPointerContext) { captured = context }
+    fun begin(context: CharacterPointerContext) {
+        captured = context
+    }
 
-    fun invalidateIfChanged(
-        rectangle: StageGeometry.SurfaceRectangle, rootOrigin: Offset,
-        surface: AnimatedSurface
-    ) {
+    fun invalidateIfChanged(rectangle: StageGeometry.SurfaceRectangle, rootOrigin: Offset, surface: AnimatedSurface) {
         val first = captured ?: return
-        if (first.rectangle != rectangle || first.rootOrigin != rootOrigin ||
+        if (first.rectangle != rectangle ||
+            first.rootOrigin != rootOrigin ||
             first.surface.coordinates != surface.coordinates
-        ) cancel()
+        ) {
+            cancel()
+        }
     }
 
     fun cancel() {
@@ -150,12 +152,15 @@ private class ActiveCharacterGesture(private val speaker: Int) {
         captured = null
     }
 
-    fun end() { captured = null }
+    fun end() {
+        captured = null
+    }
 }
 
 @Composable
 fun GhostStage(
-    state: StageState, imageLoader: SurfaceImageLoader,
+    state: StageState,
+    imageLoader: SurfaceImageLoader,
     onCharacterClick: (speaker: Int, x: Int, y: Int) -> Unit
 ) {
     GhostStage(state, imageLoader, {}, {}, {}, { _, _, _ -> }, onCharacterClick)
@@ -188,19 +193,28 @@ fun GhostStage(
     onCharacterMoveCancel: (speaker: Int) -> Unit = {},
     onCharacterClickResolved: (
         (
-            speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
+            speaker: Int,
+            x: Int,
+            y: Int,
+            collisionSurfaceId: Int,
             origin: DialogueToken?
         ) -> Unit
     )? = null,
     onCharacterDoubleClickResolved: (
         (
-            speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
+            speaker: Int,
+            x: Int,
+            y: Int,
+            collisionSurfaceId: Int,
             origin: DialogueToken?
         ) -> Unit
     )? = null,
     onCharacterMoveResolved: (
         (
-            speaker: Int, x: Int, y: Int, collisionSurfaceId: Int,
+            speaker: Int,
+            x: Int,
+            y: Int,
+            collisionSurfaceId: Int,
             source: RenderedMoveSource
         ) -> Unit
     )? = null,
@@ -236,9 +250,14 @@ fun GhostStage(
                 var showDebugTools by remember(sessionId) { mutableStateOf(false) }
                 val claimHostUiRequest by rememberUpdatedState(onClaimHostUiRequest)
                 val importDialogVisible = importState is ImportState.Running ||
-                    importState is ImportState.Completed || importInterrupted
-                val modalVisible = showGhosts || showAbout || showDebugTools || state.switchPrompt != null ||
-                    state.input != null || importDialogVisible
+                    importState is ImportState.Completed ||
+                    importInterrupted
+                val modalVisible = showGhosts ||
+                    showAbout ||
+                    showDebugTools ||
+                    state.switchPrompt != null ||
+                    state.input != null ||
+                    importDialogVisible
                 LaunchedEffect(state.hostUiRequest?.id, interactionActive, modalVisible) {
                     val request = state.hostUiRequest ?: return@LaunchedEffect
                     if (!interactionActive || modalVisible) return@LaunchedEffect
@@ -255,22 +274,34 @@ fun GhostStage(
                 val controlsHeight = with(LocalDensity.current) { controlsHeightPx.toDp() }
                 val toggleControls = { controlsVisible = !controlsVisible }
                 val controlsToggleLabel = stringResource(
-                    if (controlsVisible)
-                        R.string.stage_hide_controls else R.string.stage_show_controls
+                    if (controlsVisible) {
+                        R.string.stage_hide_controls
+                    } else {
+                        R.string.stage_show_controls
+                    }
                 )
                 val boundsLabel = stringResource(R.string.stage_bounds)
                 val boundsToggleLabel = stringResource(
-                    if (showTouchBounds)
-                        R.string.stage_hide_bounds else R.string.stage_show_bounds
+                    if (showTouchBounds) {
+                        R.string.stage_hide_bounds
+                    } else {
+                        R.string.stage_show_bounds
+                    }
                 )
                 val boundsStateLabel = stringResource(
-                    if (showTouchBounds)
-                        R.string.stage_bounds_on else R.string.stage_bounds_off
+                    if (showTouchBounds) {
+                        R.string.stage_bounds_on
+                    } else {
+                        R.string.stage_bounds_off
+                    }
                 )
                 val ghostsLabel = stringResource(R.string.stage_ghosts)
                 val aboutLabel = stringResource(R.string.stage_about)
                 val loaded by produceState<LoadedImages>(
-                    LoadedImages.Loading, state.surfaces, state.shell, imageLoader
+                    LoadedImages.Loading,
+                    state.surfaces,
+                    state.shell,
+                    imageLoader
                 ) {
                     value = try {
                         LoadedImages.Ready(loadSurfaces(state.surfaces, state.shell, imageLoader))
@@ -296,34 +327,43 @@ fun GhostStage(
                         Modifier.padding(top = if (controlsVisible) controlsHeight else 0.dp)
                             .semantics {
                                 contentDescription = controlsToggleLabel
-                                onClick { toggleControls(); true }
+                                onClick {
+                                    toggleControls()
+                                    true
+                                }
                             }.testTag("stage-controls-toggle")
                     )
                 }
-                if (controlsVisible) FlowRow(
-                    Modifier.align(Alignment.TopEnd).fillMaxWidth()
-                        .onSizeChanged { controlsHeightPx = it.height }.padding(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (debugBuild) StageControlButton(
-                        boundsLabel,
-                        onClick = { showTouchBounds = !showTouchBounds },
-                        modifier = Modifier.semantics {
-                            contentDescription = boundsToggleLabel
-                            stateDescription = boundsStateLabel
-                        }.testTag("touch-bounds-action")
-                    )
-                    StageControlButton(
-                        ghostsLabel, onClick = { showGhosts = true },
-                        modifier = Modifier.semantics { contentDescription = ghostsLabel }
-                            .testTag("ghosts-action")
-                    )
-                    StageControlButton(
-                        aboutLabel, onClick = { showAbout = true },
-                        modifier = Modifier.semantics { contentDescription = aboutLabel }
-                            .testTag("about-action")
-                    )
+                if (controlsVisible) {
+                    FlowRow(
+                        Modifier.align(Alignment.TopEnd).fillMaxWidth()
+                            .onSizeChanged { controlsHeightPx = it.height }.padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (debugBuild) {
+                            StageControlButton(
+                                boundsLabel,
+                                onClick = { showTouchBounds = !showTouchBounds },
+                                modifier = Modifier.semantics {
+                                    contentDescription = boundsToggleLabel
+                                    stateDescription = boundsStateLabel
+                                }.testTag("touch-bounds-action")
+                            )
+                        }
+                        StageControlButton(
+                            ghostsLabel,
+                            onClick = { showGhosts = true },
+                            modifier = Modifier.semantics { contentDescription = ghostsLabel }
+                                .testTag("ghosts-action")
+                        )
+                        StageControlButton(
+                            aboutLabel,
+                            onClick = { showAbout = true },
+                            modifier = Modifier.semantics { contentDescription = aboutLabel }
+                                .testTag("about-action")
+                        )
+                    }
                 }
                 Column(
                     Modifier.align(Alignment.TopEnd).padding(top = if (controlsVisible) controlsHeight else 0.dp),
@@ -358,7 +398,9 @@ fun GhostStage(
                 if ((showGhosts || importDialogVisible) && state.switchPrompt == null) {
                     AlertDialog(
                         onDismissRequest = {
-                            if (importState is ImportState.Running) onClose() else {
+                            if (importState is ImportState.Running) {
+                                onClose()
+                            } else {
                                 showGhosts = false
                                 if (importState is ImportState.Completed) onAcknowledgeImport(importState.attemptId)
                                 if (importInterrupted) onDismissInterrupted()
@@ -428,7 +470,10 @@ fun GhostStage(
                         dismissButton = {
                             if (importState == ImportState.Idle) {
                                 TextButton(
-                                    onClick = { showGhosts = false; onImport() },
+                                    onClick = {
+                                        showGhosts = false
+                                        onImport()
+                                    },
                                     modifier = Modifier.semantics { contentDescription = "Import .nar" }
                                         .testTag("import-action")
                                 ) { Text("Import .nar") }
@@ -466,16 +511,22 @@ fun GhostStage(
                 }
                 state.input?.let { input ->
                     var draft by rememberSaveable(
-                        input.token.sessionId, input.token.dialogueId,
+                        input.token.sessionId,
+                        input.token.dialogueId,
                         input.token.itemKey
                     ) { mutableStateOf("") }
                     GhostInputDialog(
-                        input, draft, onDraftChange = { draft = it },
+                        input,
+                        draft,
+                        onDraftChange = { draft = it },
                         onSubmit = { onSubmitInput(input.token, it) },
                         onCancel = { onCancelInput(input.token) },
                         onBack = {
-                            if (isFarewellInput(input.token)) onClose()
-                            else onCancelInput(input.token)
+                            if (isFarewellInput(input.token)) {
+                                onClose()
+                            } else {
+                                onCancelInput(input.token)
+                            }
                         }
                     )
                 }
@@ -485,16 +536,20 @@ fun GhostStage(
 }
 
 private suspend fun loadSurfaces(
-    files: Map<Int, File>, shellCatalog: ShellCatalog?,
+    files: Map<Int, File>,
+    shellCatalog: ShellCatalog?,
     loader: SurfaceImageLoader
 ): Map<Int, ComposedSurface> {
     val definitions = shellCatalog?.definitions
     val images = mutableMapOf<Int, ComposedSurface>()
     for ((id, file) in files) {
-        if (shellCatalog != null && !withContext(Dispatchers.IO) {
+        if (shellCatalog != null &&
+            !withContext(Dispatchers.IO) {
                 ShellFiles.isDirectChild(shellCatalog.shellDirectory, file)
             }
-        ) continue
+        ) {
+            continue
+        }
         try {
             val elements = definitions?.definition(id)?.elements.orEmpty()
             if (shellCatalog != null && elements.any { it.id == 0 }) {
@@ -502,10 +557,12 @@ private suspend fun loadSurfaces(
                     ?: ComposedSurface(loader.load(file), 0, 0)
             } else {
                 val numbered = loader.load(file)
-                images[id] = if (shellCatalog != null && elements.isNotEmpty())
+                images[id] = if (shellCatalog != null && elements.isNotEmpty()) {
                     SurfaceComposer.composeBase(shellCatalog, id, loader, numbered)
                         ?: ComposedSurface(numbered, 0, 0)
-                else ComposedSurface(numbered, 0, 0)
+                } else {
+                    ComposedSurface(numbered, 0, 0)
+                }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -547,8 +604,11 @@ private fun ReadyStage(
     @Composable
     fun resolve(frame: SpeakerFrame, speaker: Int) = remember(frame.surfaceId, frame.visual, images) {
         AnimatedSurface.resolve(
-            frame.surfaceId, frame.visual, images,
-            MoveGeometryResolver.fallbackSurfaceId(speaker), imageBounds
+            frame.surfaceId,
+            frame.visual,
+            images,
+            MoveGeometryResolver.fallbackSurfaceId(speaker),
+            imageBounds
         )
     }
     val sakura = resolve(state.frame.sakura, 0)
@@ -562,7 +622,9 @@ private fun ReadyStage(
     fun source(frame: SpeakerFrame, surface: AnimatedSurface) =
         remember(state.dialogueToken, frame.surfaceId, frame.visual, imageBounds, surface) {
             RenderedMoveSource(
-                state.dialogueToken, frame.surfaceId, frame.visual,
+                state.dialogueToken,
+                frame.surfaceId,
+                frame.visual,
                 RenderedMoveSnapshot(imageBounds, surface.coordinates)
             )
         }
@@ -584,11 +646,16 @@ private fun ReadyStage(
         val balloonReserve = maxOf(with(density) { 96.dp.toPx() }, minimumBalloonReserve)
             .coerceAtMost((heightPx - with(density) { 24.dp.toPx() }).coerceAtLeast(0f))
         val scale = StageGeometry.scaleFor(
-            sakura.width, sakura.height, kero.width, kero.height,
-            widthPx.roundToInt(), (heightPx - balloonReserve).roundToInt(),
+            sakura.width,
+            sakura.height,
+            kero.width,
+            kero.height,
+            widthPx.roundToInt(),
+            (heightPx - balloonReserve).roundToInt(),
             StageGeometry.logicalArtCeiling(
                 windowConfiguration.screenWidthDp,
-                windowConfiguration.screenHeightDp, density.density
+                windowConfiguration.screenHeightDp,
+                density.density
             )
         )
         val sakuraWidth = with(density) { (sakura.width * scale).toDp() }
@@ -694,8 +761,10 @@ private fun CharacterSurface(
         ).size(width, height)
             .onSizeChanged {
                 val next = StageGeometry.fittedRectangle(
-                    surface.width, surface.height,
-                    it.width, it.height
+                    surface.width,
+                    surface.height,
+                    it.width,
+                    it.height
                 )
                 activeGesture.invalidateIfChanged(next, rootOrigin, surface)
                 rectangle = next
@@ -714,23 +783,34 @@ private fun CharacterSurface(
 
                 // Gestures that outlive their dialogue are dropped rather than retargeted.
                 fun authored(position: Offset, context: CharacterPointerContext) =
-                    if (currentPointer.source.dialogueToken != context.source.dialogueToken) null
-                    else context.rectangle.toAuthored(
-                        position.x, position.y,
-                        context.surface.originX, context.surface.originY
-                    )
+                    if (currentPointer.source.dialogueToken != context.source.dialogueToken) {
+                        null
+                    } else {
+                        context.rectangle.toAuthored(
+                            position.x,
+                            position.y,
+                            context.surface.originX,
+                            context.surface.originY
+                        )
+                    }
                 fun emitTap(position: Offset, double: Boolean, context: CharacterPointerContext) {
                     val point = authored(position, context) ?: return
                     val tap = if (double) context.callbacks.doubleClick else context.callbacks.click
                     tap(
-                        speaker, point.x, point.y, context.surface.collisionSurfaceId,
+                        speaker,
+                        point.x,
+                        point.y,
+                        context.surface.collisionSurfaceId,
                         context.source.dialogueToken
                     )
                 }
                 fun emitMove(position: Offset, context: CharacterPointerContext) {
                     val point = authored(position, context) ?: return
                     context.callbacks.move(
-                        speaker, point.x, point.y, context.surface.collisionSurfaceId,
+                        speaker,
+                        point.x,
+                        point.y,
+                        context.surface.collisionSurfaceId,
                         context.source
                     )
                 }
@@ -740,7 +820,8 @@ private fun CharacterSurface(
                 ): CharacterGesture {
                     activeGesture.begin(context)
                     return readCharacterGesture(
-                        down, slop,
+                        down,
+                        slop,
                         { position -> position + currentPointer.rootOrigin - context.rootOrigin }
                     ) {
                         if (activeGesture.tracking) emitMove(it, context)
@@ -756,19 +837,21 @@ private fun CharacterSurface(
                             val secondDown = withTimeoutOrNull(doubleTimeout) {
                                 awaitFirstDown(requireUnconsumed = false)
                             }
-                            if (secondDown == null) emitTap(first.position, false, firstContext)
-                            else {
+                            if (secondDown == null) {
+                                emitTap(first.position, false, firstContext)
+                            } else {
                                 val secondContext = currentPointer
                                 val second = track(secondDown, secondContext)
                                 val delta = secondDown.position + secondContext.rootOrigin -
                                     (firstDown.position + firstContext.rootOrigin)
                                 val near = delta.x * delta.x + delta.y * delta.y <= doubleSlop * doubleSlop
-                                if (second is CharacterGesture.Tap && near)
+                                if (second is CharacterGesture.Tap && near) {
                                     emitTap(second.position, true, secondContext)
-                                else {
+                                } else {
                                     emitTap(first.position, false, firstContext)
-                                    if (second is CharacterGesture.Tap)
+                                    if (second is CharacterGesture.Tap) {
                                         emitTap(second.position, false, secondContext)
+                                    }
                                 }
                             }
                         }
@@ -782,8 +865,10 @@ private fun CharacterSurface(
                 onClick {
                     if (!gesturesActive) return@onClick false
                     callbacks.click(
-                        speaker, surface.originX + surface.width / 2,
-                        surface.originY + surface.height / 2, surface.collisionSurfaceId,
+                        speaker,
+                        surface.originX + surface.width / 2,
+                        surface.originY + surface.height / 2,
+                        surface.collisionSurfaceId,
                         renderedMoveSource.dialogueToken
                     )
                     true
@@ -817,11 +902,15 @@ private fun CharacterSurface(
                     val top = maxOf(collision.top.toLong(), surface.originY.toLong())
                     val right = minOf(collision.right.toLong(), surface.originX.toLong() + surface.width)
                     val bottom = minOf(collision.bottom.toLong(), surface.originY.toLong() + surface.height)
-                    if (right <= left || bottom <= top) null else {
+                    if (right <= left || bottom <= top) {
+                        null
+                    } else {
                         val x = rectangle.left + (left - surface.originX).toFloat() * scaleX
                         val y = rectangle.top + (top - surface.originY).toFloat() * scaleY
                         collision to Rect(
-                            x, y, x + (right - left).toFloat() * scaleX,
+                            x,
+                            y,
+                            x + (right - left).toFloat() * scaleX,
                             y + (bottom - top).toFloat() * scaleY
                         )
                     }
@@ -844,8 +933,9 @@ private fun CharacterSurface(
                         placementAttempts++ < visibleCollisions.size
                     ) {
                         labelTop += labelHeight
-                        if (labelTop + labelHeight > rectangle.top + rectangle.height)
+                        if (labelTop + labelHeight > rectangle.top + rectangle.height) {
                             labelTop = rectangle.top
+                        }
                         labelBox = Rect(labelX, labelTop, labelX + labelWidth, labelTop + labelHeight)
                     }
                     labelBoxes += labelBox
@@ -853,13 +943,18 @@ private fun CharacterSurface(
                     drawIntoCanvas { canvas ->
                         val native = canvas.nativeCanvas
                         native.drawRect(
-                            labelBox.left, labelBox.top, labelBox.right, labelBox.bottom,
+                            labelBox.left,
+                            labelBox.top,
+                            labelBox.right,
+                            labelBox.bottom,
                             collisionLabelBackground
                         )
                         native.save()
                         native.clipRect(
-                            labelX + padding, labelY - collisionTextPaint.textSize,
-                            labelX + labelWidth - padding, labelY + padding
+                            labelX + padding,
+                            labelY - collisionTextPaint.textSize,
+                            labelX + labelWidth - padding,
+                            labelY + padding
                         )
                         native.drawText(label, labelX + padding, labelY, collisionTextPaint)
                         native.restore()
@@ -867,7 +962,9 @@ private fun CharacterSurface(
                 }
                 visibleCollisions.forEach { (_, bounds) ->
                     drawRect(
-                        Color.Cyan, bounds.topLeft, bounds.size,
+                        Color.Cyan,
+                        bounds.topLeft,
+                        bounds.size,
                         style = Stroke(width = 2.dp.toPx())
                     )
                 }
@@ -904,8 +1001,10 @@ private sealed interface CharacterGesture {
 }
 
 private suspend fun AwaitPointerEventScope.readCharacterGesture(
-    down: PointerInputChange, touchSlop: Float,
-    toPressLocal: (Offset) -> Offset, onDrag: (Offset) -> Unit
+    down: PointerInputChange,
+    touchSlop: Float,
+    toPressLocal: (Offset) -> Offset,
+    onDrag: (Offset) -> Unit
 ): CharacterGesture {
     var dragged = false
     while (true) {
@@ -913,11 +1012,17 @@ private suspend fun AwaitPointerEventScope.readCharacterGesture(
             ?: return CharacterGesture.Cancelled
         if (change.isConsumed) return CharacterGesture.Cancelled
         val position = toPressLocal(change.position)
-        if (!change.pressed) return if (dragged) CharacterGesture.Dragged
-        else CharacterGesture.Tap(position)
+        if (!change.pressed) {
+            return if (dragged) {
+                CharacterGesture.Dragged
+            } else {
+                CharacterGesture.Tap(position)
+            }
+        }
         val delta = position - down.position
-        if (!dragged && delta.x * delta.x + delta.y * delta.y > touchSlop * touchSlop)
+        if (!dragged && delta.x * delta.x + delta.y * delta.y > touchSlop * touchSlop) {
             dragged = true
+        }
         if (dragged) {
             onDrag(position)
             change.consume()
@@ -927,10 +1032,15 @@ private suspend fun AwaitPointerEventScope.readCharacterGesture(
 
 @Composable
 private fun Balloon(
-    name: String, text: String, visible: Boolean,
-    choices: List<PresentedChoice>, dialogueToken: DialogueToken?,
-    onChoose: (InteractionToken) -> Unit, onOpenLink: (DialogueToken, String) -> Unit,
-    onInertTap: () -> Unit, tailAnchor: Dp,
+    name: String,
+    text: String,
+    visible: Boolean,
+    choices: List<PresentedChoice>,
+    dialogueToken: DialogueToken?,
+    onChoose: (InteractionToken) -> Unit,
+    onOpenLink: (DialogueToken, String) -> Unit,
+    onInertTap: () -> Unit,
+    tailAnchor: Dp,
     modifier: Modifier
 ) {
     if (!visible) {

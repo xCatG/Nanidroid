@@ -1,8 +1,8 @@
 package com.cattailsw.nanidroid.ui
 
-import android.graphics.Bitmap
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.runtime.mutableStateOf
@@ -49,22 +49,35 @@ class Milestone4CorpusDynamicUiTest {
         val initial = animator.advanceBy(0, emptySet())!!.getValue(0)
         assertEquals(0, initial.offsetX)
         fun frame(visual: com.cattailsw.nanidroid.runtime.SurfaceVisual) = StageState.Ready(
-            PlaybackFrame(SpeakerFrame(1, true, "", false, visual),
-                SpeakerFrame(10, true, "", false), false),
-            "Earthquake Rescue Duo", "Mantle", "Ridge", numbered, shell = catalog,
+            PlaybackFrame(
+                SpeakerFrame(1, true, "", false, visual),
+                SpeakerFrame(10, true, "", false),
+                false
+            ),
+            "Earthquake Rescue Duo",
+            "Mantle",
+            "Ridge",
+            numbered,
+            shell = catalog
         )
         val state = mutableStateOf(frame(initial))
         compose.setContent { GhostStage(state.value, CachedSurfaceImageLoader()) { _, _, _ -> } }
         compose.waitUntil(30_000) {
-            try { compose.onNodeWithTag("sakura").fetchSemanticsNode(); true }
-            catch (_: AssertionError) { false }
+            try {
+                compose.onNodeWithTag("sakura").fetchSemanticsNode()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
         }
         compose.waitForIdle()
         val beforeLeft = compose.onNodeWithTag("sakura").fetchSemanticsNode().boundsInRoot.left
         val before = compose.onRoot().captureToImage().asAndroidBitmap()
         save(context, before, "task7-earthquake-before.png")
-        println("M4_DYNAMIC before offset=${initial.offsetX},${initial.offsetY} " +
-            "sakuraLeft=$beforeLeft root=${before.width}x${before.height}")
+        println(
+            "M4_DYNAMIC before offset=${initial.offsetX},${initial.offsetY} " +
+                "sakuraLeft=$beforeLeft root=${before.width}x${before.height}"
+        )
 
         val moved = animator.advanceBy(100, emptySet())!!.getValue(0)
         assertEquals(10, moved.offsetX)
@@ -78,8 +91,10 @@ class Milestone4CorpusDynamicUiTest {
         val after = compose.onRoot().captureToImage().asAndroidBitmap()
         save(context, after, "task7-earthquake-after.png")
         val changed = changedPixels(before, after)
-        println("M4_DYNAMIC after offset=${moved.offsetX},${moved.offsetY} " +
-            "sakuraLeft=$afterLeft changedRootPixels=$changed")
+        println(
+            "M4_DYNAMIC after offset=${moved.offsetX},${moved.offsetY} " +
+                "sakuraLeft=$afterLeft changedRootPixels=$changed"
+        )
         assertTrue("authored +10 move did not shift rendered Canvas right", afterLeft - beforeLeft > 2f)
         assertTrue("rendered Compose root pixels did not change with move", changed > 100)
     }
@@ -100,14 +115,25 @@ class Milestone4CorpusDynamicUiTest {
         animator.setSurface(1, 10)
         val static = animator.advanceBy(50, emptySet())!!
         assertEquals(setOf(1501, 1601), static.getValue(0).layers.map { it.surfaceId }.toSet())
-        assertEquals(setOf(1101, 1001, 1403, 1201),
-            static.getValue(1).layers.map { it.surfaceId }.toSet())
+        assertEquals(
+            setOf(1101, 1001, 1403, 1201),
+            static.getValue(1).layers.map { it.surfaceId }.toSet()
+        )
 
-        fun frame(sakura: com.cattailsw.nanidroid.runtime.SurfaceVisual?,
-            kero: com.cattailsw.nanidroid.runtime.SurfaceVisual?) = StageState.Ready(
-            PlaybackFrame(SpeakerFrame(0, true, "", false, sakura),
-                SpeakerFrame(10, true, "", false, kero), false),
-            "Earthquake Rescue Duo", "Mantle", "Ridge", numbered, shell = catalog,
+        fun frame(
+            sakura: com.cattailsw.nanidroid.runtime.SurfaceVisual?,
+            kero: com.cattailsw.nanidroid.runtime.SurfaceVisual?
+        ) = StageState.Ready(
+            PlaybackFrame(
+                SpeakerFrame(0, true, "", false, sakura),
+                SpeakerFrame(10, true, "", false, kero),
+                false
+            ),
+            "Earthquake Rescue Duo",
+            "Mantle",
+            "Ridge",
+            numbered,
+            shell = catalog
         )
         val state = mutableStateOf(frame(null, null))
         val loader = CachedSurfaceImageLoader()
@@ -117,8 +143,9 @@ class Milestone4CorpusDynamicUiTest {
                 compose.onNodeWithTag("sakura").fetchSemanticsNode()
                 compose.onNodeWithTag("kero").fetchSemanticsNode()
                 true
+            } catch (_: AssertionError) {
+                false
             }
-            catch (_: AssertionError) { false }
         }
         compose.waitForIdle()
         val mantleBase = compose.onNodeWithTag("sakura").captureToImage().asAndroidBitmap()
@@ -129,15 +156,19 @@ class Milestone4CorpusDynamicUiTest {
                 val mantle = compose.onNodeWithTag("sakura").captureToImage().asAndroidBitmap()
                 val ridge = compose.onNodeWithTag("kero").captureToImage().asAndroidBitmap()
                 changedPixels(mantleBase, mantle) > 100 && changedPixels(ridgeBase, ridge) > 100
-            } catch (_: AssertionError) { false }
+            } catch (_: AssertionError) {
+                false
+            }
         }
         val mantleRendered = compose.onNodeWithTag("sakura").captureToImage().asAndroidBitmap()
         val ridgeRendered = compose.onNodeWithTag("kero").captureToImage().asAndroidBitmap()
         val mantleChanged = changedPixels(mantleBase, mantleRendered)
         val ridgeChanged = changedPixels(ridgeBase, ridgeRendered)
-        println("M4_CORPUS EARTHQUAKE staticChangedPixels mantle=$mantleChanged ridge=$ridgeChanged " +
-            "layers=${static.getValue(0).layers.map { it.surfaceId }}," +
-            "${static.getValue(1).layers.map { it.surfaceId }}")
+        println(
+            "M4_CORPUS EARTHQUAKE staticChangedPixels mantle=$mantleChanged ridge=$ridgeChanged " +
+                "layers=${static.getValue(0).layers.map { it.surfaceId }}," +
+                "${static.getValue(1).layers.map { it.surfaceId }}"
+        )
         assertTrue("Mantle authored parts did not change rendered pixels", mantleChanged > 100)
         assertTrue("Ridge authored parts did not change rendered pixels", ridgeChanged > 100)
     }
@@ -159,8 +190,10 @@ class Milestone4CorpusDynamicUiTest {
         assertEquals(a.width, b.width)
         assertEquals(a.height, b.height)
         var changed = 0
-        for (y in 0 until a.height) for (x in 0 until a.width) {
-            if (a.getPixel(x, y) != b.getPixel(x, y)) changed++
+        for (y in 0 until a.height) {
+            for (x in 0 until a.width) {
+                if (a.getPixel(x, y) != b.getPixel(x, y)) changed++
+            }
         }
         return changed
     }

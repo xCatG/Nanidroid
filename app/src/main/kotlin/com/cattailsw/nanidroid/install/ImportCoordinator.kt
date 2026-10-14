@@ -19,12 +19,13 @@ import kotlinx.coroutines.withContext
 class ImportCoordinator(
     private val importer: GhostImporter,
     private val runtime: GhostRuntime,
-    private val scope: CoroutineScope,
+    private val scope: CoroutineScope
 ) {
     private val mutableState = MutableStateFlow<ImportState>(ImportState.Idle)
     val state: StateFlow<ImportState> = mutableState
     private var running: Job? = null
     private var pickingSink: InstallEventSink? = null
+
     /** A deferred prompt whose result the user already closed; offered once the runtime is Active. */
     @Volatile private var acknowledgedPrompt: String? = null
 
@@ -40,14 +41,17 @@ class ImportCoordinator(
                     return@collect
                 }
                 acknowledgedPrompt?.let { id ->
-                    if (ready != null && mutableState.value == ImportState.Idle &&
-                        runtime.offerImportedGhost(id) != ImportPromptResult.Deferred) {
+                    if (ready != null &&
+                        mutableState.value == ImportState.Idle &&
+                        runtime.offerImportedGhost(id) != ImportPromptResult.Deferred
+                    ) {
                         acknowledgedPrompt = null
                     }
                 }
                 if (completed != null && completed.pendingPrompt) {
                     if (completed.promptResult == ImportPromptResult.Shown &&
-                        ready?.switchPrompt?.directoryId != completed.pendingDirectoryId) {
+                        ready?.switchPrompt?.directoryId != completed.pendingDirectoryId
+                    ) {
                         // Dismissing or confirming the prompt completes the attempt.
                         mutableState.compareAndSet(completed, ImportState.Idle)
                     } else if (ready != null && completed.promptResult == ImportPromptResult.Deferred) {
@@ -112,9 +116,12 @@ class ImportCoordinator(
                     is ImportOutcome.Failed -> sink?.emit("OnInstallFailure")
                     ImportOutcome.Cancelled -> if (beginSent) sink?.emit("OnInstallFailure")
                 }
-                val completed = ImportState.Completed(attemptId, outcome,
+                val completed = ImportState.Completed(
+                    attemptId,
+                    outcome,
                     pendingDirectoryId = (outcome as? ImportOutcome.Installed)?.directoryId,
-                    pendingPrompt = outcome is ImportOutcome.Installed)
+                    pendingPrompt = outcome is ImportOutcome.Installed
+                )
                 mutableState.value = completed
                 // Checked after publishing Completed so a concurrent Finished cannot leave it behind.
                 if (runtime.state.value == StageState.Finished) {
@@ -154,7 +161,7 @@ class ImportCoordinator(
         mutableState.value = current.copy(
             pendingPrompt = disposition == ImportPromptResult.Deferred ||
                 disposition == ImportPromptResult.Shown,
-            promptResult = disposition,
+            promptResult = disposition
         )
     }
 

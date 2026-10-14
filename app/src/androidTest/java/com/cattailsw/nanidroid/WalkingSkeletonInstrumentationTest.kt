@@ -69,8 +69,9 @@ class WalkingSkeletonInstrumentationTest {
             assertEquals(200, p.mouseClick().second)
         }
         await(scenario) { state ->
-            state is StageState.Ready && state.choices.values.flatten().map { it.label }
-                .containsAll(listOf("Ghosts", "About and licenses", "Dismiss"))
+            state is StageState.Ready &&
+                state.choices.values.flatten().map { it.label }
+                    .containsAll(listOf("Ghosts", "About and licenses", "Dismiss"))
         }
         scenario.onActivity {
             val p = probe(it)
@@ -149,19 +150,25 @@ class WalkingSkeletonInstrumentationTest {
             var settled = false
             scenario.onActivity { activity ->
                 val decor = activity.window.decorView
-                val dimensionsMatch = decor.width > 0 && decor.height > 0 &&
-                    if (orientation == Configuration.ORIENTATION_PORTRAIT) decor.height > decor.width
-                    else decor.width > decor.height
+                val dimensionsMatch = decor.width > 0 &&
+                    decor.height > 0 &&
+                    if (orientation == Configuration.ORIENTATION_PORTRAIT) {
+                        decor.height > decor.width
+                    } else {
+                        decor.width > decor.height
+                    }
                 settled = activity.resources.configuration.orientation == orientation &&
                     activity.lifecycle.currentState == Lifecycle.State.RESUMED &&
-                    activity.hasWindowFocus() && dimensionsMatch
+                    activity.hasWindowFocus() &&
+                    dimensionsMatch
             }
             settled
         }
         compose.waitForIdle()
         scenario.onActivity { activity ->
             assertEquals(
-                "Activity orientation changed after settling", orientation,
+                "Activity orientation changed after settling",
+                orientation,
                 activity.resources.configuration.orientation
             )
             assertEquals(Lifecycle.State.RESUMED, activity.lifecycle.currentState)
@@ -259,7 +266,9 @@ class RuntimeProbe : ViewModel() {
         },
         scope = viewModelScope
     )
-    fun releaseLoading() { loadGate.complete(Unit) }
+    fun releaseLoading() {
+        loadGate.complete(Unit)
+    }
     fun eventCount(id: String) = replies.count { it.first.id == id }
     fun mouseClick() = replies.single { it.first.id == "OnMouseClick" }
     fun text(): String = (runtime.state.value as? StageState.Ready)?.frame?.let {

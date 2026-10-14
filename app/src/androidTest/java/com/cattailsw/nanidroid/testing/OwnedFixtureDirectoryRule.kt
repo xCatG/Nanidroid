@@ -18,8 +18,10 @@ class OwnedFixtureDirectoryRule : TestRule {
 
     override fun apply(base: Statement, description: Description): Statement = object : Statement() {
         override fun evaluate() {
-            root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-                "owned-fixture-${UUID.randomUUID()}")
+            root = File(
+                InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
+                "owned-fixture-${UUID.randomUUID()}"
+            )
             var primary: Throwable? = null
             var created = false
             try {
@@ -40,7 +42,9 @@ class OwnedFixtureDirectoryRule : TestRule {
                         if (primary != null) {
                             primary.addSuppressed(cleanup)
                             System.err.println("OWNED_FIXTURE_CLEANUP failed path=${root.absolutePath}: $cleanup")
-                        } else throw cleanup
+                        } else {
+                            throw cleanup
+                        }
                     }
                 }
             }

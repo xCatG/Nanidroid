@@ -8,10 +8,7 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.util.UUID
 
 /** Owns only private import-staging/attempt-* trees. */
-internal class ImportStaging(
-    filesDir: File,
-    private val beforeCleanup: () -> Unit = {},
-) {
+internal class ImportStaging(filesDir: File, private val beforeCleanup: () -> Unit = {}) {
     private val files = filesDir.toPath()
     private val root = files.resolve("import-staging")
 

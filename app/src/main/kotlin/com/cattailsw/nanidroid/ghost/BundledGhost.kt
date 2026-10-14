@@ -10,5 +10,5 @@ data class BundledGhost(
     val surfaces: Map<Int, File>,
     val content: String,
     val shellDirectory: File? = null,
-    val sakuraName2: String = sakuraName,
+    val sakuraName2: String = sakuraName
 )
