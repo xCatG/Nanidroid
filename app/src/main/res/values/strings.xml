@@ -11,4 +11,7 @@
     <string name="stage_show_bounds">Show touch bounds</string>
     <string name="stage_bounds_on">Touch bounds on</string>
     <string name="stage_bounds_off">Touch bounds off</string>
+    <string name="stage_talk">Talk</string>
+    <string name="genai_chat_enabled">On-device AI chat (experimental)</string>
+    <string name="genai_unavailable">AI chat is unavailable or checking availability. No model will be downloaded.</string>
 </resources>

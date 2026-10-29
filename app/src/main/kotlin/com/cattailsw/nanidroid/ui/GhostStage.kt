@@ -207,7 +207,11 @@ fun GhostStage(
     interactionActive: Boolean = true,
     versionName: String = "Unknown",
     notices: List<Notice> = emptyList(),
-    onClaimHostUiRequest: (Long) -> HostUiCommand? = { null }
+    onClaimHostUiRequest: (Long) -> HostUiCommand? = { null },
+    onGenAiEnabledChange: (Boolean) -> Unit = {},
+    onOpenTalk: () -> Unit = {},
+    onSubmitTalk: (InteractionToken, String) -> Unit = { _, _ -> },
+    onCancelTalk: (InteractionToken) -> Unit = {}
 ) {
     val view = LocalView.current
     val debugBuild = view.context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
@@ -238,7 +242,7 @@ fun GhostStage(
                 val importDialogVisible = importState is ImportState.Running ||
                     importState is ImportState.Completed || importInterrupted
                 val modalVisible = showGhosts || showAbout || showDebugTools || state.switchPrompt != null ||
-                    state.input != null || importDialogVisible
+                    state.input != null || state.talkInput != null || importDialogVisible
                 LaunchedEffect(state.hostUiRequest?.id, interactionActive, modalVisible) {
                     val request = state.hostUiRequest ?: return@LaunchedEffect
                     if (!interactionActive || modalVisible) return@LaunchedEffect
@@ -314,6 +318,14 @@ fun GhostStage(
                             stateDescription = boundsStateLabel
                         }.testTag("touch-bounds-action")
                     )
+                    if (state.genAiEnabled && state.talkAvailable) {
+                        StageControlButton(
+                            stringResource(R.string.stage_talk),
+                            onClick = { if (stageInteractionActive) onOpenTalk() },
+                            modifier = Modifier.testTag("talk-action"),
+                            enabled = stageInteractionActive
+                        )
+                    }
                     StageControlButton(
                         ghostsLabel, onClick = { showGhosts = true },
                         modifier = Modifier.semantics { contentDescription = ghostsLabel }
@@ -387,6 +399,9 @@ fun GhostStage(
                                     )
                                     else -> {
                                         if (importInterrupted) Text("Import interrupted. Please try again.")
+                                        if (state.genAiSupported) {
+                                            GenAiSettings(state.genAiEnabled, state.talkAvailable, onGenAiEnabledChange)
+                                        }
                                         state.installedGhosts.forEach { ghost ->
                                             TextButton(
                                                 onClick = {
@@ -462,6 +477,19 @@ fun GhostStage(
                                 }
                             ) { Text("Cancel") }
                         }
+                    )
+                }
+                state.talkInput?.takeIf {
+                    state.input == null && !showGhosts && !showAbout &&
+                        !showDebugTools && state.switchPrompt == null && !importDialogVisible
+                }?.let { input ->
+                    var draft by rememberSaveable(
+                        input.token.sessionId, input.token.dialogueId, input.token.itemKey
+                    ) { mutableStateOf("") }
+                    GhostInputDialog(
+                        input, draft, onDraftChange = { draft = it },
+                        onSubmit = { onSubmitTalk(input.token, it) },
+                        onCancel = { onCancelTalk(input.token) }
                     )
                 }
                 state.input?.let { input ->
@@ -883,9 +911,12 @@ private fun CharacterSurface(
 }
 
 @Composable
-private fun StageControlButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun StageControlButton(
+    label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true
+) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier.heightIn(min = 48.dp),
         shape = RoundedCornerShape(4.dp),
         colors = ButtonDefaults.buttonColors(

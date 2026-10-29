@@ -10,4 +10,7 @@
     <string name="stage_show_bounds">顯示觸控範圍</string>
     <string name="stage_bounds_on">觸控範圍顯示已開啟</string>
     <string name="stage_bounds_off">觸控範圍顯示已關閉</string>
+    <string name="stage_talk">聊天</string>
+    <string name="genai_chat_enabled">裝置端 AI 聊天（實驗功能）</string>
+    <string name="genai_unavailable">AI 聊天無法使用或正在確認可用性。不會下載模型。</string>
 </resources>

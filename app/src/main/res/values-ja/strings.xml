@@ -10,4 +10,7 @@
     <string name="stage_show_bounds">タッチ範囲を表示</string>
     <string name="stage_bounds_on">タッチ範囲の表示はオン</string>
     <string name="stage_bounds_off">タッチ範囲の表示はオフ</string>
+    <string name="stage_talk">話す</string>
+    <string name="genai_chat_enabled">端末内 AI チャット（試験機能）</string>
+    <string name="genai_unavailable">AI チャットは利用できないか、確認中です。モデルのダウンロードは行いません。</string>
 </resources>
