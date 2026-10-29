@@ -13,8 +13,10 @@ junit = "4.13.2"
 kotlin = "2.3.20"
 commonsCompress = "1.28.0"
 ktlintGradle = "14.2.0"
+mlkitGenaiAgent = "1.0.0-alpha1"
 
 [libraries]
+mlkit-genai-agent = { module = "com.google.mlkit:genai-agent", version.ref = "mlkitGenaiAgent" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivity" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "androidxComposeBom" }
