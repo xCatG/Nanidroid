@@ -4,6 +4,7 @@ import com.cattailsw.nanidroid.data.BootStateStore
 import com.cattailsw.nanidroid.data.LastGhostStore
 import com.cattailsw.nanidroid.engine.BuiltInShiori
 import com.cattailsw.nanidroid.engine.EngineKind
+import com.cattailsw.nanidroid.engine.GenAiShiori
 import com.cattailsw.nanidroid.engine.EngineSelector
 import com.cattailsw.nanidroid.engine.NativeAvailability
 import com.cattailsw.nanidroid.engine.NativeKind
@@ -41,6 +42,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -86,15 +89,20 @@ class GhostRuntime(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val loadCatalog: suspend (File, Map<Int, File>, CoroutineDispatcher) -> ShellCatalog = ::loadShellCatalog,
     private val bundledEngineFactory: ((BundledGhost) -> ShioriEngine)? = null,
+    private val genAi: GenAiRuntimeDependencies? = null,
     private val elapsedRealtime: () -> Long = { android.os.SystemClock.elapsedRealtime() }
 ) {
     private class Session(
         val id: Long,
         val ghost: BundledGhost,
-        val engine: ShioriEngine,
+        val baseEngine: ShioriEngine,
         val lease: NativeLease? = null,
-        val isBundledDefault: Boolean = false
+        val isBundledDefault: Boolean = false,
+        val talk: SessionTalkGenerator? = null
     ) {
+        val developerCommandsEnabled = (baseEngine as? BuiltInShiori)?.developerCommandsEnabled == true
+        val engine = if (talk == null) baseEngine else GenAiShiori(baseEngine, talk) { talk.available }
+        var talkInput: PresentedInput? = null
         val queue = ArrayDeque<QueuedDialogue>()
         var dialogueVersion = 0L
 
@@ -184,6 +192,10 @@ class GhostRuntime(
     private var sessionState: SessionState = SessionState.Idle
     private var nextId = 0L
     private var nextActionId = 0L
+    private var genAiEnabled = false
+    private var genAiSettingsLoaded = false
+    private var genAiVersion = 0L
+    private val settingsWrites = Mutex()
 
     @Volatile private var actionDeliveryEpoch = 0L
 
@@ -288,6 +300,13 @@ class GhostRuntime(
         currentLanguage = language
         mutableState.value = StageState.Loading
         try {
+            if (!genAiSettingsLoaded) {
+                genAiEnabled = try { genAi?.settings?.read() == true } catch (error: Exception) {
+                    logger.warning("AI preference read failed: ${error.message}")
+                    false
+                }
+                genAiSettingsLoaded = true
+            }
             val base = getBundled()
             if (sessionState !== loading) return@withContext
             val choicesRequest = ++choicesVersion
@@ -530,6 +549,84 @@ class GhostRuntime(
         }
     }
 
+    fun setGenAiEnabled(enabled: Boolean) {
+        scope.launch {
+            val dependencies = genAi ?: return@launch
+            val session = settingsWrites.withLock {
+                val active = sessionState as? SessionState.Active ?: return@launch
+                try {
+                    withContext(ioDispatcher) { dependencies.settings.write(enabled) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    if (sameActive(active.session)) showError(active, "AI preference save failed: ${error.message}")
+                    return@launch
+                }
+                genAiEnabled = enabled
+                genAiVersion++
+                val current = tickedSession() ?: return@launch
+                current.talkInput = null
+                if (!enabled) current.talk?.release()
+                publish(current)
+                current
+            }
+            if (enabled && sameActive(session)) {
+                configureGenAi(session) { sameActive(session) }
+                if (sameActive(session)) publish(session)
+            }
+        }
+    }
+
+    private suspend fun configureGenAi(session: Session, stillOwned: () -> Boolean) {
+        val dependencies = genAi ?: return
+        val holder = session.talk ?: return
+        if (!genAiEnabled || holder.available) return
+        val version = genAiVersion
+        try {
+            val available = dependencies.availability.isAvailable()
+            if (!available || version != genAiVersion || !genAiEnabled || !stillOwned()) return
+            holder.attach(dependencies.createGenerator(session.id, session.ghost))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            logger.warning("AI chat unavailable: ${error.message}")
+        }
+    }
+
+    fun openTalk() {
+        scope.launch {
+            val active = sessionState as? SessionState.Active ?: return@launch
+            val session = active.session
+            if (!canTalk(session) || active.prompt != null || session.frame.input != null) return@launch
+            if (session.talkInput == null) {
+                session.talkInput = PresentedInput(
+                    InteractionToken(session.id, session.dialogueVersion, ++nextActionId), session.ghost.sakuraName
+                )
+            }
+            publish(session)
+        }
+    }
+
+    fun submitTalk(token: InteractionToken, text: String) {
+        scope.launch {
+            val session = (sessionState as? SessionState.Active)?.session ?: return@launch
+            if (!canTalk(session) || session.talkInput?.token != token || !ScriptInput.isAllowed(text)) return@launch
+            clearDialogue(session)
+            publish(session)
+            requestAction(session, session.replacementGeneration, ShioriEvent("OnCommunicate", listOf("user", text)))
+        }
+    }
+
+    fun cancelTalk(token: InteractionToken) {
+        val session = (sessionState as? SessionState.Active)?.session ?: return
+        if (session.talkInput?.token != token) return
+        session.talkInput = null
+        publish(session)
+    }
+
+    private fun canTalk(session: Session): Boolean = sameActive(session) && resumed && !importRunning &&
+        genAiEnabled && session.talk?.available == true
+
     fun submitInput(token: InteractionToken, text: String) {
         scope.launch {
             val session = dialogueOwner(token.sessionId, token.dialogueId) ?: return@launch
@@ -621,7 +718,7 @@ class GhostRuntime(
     private fun commandAllowed(session: Session, command: HostUiCommand): Boolean =
         sameActive(session) && resumed && (
             command != HostUiCommand.Developer ||
-                (session.isBundledDefault && (session.engine as? BuiltInShiori)?.developerCommandsEnabled == true)
+                (session.isBundledDefault && session.developerCommandsEnabled)
             )
 
     private fun discardInvalidRequests(session: Session) {
@@ -790,6 +887,8 @@ class GhostRuntime(
                 finishClose(closing, error.message)
             }
             return
+        } finally {
+            session.talk?.close()
         }
         if (sessionState !== closing) return
         enqueue(session, RequestedReply(reply, epoch))
@@ -824,12 +923,12 @@ class GhostRuntime(
                     file.readText(Charsets.UTF_8)
                 }
                 val ghost = descriptorGhost(target).copy(content = content)
-                Session(++nextId, ghost, engineFactory(ghost))
+                newSession(ghost, engineFactory(ghost))
             } catch (error: Exception) {
                 "Built-in ghost load failed: ${error.message}"
             }
         } else if (selected == EngineKind.UNSUPPORTED) {
-            Session(++nextId, descriptorGhost(requireNotNull(target)), UnsupportedShiori())
+            newSession(descriptorGhost(requireNotNull(target)), UnsupportedShiori())
         } else {
             val target = requireNotNull(target)
             if (nativeUnavailable || nativeHost.availability.value != NativeAvailability.Available) {
@@ -883,8 +982,8 @@ class GhostRuntime(
                             "OnInitialize failed: ${error.message}"
                         }
                         if (initializationError != null) initializationError
-                        else Session(
-                            ++nextId, descriptorGhost(target),
+                        else newSession(
+                            descriptorGhost(target),
                             object : ShioriEngine {
                                 override suspend fun request(event: ShioriEvent): ShioriReply =
                                     nativeHost.request(load.lease, event)
@@ -905,8 +1004,9 @@ class GhostRuntime(
             }
         }
         if (sessionState !== expected) {
-            if (result is Session) result.lease?.let { lease ->
-                cleanupCandidate(lease)
+            if (result is Session) {
+                result.talk?.close()
+                result.lease?.let { cleanupCandidate(it) }
             }
             return
         }
@@ -926,6 +1026,7 @@ class GhostRuntime(
                 val failed = session
                 session = bundledSession(base)
                 error = "Shell load failed: ${catalogFailure.message}"
+                failed.talk?.close()
                 failed.lease?.let { cleanupCandidate(it) }
                 if (sessionState !== expected) return
                 loadShell(session)
@@ -936,6 +1037,7 @@ class GhostRuntime(
                     .also { it.follow(session.frame) }
             }
             settleVisuals(session)
+            configureGenAi(session) { sessionState === expected }
             if (sessionState !== expected) return
             sessionState = SessionState.Active(
                 session, prompt = (expected as? SessionState.Active)?.prompt,
@@ -948,6 +1050,7 @@ class GhostRuntime(
             failure = activationFailure.message ?: "Ghost activation failed"
         } finally {
             if (!transferred) {
+                session.talk?.close()
                 session.lease?.let { cleanupCandidate(it) }
                 if (sessionState === expected) {
                     sessionState = SessionState.Idle
@@ -981,6 +1084,7 @@ class GhostRuntime(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
+            session.talk?.release()
             reportRequestFailure(session, failure, "Activation failed")
         }
     }
@@ -1009,6 +1113,7 @@ class GhostRuntime(
         }
         nativeUnavailable = true
         if (sessionState !== expected) return true
+        failed.talk?.close()
         clearDialogue(failed)
         val message = error.message ?: "Native request failed; ownership is unresolved"
         val fallbackExpected = if (expected is SessionState.Active)
@@ -1039,6 +1144,7 @@ class GhostRuntime(
     private suspend fun finishSwitch(switching: SessionState.Switching) {
         if (sessionState !== switching) return
         val from = switching.from
+        from.talk?.close()
         val unloading = SessionState.Switching(from, switching.to, Phase.Unloading)
         sessionState = unloading
         val outcome = from.lease?.let { shutdownSafely(it) }
@@ -1074,6 +1180,7 @@ class GhostRuntime(
     private suspend fun finishClose(closing: SessionState.Closing, requestError: String? = null) {
         if (sessionState !== closing || closing.cleanupStarted) return
         closing.cleanupStarted = true
+        closing.session.talk?.close()
         val cleanup = closing.session.lease?.let { shutdownSafely(it) }
         if (sessionState !== closing) return
         ticker?.cancel()
@@ -1085,6 +1192,7 @@ class GhostRuntime(
     }
 
     private fun finish() {
+        tickedSession()?.talk?.close()
         sessionState = SessionState.Finished
         mutableState.value = StageState.Finished
     }
@@ -1183,6 +1291,7 @@ class GhostRuntime(
         (sessionState as? SessionState.Active)?.session?.id == session.id
 
     private fun clearDialogue(session: Session) {
+        session.talkInput = null
         clearMoveSubmissions()
         session.clearPendingMoves()
         session.dialogueVersion++
@@ -1355,7 +1464,11 @@ class GhostRuntime(
             else emptyMap(),
             input = if (owns) session.frame.input?.let { PresentedInput(token(it.key), it.boxId) } else null,
             dialogueToken = DialogueToken(session.id, session.dialogueVersion),
-            hostUiRequest = session.hostRequests.firstOrNull()?.request.takeIf { sameActive(session) }
+            hostUiRequest = session.hostRequests.firstOrNull()?.request.takeIf { sameActive(session) },
+            genAiSupported = genAi != null,
+            genAiEnabled = genAiEnabled,
+            talkAvailable = sameActive(session) && genAiEnabled && session.talk?.available == true,
+            talkInput = session.talkInput.takeIf { sameActive(session) && genAiEnabled }
         )
     }
 
@@ -1428,9 +1541,16 @@ class GhostRuntime(
         return loadGhost().also { bundled = it }
     }
 
-    private fun bundledSession(base: BundledGhost) = Session(
-        ++nextId, base, getBundledEngine(base),
-        isBundledDefault = true
+    private fun bundledSession(base: BundledGhost) = newSession(
+        base, getBundledEngine(base), isBundledDefault = true
+    )
+
+    private fun newSession(
+        ghost: BundledGhost, engine: ShioriEngine, lease: NativeLease? = null,
+        isBundledDefault: Boolean = false
+    ) = Session(
+        ++nextId, ghost, engine, lease, isBundledDefault,
+        if (genAi != null) SessionTalkGenerator(scope.coroutineContext[Job]) else null
     )
 
     private fun isBundledDescriptor(descriptor: GhostDescriptor, base: BundledGhost): Boolean {

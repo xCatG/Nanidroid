@@ -122,6 +122,10 @@ class MainActivity : ComponentActivity() {
                     onDismissInterrupted = viewModel::dismissInterrupted,
                     onChoose = viewModel::choose,
                     onSubmitInput = viewModel::submitInput,
+                    onGenAiEnabledChange = viewModel::setGenAiEnabled,
+                    onOpenTalk = viewModel::openTalk,
+                    onSubmitTalk = viewModel::submitTalk,
+                    onCancelTalk = viewModel::cancelTalk,
                     onCancelInput = viewModel::cancelInput,
                     isFarewellInput = viewModel::isFarewellInput,
                     onOpenLink = { token, url ->

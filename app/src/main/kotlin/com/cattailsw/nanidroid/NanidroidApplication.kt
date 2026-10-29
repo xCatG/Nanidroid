@@ -3,6 +3,10 @@ package com.cattailsw.nanidroid
 import android.app.Application
 import android.content.pm.ApplicationInfo
 import android.util.Log
+import com.cattailsw.nanidroid.data.PreferencesGenAiSettingsStore
+import com.cattailsw.nanidroid.engine.MlKitGenAiAvailability
+import com.cattailsw.nanidroid.engine.MlKitGhostTalkGenerator
+import com.cattailsw.nanidroid.runtime.GenAiRuntimeDependencies
 import com.cattailsw.nanidroid.data.PreferencesBootStateStore
 import com.cattailsw.nanidroid.data.PreferencesLastGhostStore
 import com.cattailsw.nanidroid.engine.BuiltInShiori
@@ -67,7 +71,17 @@ class NanidroidApplication : Application() {
             scope = applicationScope,
             installedGhosts = InstalledGhostRepository(File(filesDir, "ghost")),
             lastGhostStore = PreferencesLastGhostStore(getSharedPreferences("last_ghost", MODE_PRIVATE)),
-            nativeHost = HostNativePort(NativeShioriHost.process)
+            nativeHost = HostNativePort(NativeShioriHost.process),
+            genAi = GenAiRuntimeDependencies(
+                PreferencesGenAiSettingsStore(getSharedPreferences("genai_chat", MODE_PRIVATE)),
+                MlKitGenAiAvailability()
+            ) { sessionId, ghost ->
+                MlKitGhostTalkGenerator(
+                    "ghost-$sessionId",
+                    "You are the ghost ${ghost.name}. Your name is ${ghost.sakuraName}; " +
+                        "your companion is ${ghost.keroName}. Stay in character."
+                )
+            }
         )
     }
 }

@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.collect
 class MlKitGhostTalkGenerator(
     private val sessionId: String,
     private val instructions: String
-) : GhostTalkGenerator, AutoCloseable {
+) : ManagedGhostTalkGenerator {
     private val runner = lazy {
         AgentRunner(
             Agent.builder()
