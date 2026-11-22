@@ -60,7 +60,8 @@ class NanidroidApplication : Application() {
             bundledEngineFactory = {
                 BuiltInShiori.bundled(
                     it.content,
-                    applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+                    applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
+                    nanoSpike = nanoGhostSpike(it) { resources.configuration.locales[0] }
                 )
             },
             bootState = PreferencesBootStateStore(getSharedPreferences("boot_state", MODE_PRIVATE)),

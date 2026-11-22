@@ -179,6 +179,7 @@ class StageViewModel(
     fun cancelMove(speaker: Int) = runtime.cancelMove(speaker)
     fun choose(token: InteractionToken) = runtime.choose(token)
     fun claimHostUiRequest(requestId: Long) = runtime.claimHostUiRequest(requestId)
+    fun runNanoGhostSpike() = runtime.runNanoGhostSpike()
     fun submitInput(token: InteractionToken, text: String) = runtime.submitInput(token, text)
     fun cancelInput(token: InteractionToken) = runtime.cancelInput(token)
     fun isCurrentDialogue(token: DialogueToken) = runtime.isCurrentDialogue(token)

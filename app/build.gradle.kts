@@ -76,6 +76,8 @@ dependencies {
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.compose.material3)
   // Tooling
+    debugImplementation(libs.mlkit.genai.prompt)
+    debugImplementation(libs.mlkit.genai.schema)
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)

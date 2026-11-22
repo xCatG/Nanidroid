@@ -103,6 +103,7 @@ class MainActivity : ComponentActivity() {
                 GhostStage(
                     state = state, imageLoader = imageLoader,
                     onClaimHostUiRequest = viewModel::claimHostUiRequest,
+                    onRunNanoGhostSpike = viewModel::runNanoGhostSpike,
                     versionName = installedVersionName,
                     notices = loadedNotices.value,
                     interactionActive = characterInteractionActive.value,

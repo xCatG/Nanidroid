@@ -5,7 +5,8 @@ import com.cattailsw.nanidroid.runtime.SakuraScriptText
 class BuiltInShiori private constructor(
     content: String,
     private val bundledMode: Boolean,
-    internal val developerCommandsEnabled: Boolean
+    internal val developerCommandsEnabled: Boolean,
+    private val nanoSpike: (suspend () -> ShioriReply)? = null
 ) : ShioriEngine {
     constructor(content: String) : this(content, false, false)
 
@@ -19,6 +20,9 @@ class BuiltInShiori private constructor(
     }
 
     override suspend fun request(event: ShioriEvent): ShioriReply {
+        if (developerCommandsEnabled && event.id == NANO_SPIKE_EVENT && nanoSpike != null) {
+            return nanoSpike.invoke()
+        }
         if ('@' in event.id && selector(event.id) != null) return ShioriReply(204)
         val reference3 = event.references.getOrNull(3)?.let(::canonicalInt)
         val mouseEligible = event.id !in MOUSE_EVENTS ||
@@ -61,7 +65,12 @@ class BuiltInShiori private constructor(
                 match.groupValues[3].isNotEmpty()
             )
         }
-        fun bundled(content: String, debugToolsEnabled: Boolean): BuiltInShiori =
-            BuiltInShiori(content, true, debugToolsEnabled)
+        internal const val NANO_SPIKE_EVENT = "OnNanidroidNanoSpike"
+
+        fun bundled(
+            content: String,
+            debugToolsEnabled: Boolean,
+            nanoSpike: (suspend () -> ShioriReply)? = null
+        ): BuiltInShiori = BuiltInShiori(content, true, debugToolsEnabled, nanoSpike)
     }
 }

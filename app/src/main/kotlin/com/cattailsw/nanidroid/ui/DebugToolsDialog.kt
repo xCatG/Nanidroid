@@ -24,7 +24,8 @@ import com.cattailsw.nanidroid.R
 fun DebugToolsDialog(
     showTouchBounds: Boolean,
     onShowTouchBoundsChange: (Boolean) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onRunNanoGhostSpike: (() -> Unit)? = null
 ) {
     val title = stringResource(R.string.debug_tools_title)
     val bounds = stringResource(R.string.stage_show_bounds)
@@ -42,6 +43,11 @@ fun DebugToolsDialog(
                         modifier = Modifier.semantics { contentDescription = bounds }
                             .testTag("debug-touch-bounds")
                     )
+                }
+                if (onRunNanoGhostSpike != null) {
+                    TextButton(onClick = onRunNanoGhostSpike) {
+                        Text(stringResource(R.string.debug_nano_ghost_spike))
+                    }
                 }
             }
         },

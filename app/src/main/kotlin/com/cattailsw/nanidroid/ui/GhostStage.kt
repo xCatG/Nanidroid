@@ -207,7 +207,8 @@ fun GhostStage(
     interactionActive: Boolean = true,
     versionName: String = "Unknown",
     notices: List<Notice> = emptyList(),
-    onClaimHostUiRequest: (Long) -> HostUiCommand? = { null }
+    onClaimHostUiRequest: (Long) -> HostUiCommand? = { null },
+    onRunNanoGhostSpike: (() -> Unit)? = null
 ) {
     val view = LocalView.current
     val debugBuild = view.context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
@@ -352,6 +353,12 @@ fun GhostStage(
                     DebugToolsDialog(
                         showTouchBounds,
                         onShowTouchBoundsChange = { showTouchBounds = it },
+                        onRunNanoGhostSpike = onRunNanoGhostSpike?.let { runSpike ->
+                            {
+                                showDebugTools = false
+                                runSpike()
+                            }
+                        },
                         onDismiss = { showDebugTools = false }
                     )
                 }
