@@ -5,7 +5,13 @@ plugins {
   alias(libs.plugins.ktlint)
 }
 
+val playAiSpike = providers.gradleProperty("playAiSpike").isPresent
+
 android {
+    if (playAiSpike) {
+        assetPacks += listOf(":qwen_ghost_ai")
+        sourceSets.getByName("androidTest").kotlin.directories.add("src/playAiSpike/java")
+    }
     namespace = "com.cattailsw.nanidroid"
     compileSdk = 37
     ndkVersion = "28.2.13676358"
@@ -30,10 +36,11 @@ android {
 
     buildTypes {
         debug {
-            if (providers.gradleProperty("nanoSpikeSideBySide").isPresent) {
-                applicationIdSuffix = ".nanospike"
+            if (playAiSpike || providers.gradleProperty("nanoSpikeSideBySide").isPresent) {
+                applicationIdSuffix = if (playAiSpike) ".litertspike" else ".nanospike"
                 buildFeatures.resValues = true
-                resValue("string", "app_name", "Nanidroid Nano Spike")
+                val label = if (playAiSpike) "Nanidroid LiteRT Spike" else "Nanidroid Nano Spike"
+                resValue("string", "app_name", label)
             }
         }
         release {
@@ -64,6 +71,10 @@ kotlin {
 }
 
 dependencies {
+    if (playAiSpike) {
+        androidTestImplementation(libs.litert.lm)
+        debugImplementation(libs.play.ai.delivery)
+    }
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)
   androidTestImplementation(composeBom)

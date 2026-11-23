@@ -1,0 +1,10 @@
+plugins {
+    id 'com.android.ai-pack'
+}
+
+aiPack {
+    packName = 'qwen_ghost_ai'
+    dynamicDelivery {
+        deliveryType = 'on-demand'
+    }
+}
