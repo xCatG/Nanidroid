@@ -29,6 +29,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (providers.gradleProperty("nanoSpikeSideBySide").isPresent) {
+                applicationIdSuffix = ".nanospike"
+                buildFeatures.resValues = true
+                resValue("string", "app_name", "Nanidroid Nano Spike")
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
