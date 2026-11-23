@@ -61,6 +61,7 @@ class NanidroidApplication : Application() {
                 BuiltInShiori.bundled(
                     it.content,
                     applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0,
+                    classifyHelpQuestion = ghostHelpClassifier(this),
                     nanoSpike = nanoGhostSpike(it) { resources.configuration.locales[0] }
                 )
             },

@@ -6,7 +6,8 @@ class BuiltInShiori private constructor(
     content: String,
     private val bundledMode: Boolean,
     internal val developerCommandsEnabled: Boolean,
-    private val nanoSpike: (suspend () -> ShioriReply)? = null
+    private val nanoSpike: (suspend () -> ShioriReply)? = null,
+    private val classifyHelpQuestion: (suspend (String) -> String?)? = null
 ) : ShioriEngine {
     constructor(content: String) : this(content, false, false)
 
@@ -22,6 +23,24 @@ class BuiltInShiori private constructor(
     override suspend fun request(event: ShioriEvent): ShioriReply {
         if (developerCommandsEnabled && event.id == NANO_SPIKE_EVENT && nanoSpike != null) {
             return nanoSpike.invoke()
+        }
+        if (developerCommandsEnabled && classifyHelpQuestion != null) {
+            if (event.id == ASK_HELP_EVENT) {
+                return ShioriReply(200, "\\![open,inputbox,$ASK_HELP_INPUT]\\e")
+            }
+            if (event.id == "OnUserInput" && event.references.firstOrNull() == ASK_HELP_INPUT) {
+                val question = event.references.getOrNull(1).orEmpty().trim()
+                val topic = if (question.length in 1..300) classifyHelpQuestion(question) else null
+                val answer = scripts[HELP_TOPICS[topic]]
+                val value = when {
+                    answer == null ->
+                        scripts["OnNanidroidHelp"]?.let { withChoice(it, "Ask Nanidroid", ASK_HELP_EVENT) }
+                    topic == "IMPORT" && scripts.containsKey(OPEN_GHOSTS_EVENT) ->
+                        withChoice(answer, "Open Ghosts", OPEN_GHOSTS_EVENT)
+                    else -> answer
+                }
+                return if (value != null) ShioriReply(200, value) else ShioriReply(204)
+            }
         }
         if ('@' in event.id && selector(event.id) != null) return ShioriReply(204)
         val reference3 = event.references.getOrNull(3)?.let(::canonicalInt)
@@ -41,10 +60,27 @@ class BuiltInShiori private constructor(
         val value = if (event.id == "OnGhostChanging" || event.id == "OnGhostChanged") {
             script.replace("%1\$s", SakuraScriptText.escape(event.references.firstOrNull().orEmpty()))
         } else script
-        return ShioriReply(200, value)
+        val openingHelp = event.id == "OnNanidroidHelp" ||
+            (event.id == "OnMouseClick" && mouseEligible && reference3 == 0)
+        val reply = if (openingHelp && developerCommandsEnabled && classifyHelpQuestion != null) {
+            withChoice(value, "Ask Nanidroid", ASK_HELP_EVENT)
+        } else value
+        return ShioriReply(200, reply)
     }
 
+    private fun withChoice(script: String, label: String, event: String): String =
+        script.removeSuffix("\\e") + "\\n\\q[$label,$event]\\e"
+
     companion object {
+        private const val ASK_HELP_EVENT = "OnNanidroidAsk"
+        private const val ASK_HELP_INPUT = "nanidroid-ask-help"
+        private const val OPEN_GHOSTS_EVENT = "OnNanidroidOpenGhosts"
+        private val HELP_TOPICS = mapOf(
+            "INTRO" to "OnNanidroidIntro",
+            "IMPORT" to "OnNanidroidImportHelp",
+            "CONTROLS" to "OnNanidroidInteractionHelp"
+        )
+
         internal fun dictionaryEntries(content: String): Map<String, String> = buildMap {
             content.removePrefix("\uFEFF").split(Regex("\r\n|\n")).forEach { line ->
                 if (line.isEmpty() || line.startsWith(';')) return@forEach
@@ -70,7 +106,8 @@ class BuiltInShiori private constructor(
         fun bundled(
             content: String,
             debugToolsEnabled: Boolean,
+            classifyHelpQuestion: (suspend (String) -> String?)? = null,
             nanoSpike: (suspend () -> ShioriReply)? = null
-        ): BuiltInShiori = BuiltInShiori(content, true, debugToolsEnabled, nanoSpike)
+        ): BuiltInShiori = BuiltInShiori(content, true, debugToolsEnabled, nanoSpike, classifyHelpQuestion)
     }
 }

@@ -8,6 +8,7 @@ import com.cattailsw.nanidroid.runtime.SakuraScriptText
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.FunctionArgValue
 import com.google.mlkit.genai.prompt.Generation
+import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.ModelPreference
 import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.google.mlkit.genai.prompt.SystemInstruction
@@ -25,7 +26,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 internal fun nanoGhostSpike(ghost: BundledGhost, locale: () -> Locale): suspend () -> ShioriReply = {
     val startedAt = SystemClock.elapsedRealtime()
     val reply = try {
-        withTimeoutOrNull(15_000) { generateGhostLine(ghost, locale()) }
+        withTimeoutOrNull(NANO_TIMEOUT_MS) { generateGhostLine(ghost, locale()) }
             ?: spikeMessage("Gemini Nano 4 timed out.")
     } catch (cancelled: CancellationException) {
         throw cancelled
@@ -37,22 +38,8 @@ internal fun nanoGhostSpike(ghost: BundledGhost, locale: () -> Locale): suspend 
     reply
 }
 
-private suspend fun generateGhostLine(ghost: BundledGhost, locale: Locale): ShioriReply {
-    val model = Generation.getClient(
-        generationConfig {
-            modelConfig = modelConfig {
-                releaseStage = ModelReleaseStage.PREVIEW
-                preference = ModelPreference.FAST
-            }
-        }
-    )
-    try {
-        val status = model.checkStatus()
-        if (status != FeatureStatus.AVAILABLE) {
-            Log.i(TAG, "Gemini Nano 4 Fast feature status: $status")
-            return spikeMessage("Gemini Nano 4 Fast is unavailable. Check AICore enrollment and model download.")
-        }
-
+private suspend fun generateGhostLine(ghost: BundledGhost, locale: Locale): ShioriReply =
+    withNanoFastModel { model ->
         val request = generateContentRequest(
             SystemInstruction(
                 "Call say_ghost_line once. Choose sakura or kero and write one short line in " +
@@ -79,15 +66,34 @@ private suspend fun generateGhostLine(ghost: BundledGhost, locale: Locale): Shio
         }
         if (reply == null) {
             Log.w(TAG, "Rejected Nano response with ${calls.size} tool calls")
-            return spikeMessage("Gemini Nano 4 did not return a valid ghost line.")
+            return@withNanoFastModel spikeMessage("Gemini Nano 4 did not return a valid ghost line.")
         }
         Log.i(TAG, "Accepted Nano ghost line via ${if (calls.isEmpty()) "structured text" else "tool call"}")
-        return reply
+        reply
+    } ?: spikeMessage("Gemini Nano 4 Fast is unavailable. Check AICore enrollment and model download.")
+
+internal suspend fun <T> withNanoFastModel(run: suspend (GenerativeModel) -> T): T? {
+    val model = Generation.getClient(
+        generationConfig {
+            modelConfig = modelConfig {
+                releaseStage = ModelReleaseStage.PREVIEW
+                preference = ModelPreference.FAST
+            }
+        }
+    )
+    try {
+        val status = model.checkStatus()
+        if (status != FeatureStatus.AVAILABLE) {
+            Log.i(TAG, "Gemini Nano 4 Fast feature status: $status")
+            return null
+        }
+        return run(model)
     } finally {
         model.close()
     }
 }
 
+private const val NANO_TIMEOUT_MS = 15_000L
 private const val TAG = "NanoGhostSpike"
 
 private val sayGhostLine = FunctionDeclaration(

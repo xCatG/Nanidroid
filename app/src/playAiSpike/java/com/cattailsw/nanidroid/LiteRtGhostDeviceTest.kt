@@ -18,17 +18,9 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.OpenApiTool
 import com.google.ai.edge.litertlm.ThinkingConfig
 import com.google.ai.edge.litertlm.tool
-import com.google.android.play.core.aipacks.AiPackManagerFactory
-import com.google.android.play.core.aipacks.AiPackStateUpdateListener
-import com.google.android.play.core.aipacks.model.AiPackStatus
-import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.json.JSONTokener
 import org.junit.Assert.assertEquals
@@ -52,7 +44,7 @@ class LiteRtGhostDeviceTest {
             InstrumentationRegistry.getArguments().getString("liveLiteRt") == "true"
         )
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val model = fetchModelPack(context)
+        val model = fetchLiteRtModel(context)
         assertEquals(613_722_264L, model.length())
         val repository = BundledGhostRepository(
             openAsset = { context.assets.open("nanidroid.zip") },
@@ -108,32 +100,26 @@ class LiteRtGhostDeviceTest {
         Log.i(TAG, "Played generated ghost line: $dialogue")
     }
 
-    private suspend fun fetchModelPack(context: Context): File {
-        val packs = AiPackManagerFactory.getInstance(context)
-        fun modelFile(): File? = packs.getPackLocation(PACK)?.assetsPath()?.let { File(it, MODEL) }
-
-        modelFile()?.let { return it }
-        withTimeout(120_000) {
-            callbackFlow {
-                val listener = AiPackStateUpdateListener { state ->
-                    if (state.name() == PACK) {
-                        when (state.status()) {
-                            AiPackStatus.COMPLETED -> trySend(Unit)
-                            AiPackStatus.FAILED, AiPackStatus.CANCELED ->
-                                close(IllegalStateException("AI pack stopped with status ${state.status()}"))
-                        }
-                    }
-                }
-                packs.registerListener(listener)
-                if (modelFile() != null) {
-                    trySend(Unit)
-                } else {
-                    packs.fetch(listOf(PACK)).addOnFailureListener { close(it) }
-                }
-                awaitClose { packs.unregisterListener(listener) }
-            }.first()
-        }
-        return checkNotNull(modelFile()) { "Downloaded pack contains no model path" }
+    @Test
+    fun onDemandPackModelClassifiesHelpQuestions(): Unit = runBlocking(Dispatchers.IO) {
+        assumeTrue(
+            "Requires -e liveLiteRt true",
+            InstrumentationRegistry.getArguments().getString("liveLiteRt") == "true"
+        )
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val classify = ghostHelpClassifier(context)
+        val questions = mapOf(
+            "How do I import a ghost?" to "IMPORT",
+            "How do I tap a ghost to interact?" to "CONTROLS",
+            "What is Nanidroid?" to "INTRO",
+            "What is the weather in Seattle?" to "UNKNOWN",
+            "Can I add a character from a NAR?" to "IMPORT",
+            "How do I dismiss a balloon?" to "CONTROLS",
+            "What are desktop ghosts?" to "INTRO",
+            "Can you tell me a joke?" to "UNKNOWN"
+        )
+        val answers = questions.keys.associateWith { classify(it) }
+        assertEquals(questions, answers)
     }
 
     private object GhostLineTool : OpenApiTool {
@@ -157,7 +143,5 @@ class LiteRtGhostDeviceTest {
 
     private companion object {
         const val TAG = "LiteRtGhostSpike"
-        const val PACK = "qwen_ghost_ai"
-        const val MODEL = "Qwen3-0.6B.litertlm"
     }
 }

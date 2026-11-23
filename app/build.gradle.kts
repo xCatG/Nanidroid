@@ -12,6 +12,8 @@ android {
         assetPacks += listOf(":qwen_ghost_ai")
         sourceSets.getByName("androidTest").kotlin.directories.add("src/playAiSpike/java")
     }
+    val helpSource = if (playAiSpike) "liteRtHelp" else "nanoHelp"
+    sourceSets.getByName("debug").kotlin.directories.add("src/$helpSource/kotlin")
     namespace = "com.cattailsw.nanidroid"
     compileSdk = 37
     ndkVersion = "28.2.13676358"
@@ -72,7 +74,7 @@ kotlin {
 
 dependencies {
     if (playAiSpike) {
-        androidTestImplementation(libs.litert.lm)
+        debugImplementation(libs.litert.lm)
         debugImplementation(libs.play.ai.delivery)
     }
   val composeBom = platform(libs.androidx.compose.bom)
