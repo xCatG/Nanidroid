@@ -55,23 +55,34 @@ private suspend fun generateGhostLine(ghost: BundledGhost, locale: Locale): Shio
 
         val request = generateContentRequest(
             SystemInstruction(
-                "Call say_ghost_line exactly once. Choose sakura or kero and write one short line in " +
-                    locale.toLanguageTag() + ". Return plain dialogue without commands or markup."
+                "Call say_ghost_line once. Choose sakura or kero and write one short line in " +
+                    locale.toLanguageTag() + ". Use plain dialogue without commands or markup. " +
+                    "For a text-only response, put sakura or kero on the first line, followed by the dialogue."
             ),
             TextPart("Have one of the Nanidroid ghosts greet the user and suggest a topic to talk about.")
         ) {
             setTools(listOf(sayGhostLine))
             maxOutputTokens = 256
         }
-        val call = model.generateContent(request).candidates.firstOrNull()?.functionCalls?.singleOrNull()
-        val reply = call?.takeIf { it.name == sayGhostLine.name }?.let {
-            compileNanoGhostLine(
-                dialogue = (it.arguments["dialogue"] as? FunctionArgValue.StringValue)?.value,
-                speaker = (it.arguments["speaker"] as? FunctionArgValue.StringValue)?.value,
-                surfaces = ghost.surfaces.keys
-            )
+        val candidate = model.generateContent(request).candidates.firstOrNull()
+        val calls = candidate?.functionCalls.orEmpty()
+        val reply = if (calls.isEmpty()) {
+            compileNanoGhostText(candidate?.text, ghost.surfaces.keys)
+        } else {
+            calls.singleOrNull()?.takeIf { it.name == sayGhostLine.name }?.let {
+                compileNanoGhostLine(
+                    dialogue = (it.arguments["dialogue"] as? FunctionArgValue.StringValue)?.value,
+                    speaker = (it.arguments["speaker"] as? FunctionArgValue.StringValue)?.value,
+                    surfaces = ghost.surfaces.keys
+                )
+            }
         }
-        return reply ?: spikeMessage("Gemini Nano 4 did not return a valid ghost line.")
+        if (reply == null) {
+            Log.w(TAG, "Rejected Nano response with ${calls.size} tool calls")
+            return spikeMessage("Gemini Nano 4 did not return a valid ghost line.")
+        }
+        Log.i(TAG, "Accepted Nano ghost line via ${if (calls.isEmpty()) "structured text" else "tool call"}")
+        return reply
     } finally {
         model.close()
     }
@@ -91,6 +102,12 @@ private val sayGhostLine = FunctionDeclaration(
         required = listOf("dialogue", "speaker")
     )
 )
+
+internal fun compileNanoGhostText(text: String?, surfaces: Set<Int>): ShioriReply? {
+    val lines = text?.trim()?.lines() ?: return null
+    if (lines.size < 2) return null
+    return compileNanoGhostLine(lines.drop(1).joinToString(" ") { it.trim() }, lines[0].trim(), surfaces)
+}
 
 internal fun compileNanoGhostLine(dialogue: String?, speaker: String?, surfaces: Set<Int>): ShioriReply? {
     val text = dialogue?.trim()?.takeIf { it.length in 1..240 && it.none(Char::isISOControl) } ?: return null

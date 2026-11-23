@@ -37,6 +37,20 @@ class NanoGhostSpikeTest {
     }
 
     @Test
+    fun playsWrappedDialogueWithAnAllowedSpeakerAndSurface() {
+        val line = "Hello there. What would you like to discuss?"
+        val modelText = "sakura\nHello there.\nWhat would you like to discuss?"
+        val reply = checkNotNull(compileNanoGhostText(modelText, setOf(0, 10)))
+        val frame = ScriptPlayer(checkNotNull(reply.value)).advanceBy(5_000)
+
+        assertEquals(line, frame.sakura.text)
+        assertNull(compileNanoGhostText(line, setOf(0, 10)))
+        assertNull(compileNanoGhostText("Narrator\n$line", setOf(0, 10)))
+        assertNull(compileNanoGhostText("sakura\n", setOf(0, 10)))
+        assertNull(compileNanoGhostText("kero\n$line", setOf(0)))
+    }
+
+    @Test
     fun normalShioriEventsAndNonDebugBundledModeDoNotRunTheSpike() = runTest {
         val debug = BuiltInShiori.bundled("OnBoot,Welcome", debugToolsEnabled = true) { error("unrequested") }
         val release = BuiltInShiori.bundled("", debugToolsEnabled = false) { error("unrequested") }

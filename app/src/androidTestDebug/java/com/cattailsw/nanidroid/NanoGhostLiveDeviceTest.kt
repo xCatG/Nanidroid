@@ -1,6 +1,7 @@
 package com.cattailsw.nanidroid
 
 import android.content.Context
+import android.util.Log
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -26,7 +27,7 @@ class NanoGhostLiveDeviceTest {
     val files = TemporaryFolder()
 
     @Test
-    fun realModelToolCallPlaysOneGhostLine() = runBlocking {
+    fun realModelReplyPlaysOneGhostLine(): Unit = runBlocking {
         assumeTrue(
             "Live Nano test requires -e liveNano true",
             InstrumentationRegistry.getArguments().getString("liveNano") == "true"
@@ -58,6 +59,7 @@ class NanoGhostLiveDeviceTest {
             assertEquals(1, listOf(frame.sakura, frame.kero).count { it.text.isNotBlank() })
             assertTrue(frame.hostCommands.isEmpty())
             assertTrue(frame.sakura.choices.isEmpty() && frame.kero.choices.isEmpty())
+            Log.i("NanoGhostSpike", "Played generated ghost line: ${generatedSpeaker.text}")
         }
     }
 }
