@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid.ui
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cattailsw.nanidroid.closeSharedNanoFastClient
 import com.cattailsw.nanidroid.install.ImportAttemptStore
 import com.cattailsw.nanidroid.install.ImportCoordinator
 import com.cattailsw.nanidroid.install.ImportState
@@ -191,6 +192,12 @@ class StageViewModel(
     fun dismissSwitch() = runtime.dismissSwitch()
     fun close() {
         cancelImport()
+        closeSharedNanoFastClient()
         runtime.close()
+    }
+
+    override fun onCleared() {
+        closeSharedNanoFastClient()
+        super.onCleared()
     }
 }

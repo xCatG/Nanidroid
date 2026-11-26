@@ -10,3 +10,5 @@ internal fun nanoGhostSpike(ghost: BundledGhost, locale: () -> Locale): (suspend
 
 @Suppress("UNUSED_PARAMETER")
 internal fun ghostHelpClassifier(context: Context): (suspend (String) -> String?)? = null
+
+internal fun closeSharedNanoFastClient() = Unit

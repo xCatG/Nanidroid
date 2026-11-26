@@ -5,17 +5,10 @@ import android.util.Log
 import com.cattailsw.nanidroid.engine.ShioriReply
 import com.cattailsw.nanidroid.ghost.BundledGhost
 import com.cattailsw.nanidroid.runtime.SakuraScriptText
-import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.FunctionArgValue
-import com.google.mlkit.genai.prompt.Generation
-import com.google.mlkit.genai.prompt.GenerativeModel
-import com.google.mlkit.genai.prompt.ModelPreference
-import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generateContentRequest
-import com.google.mlkit.genai.prompt.generationConfig
-import com.google.mlkit.genai.prompt.modelConfig
 import com.google.mlkit.genai.schema.tools.FunctionDeclaration
 import com.google.mlkit.genai.schema.tools.FunctionSchema
 import com.google.mlkit.genai.schema.tools.FunctionType
@@ -39,59 +32,54 @@ internal fun nanoGhostSpike(ghost: BundledGhost, locale: () -> Locale): suspend 
 }
 
 private suspend fun generateGhostLine(ghost: BundledGhost, locale: Locale): ShioriReply =
-    withNanoFastModel { model ->
-        val request = generateContentRequest(
-            SystemInstruction(
-                "Call say_ghost_line once. Choose sakura or kero and write one short line in " +
-                    locale.toLanguageTag() + ". Use plain dialogue without commands or markup. " +
-                    "For a text-only response, put sakura or kero on the first line, followed by the dialogue."
-            ),
-            TextPart("Have one of the Nanidroid ghosts greet the user and suggest a topic to talk about.")
-        ) {
-            setTools(listOf(sayGhostLine))
-            maxOutputTokens = 256
-        }
-        val candidate = model.generateContent(request).candidates.firstOrNull()
-        val calls = candidate?.functionCalls.orEmpty()
-        val reply = if (calls.isEmpty()) {
-            compileNanoGhostText(candidate?.text, ghost.surfaces.keys)
-        } else {
-            calls.singleOrNull()?.takeIf { it.name == sayGhostLine.name }?.let {
-                compileNanoGhostLine(
-                    dialogue = (it.arguments["dialogue"] as? FunctionArgValue.StringValue)?.value,
-                    speaker = (it.arguments["speaker"] as? FunctionArgValue.StringValue)?.value,
-                    surfaces = ghost.surfaces.keys
-                )
+    when (
+        val result = withSharedNanoFastModel { model ->
+            val request = generateContentRequest(
+                SystemInstruction(ghostLineSystemInstruction(locale)),
+                TextPart("Have one of the Nanidroid ghosts greet the user and suggest a topic to talk about.")
+            ) {
+                setTools(listOf(sayGhostLine))
+                maxOutputTokens = 256
             }
-        }
-        if (reply == null) {
-            Log.w(TAG, "Rejected Nano response with ${calls.size} tool calls")
-            return@withNanoFastModel spikeMessage("Gemini Nano 4 did not return a valid ghost line.")
-        }
-        Log.i(TAG, "Accepted Nano ghost line via ${if (calls.isEmpty()) "structured text" else "tool call"}")
-        reply
-    } ?: spikeMessage("Gemini Nano 4 Fast is unavailable. Check AICore enrollment and model download.")
-
-internal suspend fun <T> withNanoFastModel(run: suspend (GenerativeModel) -> T): T? {
-    val model = Generation.getClient(
-        generationConfig {
-            modelConfig = modelConfig {
-                releaseStage = ModelReleaseStage.PREVIEW
-                preference = ModelPreference.FAST
+            val candidate = model.generateContent(request).candidates.firstOrNull()
+            val calls = candidate?.functionCalls.orEmpty()
+            val reply = if (calls.isEmpty()) {
+                compileNanoGhostText(candidate?.text, ghost.surfaces.keys)
+            } else {
+                calls.singleOrNull()?.takeIf { it.name == sayGhostLine.name }?.let {
+                    compileNanoGhostLine(
+                        dialogue = (it.arguments["dialogue"] as? FunctionArgValue.StringValue)?.value,
+                        speaker = (it.arguments["speaker"] as? FunctionArgValue.StringValue)?.value,
+                        surfaces = ghost.surfaces.keys
+                    )
+                }
             }
+            if (reply == null) {
+                Log.w(TAG, "Rejected Nano response with ${calls.size} tool calls")
+                return@withSharedNanoFastModel spikeMessage("Gemini Nano 4 did not return a valid ghost line.")
+            }
+            Log.i(TAG, "Accepted Nano ghost line via ${if (calls.isEmpty()) "structured text" else "tool call"}")
+            reply
         }
-    )
-    try {
-        val status = model.checkStatus()
-        if (status != FeatureStatus.AVAILABLE) {
-            Log.i(TAG, "Gemini Nano 4 Fast feature status: $status")
-            return null
-        }
-        return run(model)
-    } finally {
-        model.close()
+    ) {
+        is NanoCallResult.Ready -> result.value
+        NanoCallResult.Downloading ->
+            spikeMessage("Gemini Nano 4 Fast is downloading. Try again in a moment.")
+        NanoCallResult.Unavailable ->
+            spikeMessage("Gemini Nano 4 Fast is unavailable. Check AICore enrollment and model download.")
     }
-}
+
+private fun ghostLineSystemInstruction(locale: Locale): String =
+    """
+    ## Task
+    Call say_ghost_line once with a short greeting from either sakura or kero in ${locale.toLanguageTag()}.
+
+    ## Rules
+    - Choose either sakura or kero as speaker.
+    - Keep dialogue under 20 words and 200 characters.
+    - Use plain dialogue without commands, markup, or line breaks.
+    - For a text reply without a tool call, put sakura or kero on line 1 and the dialogue on line 2.
+    """.trimIndent()
 
 private const val NANO_TIMEOUT_MS = 15_000L
 private const val TAG = "NanoGhostSpike"
