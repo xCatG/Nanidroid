@@ -143,6 +143,29 @@ class NanoFastClientTest {
     }
 
     @Test
+    fun unavailablePrimaryFallsBackToDefaultHandleAndClosesPrimary() = runTest {
+        val primary = FakeNanoModelHandle(model = "preview-fast", status = FeatureStatus.UNAVAILABLE)
+        val fallback = FakeNanoModelHandle(model = "default-nano", status = FeatureStatus.AVAILABLE)
+        val client = NanoFastClient(
+            createHandle = { primary },
+            downloadScope = backgroundScope,
+            createFallbackHandle = { fallback },
+            logInfo = {},
+            logWarn = {}
+        )
+
+        val first = client.withModel { "$it-1" }
+        val second = client.withModel { "$it-2" }
+
+        assertEquals(NanoCallResult.Ready("default-nano-1"), first)
+        assertEquals(NanoCallResult.Ready("default-nano-2"), second)
+        assertTrue(primary.closed)
+        assertEquals(1, primary.checkStatusCalls)
+        assertEquals(2, fallback.checkStatusCalls)
+        assertEquals(1, fallback.warmupCalls)
+    }
+
+    @Test
     fun closeClosesHandleCancelsDownloadAndResetsForFreshHandle() = runTest {
         val handles = mutableListOf<FakeNanoModelHandle>()
         val downloadGate = CompletableDeferred<Unit>()

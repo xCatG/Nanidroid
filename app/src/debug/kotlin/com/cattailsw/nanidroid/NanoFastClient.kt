@@ -35,21 +35,41 @@ internal interface NanoModelHandle<out M : Any> : AutoCloseable {
 internal class NanoFastClient<M : Any>(
     private val createHandle: () -> NanoModelHandle<M>,
     private val downloadScope: CoroutineScope,
+    private val createFallbackHandle: (() -> NanoModelHandle<M>)? = null,
     private val logInfo: (String) -> Unit = { Log.i(TAG, it) },
     private val logWarn: (String) -> Unit = { Log.w(TAG, it) }
 ) {
     private val mutex = Mutex()
     private val stateLock = Any()
     private var handle: NanoModelHandle<M>? = null
+    private var usingFallback = false
     private var warmedUp = false
     private var downloadJob: Job? = null
 
     suspend fun <T> withModel(run: suspend (M) -> T): NanoCallResult<T> {
         val readyHandle = mutex.withLock {
-            val activeHandle = synchronized(stateLock) {
+            var activeHandle = synchronized(stateLock) {
                 handle ?: createHandle().also { handle = it }
             }
-            when (val status = activeHandle.checkStatus()) {
+            var status = activeHandle.checkStatus()
+            if (status == FeatureStatus.UNAVAILABLE && createFallbackHandle != null) {
+                val fallback = synchronized(stateLock) {
+                    if (handle === activeHandle && !usingFallback) {
+                        usingFallback = true
+                        warmedUp = false
+                        createFallbackHandle.invoke().also { handle = it }
+                    } else {
+                        null
+                    }
+                }
+                if (fallback != null) {
+                    logInfo("Gemini Nano 4 Fast unavailable; falling back to default Gemini Nano")
+                    closeHandleQuietly(activeHandle)
+                    activeHandle = fallback
+                    status = activeHandle.checkStatus()
+                }
+            }
+            when (status) {
                 FeatureStatus.AVAILABLE -> {
                     val shouldWarmup = synchronized(stateLock) { handle === activeHandle && !warmedUp }
                     if (shouldWarmup) {
@@ -95,15 +115,20 @@ internal class NanoFastClient<M : Any>(
             downloadJob = null
             currentHandle = handle
             handle = null
+            usingFallback = false
             warmedUp = false
         }
         activeDownload?.cancel()
         if (currentHandle != null) {
-            try {
-                currentHandle.close()
-            } catch (error: Exception) {
-                logWarn("Gemini Nano 4 Fast close failed: ${error.javaClass.simpleName}")
-            }
+            closeHandleQuietly(currentHandle)
+        }
+    }
+
+    private fun closeHandleQuietly(target: NanoModelHandle<M>) {
+        try {
+            target.close()
+        } catch (error: Exception) {
+            logWarn("Gemini Nano 4 Fast close failed: ${error.javaClass.simpleName}")
         }
     }
 
@@ -193,7 +218,8 @@ private val sharedNanoFastClient = NanoFastClient(
             )
         )
     },
-    downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    downloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    createFallbackHandle = { MlKitNanoModelHandle(Generation.getClient()) }
 )
 
 internal suspend fun <T> withSharedNanoFastModel(run: suspend (GenerativeModel) -> T): NanoCallResult<T> =
