@@ -7,7 +7,7 @@ class BuiltInShiori private constructor(
     private val bundledMode: Boolean,
     internal val developerCommandsEnabled: Boolean,
     private val nanoSpike: (suspend () -> ShioriReply)? = null,
-    private val classifyHelpQuestion: (suspend (String) -> String?)? = null
+    private val classifyHelpQuestion: (suspend (String) -> HelpClassification)? = null
 ) : ShioriEngine {
     constructor(content: String) : this(content, false, false)
 
@@ -30,14 +30,61 @@ class BuiltInShiori private constructor(
             }
             if (event.id == "OnUserInput" && event.references.firstOrNull() == ASK_HELP_INPUT) {
                 val question = event.references.getOrNull(1).orEmpty().trim()
-                val topic = if (question.length in 1..300) classifyHelpQuestion(question) else null
-                val answer = scripts[HELP_TOPICS[topic]]
-                val value = when {
-                    answer == null ->
-                        scripts["OnNanidroidHelp"]?.let { withChoice(it, "Ask Nanidroid", ASK_HELP_EVENT) }
-                    topic == "IMPORT" && scripts.containsKey(OPEN_GHOSTS_EVENT) ->
-                        withChoice(answer, "Open Ghosts", OPEN_GHOSTS_EVENT)
-                    else -> answer
+                val classification = if (question.length in 1..300) {
+                    classifyHelpQuestion(question)
+                } else {
+                    HelpClassification.Topic("UNKNOWN")
+                }
+                val value = when (classification) {
+                    is HelpClassification.Downloading -> {
+                        val message = when {
+                            classification.percent != null ->
+                                "Gemini Nano is downloading (${classification.percent}%). Please try again in a moment."
+                            classification.startedNow ->
+                                "Started downloading Gemini Nano. Please try again in a moment."
+                            else ->
+                                "Gemini Nano is still downloading. Please try again in a moment."
+                        }
+                        withChoice(
+                            "\\0${SakuraScriptText.escape(message)}\\e",
+                            "Ask Nanidroid",
+                            ASK_HELP_EVENT
+                        )
+                    }
+
+                    HelpClassification.TimedOut ->
+                        withChoice(
+                            "\\0${SakuraScriptText.escape("That took too long. Please try asking again.")}\\e",
+                            "Ask Nanidroid",
+                            ASK_HELP_EVENT
+                        )
+
+                    HelpClassification.Busy ->
+                        withChoice(
+                            "\\0${SakuraScriptText.escape(
+                                "Gemini Nano is busy or cooling down right now. Please try again in a moment."
+                            )}\\e",
+                            "Ask Nanidroid",
+                            ASK_HELP_EVENT
+                        )
+
+                    is HelpClassification.Topic -> {
+                        val answer = scripts[HELP_TOPICS[classification.label]]
+                        when {
+                            answer == null ->
+                                scripts["OnNanidroidHelp"]?.let {
+                                    withChoice(it, "Ask Nanidroid", ASK_HELP_EVENT)
+                                }
+                            classification.label == "IMPORT" && scripts.containsKey(OPEN_GHOSTS_EVENT) ->
+                                withChoice(answer, "Open Ghosts", OPEN_GHOSTS_EVENT)
+                            else -> answer
+                        }
+                    }
+
+                    HelpClassification.Unavailable, HelpClassification.Failed ->
+                        scripts["OnNanidroidHelp"]?.let {
+                            withChoice(it, "Ask Nanidroid", ASK_HELP_EVENT)
+                        }
                 }
                 return if (value != null) ShioriReply(200, value) else ShioriReply(204)
             }
@@ -106,7 +153,7 @@ class BuiltInShiori private constructor(
         fun bundled(
             content: String,
             debugToolsEnabled: Boolean,
-            classifyHelpQuestion: (suspend (String) -> String?)? = null,
+            classifyHelpQuestion: (suspend (String) -> HelpClassification)? = null,
             nanoSpike: (suspend () -> ShioriReply)? = null
         ): BuiltInShiori = BuiltInShiori(content, true, debugToolsEnabled, nanoSpike, classifyHelpQuestion)
     }

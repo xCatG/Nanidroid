@@ -3,6 +3,7 @@ package com.cattailsw.nanidroid
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import com.cattailsw.nanidroid.engine.HelpClassification
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
@@ -15,6 +16,7 @@ import com.google.android.play.core.aipacks.AiPackManagerFactory
 import com.google.android.play.core.aipacks.AiPackStateUpdateListener
 import com.google.android.play.core.aipacks.model.AiPackStatus
 import java.io.File
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -25,17 +27,19 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-internal fun ghostHelpClassifier(context: Context): suspend (String) -> String? = { question ->
+internal fun ghostHelpClassifier(context: Context): suspend (String) -> HelpClassification = { question ->
     try {
         val model = fetchLiteRtModel(context)
-        withContext(Dispatchers.IO) {
+        val raw = withContext(Dispatchers.IO) {
             modelLock.withLock { classify(model, question) }
         }
+        val normalized = raw.trim().trimEnd('.', '!').uppercase(Locale.ROOT)
+        if (normalized.isEmpty()) HelpClassification.Failed else HelpClassification.Topic(normalized)
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: Exception) {
         Log.w(TAG, "Help topic selection failed: ${error.javaClass.simpleName}")
-        null
+        HelpClassification.Failed
     }
 }
 

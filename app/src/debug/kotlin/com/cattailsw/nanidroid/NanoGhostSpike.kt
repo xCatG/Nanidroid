@@ -6,6 +6,7 @@ import com.cattailsw.nanidroid.engine.ShioriReply
 import com.cattailsw.nanidroid.ghost.BundledGhost
 import com.cattailsw.nanidroid.runtime.SakuraScriptText
 import com.google.mlkit.genai.common.FunctionArgValue
+import com.google.mlkit.genai.common.GenAiException
 import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generateContentRequest
@@ -20,12 +21,22 @@ internal fun nanoGhostSpike(ghost: BundledGhost, locale: () -> Locale): suspend 
     val startedAt = SystemClock.elapsedRealtime()
     val reply = try {
         withTimeoutOrNull(NANO_TIMEOUT_MS) { generateGhostLine(ghost, locale()) }
-            ?: spikeMessage("Gemini Nano 4 timed out.")
+            ?: spikeMessage("Gemini Nano timed out.")
     } catch (cancelled: CancellationException) {
         throw cancelled
+    } catch (error: GenAiException) {
+        Log.w(TAG, "Gemini Nano request failed: ${error.javaClass.simpleName} (${error.errorCode})")
+        when (error.errorCode) {
+            GenAiException.ErrorCode.BUSY,
+            GenAiException.ErrorCode.PER_APP_BATTERY_USE_QUOTA_EXCEEDED,
+            GenAiException.ErrorCode.BACKGROUND_USE_BLOCKED ->
+                spikeMessage("Gemini Nano is busy or cooling down right now. Try again in a moment.")
+            else ->
+                spikeMessage("Gemini Nano could not complete the request.")
+        }
     } catch (error: Exception) {
-        Log.w(TAG, "Gemini Nano 4 request failed: ${error.javaClass.simpleName}")
-        spikeMessage("Gemini Nano 4 could not complete the request.")
+        Log.w(TAG, "Gemini Nano request failed: ${error.javaClass.simpleName}")
+        spikeMessage("Gemini Nano could not complete the request.")
     }
     Log.i(TAG, "Gemini Nano 4 turn finished in ${SystemClock.elapsedRealtime() - startedAt} ms")
     reply
@@ -63,10 +74,19 @@ private suspend fun generateGhostLine(ghost: BundledGhost, locale: Locale): Shio
         }
     ) {
         is NanoCallResult.Ready -> result.value
-        NanoCallResult.Downloading ->
-            spikeMessage("Gemini Nano 4 Fast is downloading. Try again in a moment.")
+        is NanoCallResult.Downloading -> {
+            val message = when {
+                result.percent != null ->
+                    "Gemini Nano is downloading (${result.percent}%). Try again in a moment."
+                result.startedNow ->
+                    "Started downloading Gemini Nano. Try again in a moment."
+                else ->
+                    "Gemini Nano is downloading. Try again in a moment."
+            }
+            spikeMessage(message)
+        }
         NanoCallResult.Unavailable ->
-            spikeMessage("Gemini Nano 4 Fast is unavailable. Check AICore enrollment and model download.")
+            spikeMessage("Gemini Nano is unavailable. Check AICore enrollment and model download.")
     }
 
 private fun ghostLineSystemInstruction(locale: Locale): String =

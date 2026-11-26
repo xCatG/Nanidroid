@@ -2,14 +2,17 @@ package com.cattailsw.nanidroid
 
 import android.content.Context
 import android.util.Log
+import com.cattailsw.nanidroid.engine.HelpClassification
+import com.google.mlkit.genai.common.GenAiException
 import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generateContentRequest
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 
 @Suppress("UNUSED_PARAMETER")
-internal fun ghostHelpClassifier(context: Context): suspend (String) -> String? = { question ->
+internal fun ghostHelpClassifier(context: Context): suspend (String) -> HelpClassification = { question ->
     try {
         withTimeoutOrNull(HELP_TIMEOUT_MS) {
             val result = withSharedNanoFastModel { model ->
@@ -20,25 +23,35 @@ internal fun ghostHelpClassifier(context: Context): suspend (String) -> String? 
                     temperature = 0.0f
                     maxOutputTokens = 16
                 }
-                model.generateContent(request).candidates.firstOrNull()?.text?.trim()
+                val raw = model.generateContent(request).candidates.firstOrNull()?.text
+                raw?.trim()?.trimEnd('.', '!')?.uppercase(Locale.ROOT)?.takeIf { it.isNotEmpty() }
             }
             when (result) {
-                is NanoCallResult.Ready -> result.value
-                NanoCallResult.Downloading -> {
+                is NanoCallResult.Ready ->
+                    result.value?.let(HelpClassification::Topic) ?: HelpClassification.Failed
+                is NanoCallResult.Downloading -> {
                     Log.i(TAG, "Gemini Nano 4 Fast is downloading; skipping help classification")
-                    null
+                    HelpClassification.Downloading(result.percent, result.startedNow)
                 }
                 NanoCallResult.Unavailable -> {
                     Log.i(TAG, "Gemini Nano 4 Fast is unavailable; skipping help classification")
-                    null
+                    HelpClassification.Unavailable
                 }
             }
-        }
+        } ?: HelpClassification.TimedOut
     } catch (cancelled: CancellationException) {
         throw cancelled
+    } catch (error: GenAiException) {
+        Log.w(TAG, "Nano help topic selection failed: ${error.javaClass.simpleName} (${error.errorCode})")
+        when (error.errorCode) {
+            GenAiException.ErrorCode.BUSY,
+            GenAiException.ErrorCode.PER_APP_BATTERY_USE_QUOTA_EXCEEDED,
+            GenAiException.ErrorCode.BACKGROUND_USE_BLOCKED -> HelpClassification.Busy
+            else -> HelpClassification.Failed
+        }
     } catch (error: Exception) {
         Log.w(TAG, "Nano help topic selection failed: ${error.javaClass.simpleName}")
-        null
+        HelpClassification.Failed
     }
 }
 

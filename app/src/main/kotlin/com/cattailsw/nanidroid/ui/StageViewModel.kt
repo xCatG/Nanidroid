@@ -3,15 +3,18 @@ package com.cattailsw.nanidroid.ui
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.cattailsw.nanidroid.NanoDownloadState
 import com.cattailsw.nanidroid.closeSharedNanoFastClient
 import com.cattailsw.nanidroid.install.ImportAttemptStore
 import com.cattailsw.nanidroid.install.ImportCoordinator
 import com.cattailsw.nanidroid.install.ImportState
+import com.cattailsw.nanidroid.refreshSharedNanoStatus
 import com.cattailsw.nanidroid.runtime.DialogueToken
 import com.cattailsw.nanidroid.runtime.GhostRuntime
 import com.cattailsw.nanidroid.runtime.InteractionToken
 import com.cattailsw.nanidroid.runtime.RenderedMoveSource
 import com.cattailsw.nanidroid.runtime.StageState
+import com.cattailsw.nanidroid.sharedNanoDownloadState
 import java.io.InputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -30,6 +33,7 @@ class StageViewModel(
     private val attempts: ImportAttemptStore? = null
 ) : ViewModel() {
     val state: StateFlow<StageState> = runtime.state
+    val nanoDownloadState: StateFlow<NanoDownloadState> = sharedNanoDownloadState()
     val importState: StateFlow<ImportState> = coordinator?.state ?: MutableStateFlow(ImportState.Idle)
     private val interrupted = MutableStateFlow(false)
     val importInterrupted: StateFlow<Boolean> = interrupted
@@ -181,6 +185,7 @@ class StageViewModel(
     fun choose(token: InteractionToken) = runtime.choose(token)
     fun claimHostUiRequest(requestId: Long) = runtime.claimHostUiRequest(requestId)
     fun runNanoGhostSpike() = runtime.runNanoGhostSpike()
+    fun refreshNanoStatus() = refreshSharedNanoStatus()
     fun submitInput(token: InteractionToken, text: String) = runtime.submitInput(token, text)
     fun cancelInput(token: InteractionToken) = runtime.cancelInput(token)
     fun isCurrentDialogue(token: DialogueToken) = runtime.isCurrentDialogue(token)

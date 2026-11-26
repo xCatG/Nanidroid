@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.cattailsw.nanidroid.engine.BuiltInShiori
+import com.cattailsw.nanidroid.engine.HelpClassification
 import com.cattailsw.nanidroid.engine.ShioriEvent
 import com.cattailsw.nanidroid.ghost.BundledGhostRepository
 import com.cattailsw.nanidroid.runtime.ScriptPlayer
@@ -109,14 +110,14 @@ class LiteRtGhostDeviceTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val classify = ghostHelpClassifier(context)
         val questions = mapOf(
-            "How do I import a ghost?" to "IMPORT",
-            "How do I tap a ghost to interact?" to "CONTROLS",
-            "What is Nanidroid?" to "INTRO",
-            "What is the weather in Seattle?" to "UNKNOWN",
-            "Can I add a character from a NAR?" to "IMPORT",
-            "How do I dismiss a balloon?" to "CONTROLS",
-            "What are desktop ghosts?" to "INTRO",
-            "Can you tell me a joke?" to "UNKNOWN"
+            "How do I import a ghost?" to HelpClassification.Topic("IMPORT"),
+            "How do I tap a ghost to interact?" to HelpClassification.Topic("CONTROLS"),
+            "What is Nanidroid?" to HelpClassification.Topic("INTRO"),
+            "What is the weather in Seattle?" to HelpClassification.Topic("UNKNOWN"),
+            "Can I add a character from a NAR?" to HelpClassification.Topic("IMPORT"),
+            "How do I dismiss a balloon?" to HelpClassification.Topic("CONTROLS"),
+            "What are desktop ghosts?" to HelpClassification.Topic("INTRO"),
+            "Can you tell me a joke?" to HelpClassification.Topic("UNKNOWN")
         )
         val answers = questions.keys.associateWith { classify(it) }
         assertEquals(questions, answers)
