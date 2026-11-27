@@ -29,7 +29,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,6 +47,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -77,6 +80,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import com.cattailsw.nanidroid.NanoDownloadState
 import com.cattailsw.nanidroid.R
 import com.cattailsw.nanidroid.ghost.ComposedSurface
 import com.cattailsw.nanidroid.ghost.ShellCatalog
@@ -100,6 +107,7 @@ import java.io.File
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -207,7 +215,10 @@ fun GhostStage(
     interactionActive: Boolean = true,
     versionName: String = "Unknown",
     notices: List<Notice> = emptyList(),
-    onClaimHostUiRequest: (Long) -> HostUiCommand? = { null }
+    onClaimHostUiRequest: (Long) -> HostUiCommand? = { null },
+    onRunNanoGhostSpike: (() -> Unit)? = null,
+    nanoDownloadState: NanoDownloadState = NanoDownloadState.Idle,
+    onRefreshNanoStatus: () -> Unit = {}
 ) {
     val view = LocalView.current
     val debugBuild = view.context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
@@ -348,10 +359,38 @@ fun GhostStage(
                     }
                 }
                 if (showAbout) AboutDialog(versionName, notices) { showAbout = false }
+                if (debugBuild) {
+                    LaunchedEffect(Unit) { onRefreshNanoStatus() }
+                }
+                if (debugBuild && nanoDownloadState is NanoDownloadState.Downloading) {
+                    val lifecycleOwner = LocalLifecycleOwner.current
+                    LaunchedEffect(lifecycleOwner, nanoDownloadState.modelLabel) {
+                        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                            while (true) {
+                                delay(3_000L)
+                                onRefreshNanoStatus()
+                            }
+                        }
+                    }
+                }
+                if (debugBuild) {
+                    NanoDownloadIndicator(
+                        state = nanoDownloadState,
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp)
+                    )
+                }
                 if (debugBuild && showDebugTools) {
                     DebugToolsDialog(
                         showTouchBounds,
                         onShowTouchBoundsChange = { showTouchBounds = it },
+                        onRunNanoGhostSpike = onRunNanoGhostSpike?.let { runSpike ->
+                            {
+                                showDebugTools = false
+                                runSpike()
+                            }
+                        },
+                        nanoDownloadState = nanoDownloadState,
+                        onRefreshNanoStatus = onRefreshNanoStatus,
                         onDismiss = { showDebugTools = false }
                     )
                 }
@@ -982,5 +1021,68 @@ private fun Balloon(
             linkActivated = true
             onOpenLink(token, url)
         })
+    }
+}
+
+@Composable
+private fun NanoDownloadIndicator(state: NanoDownloadState, modifier: Modifier = Modifier) {
+    var dismissedFailed by remember { mutableStateOf<NanoDownloadState.Failed?>(null) }
+    LaunchedEffect(state) {
+        if (state !is NanoDownloadState.Failed) dismissedFailed = null
+    }
+    when (state) {
+        is NanoDownloadState.Downloading -> {
+            // Use Column+background rather than Surface so taps pass through to the stage.
+            Column(
+                modifier = modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xE6F8F3E8))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .testTag("nano-download-indicator")
+            ) {
+                Text(
+                    text = formatNanoDownloadStatus(state),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.Black
+                )
+                if (state.percent != null) {
+                    LinearProgressIndicator(
+                        progress = { state.percent / 100f },
+                        modifier = Modifier.width(180.dp).padding(top = 4.dp)
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier.width(180.dp).padding(top = 4.dp)
+                    )
+                }
+            }
+        }
+
+        is NanoDownloadState.Failed -> {
+            if (dismissedFailed != state) {
+                Surface(
+                    modifier = modifier.testTag("nano-download-failed"),
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xE6F8F3E8),
+                    tonalElevation = 2.dp
+                ) {
+                    Row(
+                        Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = formatNanoDownloadStatus(state),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.Black
+                        )
+                        TextButton(onClick = { dismissedFailed = state }) {
+                            Text("Dismiss")
+                        }
+                    }
+                }
+            }
+        }
+
+        NanoDownloadState.Idle, is NanoDownloadState.Ready, NanoDownloadState.Unavailable -> Unit
     }
 }

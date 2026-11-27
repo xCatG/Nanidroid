@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -18,14 +20,19 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.cattailsw.nanidroid.NanoDownloadState
 import com.cattailsw.nanidroid.R
 
 @Composable
 fun DebugToolsDialog(
     showTouchBounds: Boolean,
     onShowTouchBoundsChange: (Boolean) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onRunNanoGhostSpike: (() -> Unit)? = null,
+    nanoDownloadState: NanoDownloadState = NanoDownloadState.Idle,
+    onRefreshNanoStatus: () -> Unit = {}
 ) {
+    LaunchedEffect(Unit) { onRefreshNanoStatus() }
     val title = stringResource(R.string.debug_tools_title)
     val bounds = stringResource(R.string.stage_show_bounds)
     val close = stringResource(R.string.action_close)
@@ -43,10 +50,30 @@ fun DebugToolsDialog(
                             .testTag("debug-touch-bounds")
                     )
                 }
+                Text(
+                    text = formatNanoDownloadStatus(nanoDownloadState),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp).testTag("debug-nano-status")
+                )
+                if (onRunNanoGhostSpike != null) {
+                    TextButton(onClick = onRunNanoGhostSpike) {
+                        Text(stringResource(R.string.debug_nano_ghost_spike))
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss, modifier = Modifier.testTag("debug-tools-close")) { Text(close) }
         }
     )
+}
+
+internal fun formatNanoDownloadStatus(state: NanoDownloadState): String = when (state) {
+    NanoDownloadState.Idle -> "Gemini Nano: Idle"
+    is NanoDownloadState.Downloading ->
+        if (state.percent != null) "${state.modelLabel}: Downloading (${state.percent}%)"
+        else "${state.modelLabel}: Downloading…"
+    is NanoDownloadState.Ready -> "${state.modelLabel}: Ready"
+    is NanoDownloadState.Failed -> "${state.modelLabel}: Failed (${state.reason})"
+    NanoDownloadState.Unavailable -> "Gemini Nano: Unavailable"
 }

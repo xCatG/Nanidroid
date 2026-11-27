@@ -5,7 +5,15 @@ plugins {
   alias(libs.plugins.ktlint)
 }
 
+val playAiSpike = providers.gradleProperty("playAiSpike").isPresent
+
 android {
+    if (playAiSpike) {
+        assetPacks += listOf(":qwen_ghost_ai")
+        sourceSets.getByName("androidTest").kotlin.directories.add("src/playAiSpike/java")
+    }
+    val helpSource = if (playAiSpike) "liteRtHelp" else "nanoHelp"
+    sourceSets.getByName("debug").kotlin.directories.add("src/$helpSource/kotlin")
     namespace = "com.cattailsw.nanidroid"
     compileSdk = 37
     ndkVersion = "28.2.13676358"
@@ -29,6 +37,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (playAiSpike || providers.gradleProperty("nanoSpikeSideBySide").isPresent) {
+                applicationIdSuffix = if (playAiSpike) ".litertspike" else ".nanospike"
+                buildFeatures.resValues = true
+                val label = if (playAiSpike) "Nanidroid LiteRT Spike" else "Nanidroid Nano Spike"
+                resValue("string", "app_name", label)
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -57,6 +73,10 @@ kotlin {
 }
 
 dependencies {
+    if (playAiSpike) {
+        debugImplementation(libs.litert.lm)
+        debugImplementation(libs.play.ai.delivery)
+    }
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)
   androidTestImplementation(composeBom)
@@ -76,6 +96,8 @@ dependencies {
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.compose.material3)
   // Tooling
+    debugImplementation(libs.mlkit.genai.prompt)
+    debugImplementation(libs.mlkit.genai.schema)
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)

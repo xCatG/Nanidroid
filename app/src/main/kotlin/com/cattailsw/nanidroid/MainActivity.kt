@@ -93,6 +93,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { viewModel.start(resources.configuration.locales[0].toLanguageTag()) }
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
+            val nanoDownloadState by viewModel.nanoDownloadState.collectAsStateWithLifecycle()
             val importState by viewModel.importState.collectAsStateWithLifecycle()
             val interrupted by viewModel.importInterrupted.collectAsStateWithLifecycle()
             var linkError by remember { mutableStateOf<String?>(null) }
@@ -103,6 +104,9 @@ class MainActivity : ComponentActivity() {
                 GhostStage(
                     state = state, imageLoader = imageLoader,
                     onClaimHostUiRequest = viewModel::claimHostUiRequest,
+                    onRunNanoGhostSpike = viewModel::runNanoGhostSpike,
+                    nanoDownloadState = nanoDownloadState,
+                    onRefreshNanoStatus = viewModel::refreshNanoStatus,
                     versionName = installedVersionName,
                     notices = loadedNotices.value,
                     interactionActive = characterInteractionActive.value,

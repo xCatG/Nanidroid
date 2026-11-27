@@ -516,6 +516,30 @@ class GhostRuntime(
         return inFarewellDialogue(session) && session.frame.input?.key == token.itemKey
     }
 
+    private var nanoGhostSpikeInFlight = false
+
+    fun runNanoGhostSpike() {
+        scope.launch {
+            val session = (sessionState as? SessionState.Active)?.session ?: return@launch
+            val epoch = deliveryEpoch() ?: return@launch
+            if (!commandAllowed(session, HostUiCommand.Developer) || nanoGhostSpikeInFlight) return@launch
+            val generation = session.replacementGeneration
+            nanoGhostSpikeInFlight = true
+            try {
+                val response = request(
+                    session, ShioriEvent(BuiltInShiori.NANO_SPIKE_EVENT), generation,
+                    "Nano ghost spike failed", epoch = epoch
+                ) ?: return@launch
+                if (acceptsReply(session, generation) && deliveryEpoch() == epoch) {
+                    enqueue(session, response)
+                    publish(session)
+                }
+            } finally {
+                nanoGhostSpikeInFlight = false
+            }
+        }
+    }
+
     fun choose(token: InteractionToken) {
         scope.launch {
             val session = dialogueOwner(token.sessionId, token.dialogueId) ?: return@launch

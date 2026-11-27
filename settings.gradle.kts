@@ -31,3 +31,4 @@ plugins {
 
 rootProject.name = "Nanidroid"
 include(":app")
+if (providers.gradleProperty("playAiSpike").isPresent) include(":qwen_ghost_ai")
